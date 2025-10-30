@@ -1,0 +1,535 @@
+<Window x:Class="Gryzak.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:Gryzak.ViewModels"
+        xmlns:models="clr-namespace:Gryzak.Models"
+        xmlns:converters="clr-namespace:Gryzak.Converters"
+        mc:Ignorable="d"
+        Title="Gryzak - Menedżer Zamówień" 
+        Height="600" Width="1200"
+        WindowStartupLocation="CenterScreen"
+        Icon="pack://application:,,,/gryzak_icon.png">
+    
+    <Window.DataContext>
+        <vm:MainViewModel />
+    </Window.DataContext>
+
+    <Window.Resources>
+        <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <converters:NullToBoolConverter x:Key="NullToBoolConverter"/>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="Background" Value="#2196F3"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Menu -->
+        <Menu Grid.Row="0" Background="#F5F5F5">
+            <MenuItem Header="_Plik">
+                <MenuItem Header="Konfiguracja API" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
+                <Separator/>
+                <MenuItem Header="Zwolnij licencję Subiekta GT" Command="{Binding ZwolnijLicencjeCommand}">
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="IsEnabled" Value="{Binding IsSubiektActive}"/>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="Zamknij" Click="CloseMenuItem_Click" InputGestureText="Ctrl+Q"/>
+            </MenuItem>
+            <MenuItem Header="_Pomoc">
+                <MenuItem Header="O aplikacji" Click="AboutMenuItem_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Nagłówek -->
+        <Border Grid.Row="1" Background="White" Padding="15" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="Gryzak - Menedżer Zamówień" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,20,0"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                    <TextBox Name="SearchTextBox" Width="300" Padding="10,8" 
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Wyszukaj zamówienia...">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox">
+                                <Setter Property="BorderBrush" Value="#CCCCCC"/>
+                                <Setter Property="BorderThickness" Value="1"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsFocused" Value="True">
+                                        <Setter Property="BorderBrush" Value="#2196F3"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    <Button Content="Wyczyść" Command="{Binding ClearSearchCommand}" Margin="8,0,0,0"/>
+                </StackPanel>
+                
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <ComboBox Name="StatusFilterComboBox" Width="200" SelectionChanged="StatusFilter_SelectionChanged">
+                        <ComboBoxItem Content="Wszystkie statusy"/>
+                        <ComboBoxItem Content="Nowe"/>
+                        <ComboBoxItem Content="Zapłacono"/>
+                        <ComboBoxItem Content="Wysłano"/>
+                        <ComboBoxItem Content="Dostarczone"/>
+                        <ComboBoxItem Content="Anulowane"/>
+                    </ComboBox>
+                    <Button Content="Dodaj ZK" Command="{Binding DodajZKCommand}" Background="#4CAF50" Margin="5,0,5,0"/>
+                    <Button Content="Odśwież" Command="{Binding RefreshCommand}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Tabela zamówień -->
+        <Grid Grid.Row="2" Margin="15">
+            <Grid.Resources>
+                <DataTemplate DataType="{x:Type models:Order}">
+                    <Border BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="10" Background="White" Margin="0,0,0,2">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#F0F0F0"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="100"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0" Text="{Binding Id}" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Date, StringFormat='dd.MM.yyyy'}"/>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="{Binding Customer}" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding Email}" FontSize="11" Foreground="Gray"/>
+                                <TextBlock Text="{Binding Phone}" FontSize="11" Foreground="Gray"/>
+                                <TextBlock Text="{Binding Company, StringFormat='Firma: {0}'}" FontSize="11" Foreground="Gray">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Company}" Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Company}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+                            <TextBlock Grid.Column="3" Text="{Binding Status}"/>
+                            <TextBlock Grid.Column="4" Text="{Binding PaymentStatus}"/>
+                            <TextBlock Grid.Column="5" Text="{Binding AssignedTo}"/>
+                            <TextBlock Grid.Column="6" Text="{Binding Total, StringFormat='{}{0} {1}', ConverterParameter='{Binding Currency}'}"/>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </Grid.Resources>
+
+            <ScrollViewer Name="OrdersScrollViewer" ScrollChanged="OrdersScrollViewer_ScrollChanged">
+                <ScrollViewer.Style>
+                    <Style TargetType="ScrollViewer">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsLoading}" Value="False"/>
+                                    <Condition Binding="{Binding HasOrders}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ScrollViewer.Style>
+                
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Nagłówek kolumn -->
+                    <Border Grid.Row="0" Background="#2196F3" Padding="10,8" BorderBrush="#1976D2" BorderThickness="0,0,0,2">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="100"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBlock Grid.Column="0" Text="ID Zamówienia" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="1" Text="Data" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="2" Text="Klient" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="3" Text="Status" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="4" Text="Status Płatności" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="5" Text="Obsługuje" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="6" Text="Wartość" FontWeight="Bold" Foreground="White" HorizontalAlignment="Right"/>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Lista zamówień -->
+                    <StackPanel Grid.Row="1">
+                        <ItemsControl ItemsSource="{Binding FilteredOrders}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="10" Margin="0,0,0,2" 
+                                    MouseDown="OrderItem_MouseDown">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="White"/>
+                                        <Setter Property="BorderBrush" Value="#E0E0E0"/>
+                                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                        <Style.Triggers>
+                                            <!-- Hover -->
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#F0F0F0"/>
+                                            </Trigger>
+                                            <!-- Zaznaczone zamówienie - wyższy priorytet -->
+                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                <Setter Property="Background" Value="#E3F2FD"/>
+                                                <Setter Property="BorderBrush" Value="#64B5F6"/>
+                                                <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="100"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0" Text="{Binding Id}" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Date, StringFormat='dd.MM.yyyy'}"/>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="{Binding Customer}" FontWeight="SemiBold"/>
+                                        <!-- Email - pokaż tylko po kliknięciu -->
+                                        <TextBlock Text="{Binding Email}" FontSize="11" Foreground="Gray">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <!-- Phone - pokaż tylko po kliknięciu -->
+                                        <TextBlock Text="{Binding Phone}" FontSize="11" Foreground="Gray">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <!-- NIP - pokaż tylko po kliknięciu, w jednej linii, zielony gdy jest, czerwony gdy brak -->
+                                        <TextBlock FontSize="11" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                            <Run Text="NIP: " Foreground="#4CAF50"/>
+                                            <Run>
+                                                <Run.Style>
+                                                    <Style TargetType="Run">
+                                                        <Setter Property="Text" Value="{Binding Nip}"/>
+                                                        <Setter Property="Foreground" Value="#4CAF50"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Nip}" Value="{x:Null}">
+                                                                <Setter Property="Text" Value="Brak NIP"/>
+                                                                <Setter Property="Foreground" Value="#F44336"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Nip}" Value="">
+                                                                <Setter Property="Text" Value="Brak NIP"/>
+                                                                <Setter Property="Foreground" Value="#F44336"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Run.Style>
+                                            </Run>
+                                        </TextBlock>
+                                        <!-- Company - widoczna zawsze, jeśli istnieje -->
+                                        <TextBlock>
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Company}" Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Company}" Value="">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                            <Run Text="Firma: "/>
+                                            <Run Text="{Binding Company}"/>
+                                        </TextBlock>
+                                        <!-- Address - pokaż tylko po kliknięciu, jeśli istnieje -->
+                                        <TextBlock Text="{Binding Address}" FontSize="11" Foreground="Gray">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Address}" Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Address}" Value="">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="3" Text="{Binding Status}"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding PaymentStatus}"/>
+                                    <TextBlock Grid.Column="5" Text="{Binding AssignedTo}"/>
+                                    <TextBlock Grid.Column="6">
+                                        <TextBlock.Text>
+                                            <MultiBinding StringFormat="{}{0} {1}">
+                                                <Binding Path="Total"/>
+                                                <Binding Path="Currency"/>
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        
+                        <!-- Wskaźnik ładowania więcej -->
+                        <Border Visibility="{Binding IsLoadingMore, Converter={StaticResource BooleanToVisibilityConverter}}" 
+                                Background="#F5F5F5" Padding="15" Margin="10">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="📜 Ładowanie więcej zamówień..." FontSize="12" Foreground="Gray"/>
+                                <ProgressBar IsIndeterminate="True" Width="100" Height="15" Margin="10,0,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+
+            <!-- Wskaźnik ładowania -->
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsLoading}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="Ładowanie zamówień..." FontSize="16" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    <ProgressBar IsIndeterminate="True" Width="200" Height="20"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Komunikat braku zamówień / braku konfiguracji -->
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsLoading}" Value="False">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+
+                <!-- Komunikat braku konfiguracji API -->
+                <StackPanel Name="ApiNotConfiguredPanel">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsApiConfigured}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="🔧 Konfiguracja wymagana" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    <TextBlock Text="API nie jest skonfigurowane. Skonfiguruj połączenie z API aby zobaczyć zamówienia." 
+                               HorizontalAlignment="Center" TextWrapping="Wrap" Width="400" Margin="0,0,0,15"/>
+                    <Button Content="⚙️ Skonfiguruj API" Command="{Binding ConfigureApiCommand}" HorizontalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Komunikat braku zamówień (gdy API jest skonfigurowane) -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsApiConfigured}" Value="True"/>
+                                        <Condition Binding="{Binding FilteredOrders.Count}" Value="0"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="📋 Brak zamówień" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    <TextBlock Text="Nie znaleziono zamówień do wyświetlenia" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- Pasek statusu -->
+        <Grid Grid.Row="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Pasek postępu -->
+            <Border Grid.Row="0" 
+                    Background="#E3F2FD" 
+                    BorderBrush="#2196F3" 
+                    BorderThickness="0,0,0,1" 
+                    Padding="10,8"
+                    Visibility="{Binding IsProgressVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" 
+                               Text="{Binding ProgressText}" 
+                               FontSize="11" 
+                               Foreground="#1976D2" 
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               Margin="0,0,10,0"/>
+                    <ProgressBar Grid.Column="1" 
+                                 Value="{Binding ProgressValue}" 
+                                 Maximum="100"
+                                 Height="8"
+                                 VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+            
+            <!-- Status -->
+            <Border Grid.Row="1" Background="#F0F0F0" BorderBrush="#D0D0D0" BorderThickness="0,1,0,0" Padding="10,5">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,20,0">
+                        <TextBlock Text="Łączna liczba zamówień: " FontSize="12" Margin="0,0,5,0"/>
+                        <TextBlock Text="{Binding TotalOrdersText}" FontWeight="Bold" FontSize="12" Margin="0,0,15,0"/>
+                        <TextBlock Text="{Binding SubiektStatusText}" FontSize="12" Foreground="#4CAF50" FontWeight="SemiBold">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSubiektActive}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" 
+                               FontSize="12" 
+                               Foreground="#2196F3"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="Zaznaczono zamówienie: {0}">
+                                <Binding Path="SelectedOrder.Id"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedOrder, Converter={StaticResource NullToBoolConverter}}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <TextBlock Grid.Column="2" Text="Gryzak v1.0.0" FontSize="11" Foreground="Gray"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
+

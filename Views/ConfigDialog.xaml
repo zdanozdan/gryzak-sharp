@@ -1,0 +1,88 @@
+<Window x:Class="Gryzak.Views.ConfigDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="⚙️ Konfiguracja API" 
+        Height="550" Width="600"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Icon="pack://application:,,,/gryzak_icon.png">
+    
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="Margin" Value="0,5,0,5"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="Margin" Value="0,5,0,5"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="MinWidth" Value="100"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Nagłówek -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="⚙️ Konfiguracja API" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
+            <TextBlock Text="Ustawienia połączenia z API" FontSize="12" Foreground="Gray"/>
+        </StackPanel>
+
+        <!-- Formularz -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Ustawienia API" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                <TextBlock Text="URL API:" FontWeight="SemiBold"/>
+                <TextBox Name="ApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
+                <TextBlock Text="Wprowadź pełny URL do API zamówień" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Token API:" FontWeight="SemiBold"/>
+                <PasswordBox Name="ApiTokenPasswordBox" PasswordChanged="ApiToken_PasswordChanged"/>
+                <TextBlock Text="Token autoryzacji do API" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Timeout (sekundy):" FontWeight="SemiBold"/>
+                <TextBox Name="ApiTimeoutTextBox" TextChanged="ApiTimeout_TextChanged"/>
+                <TextBlock Text="Maksymalny czas oczekiwania na odpowiedź API (5-300)" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Endpoint listy zamówień:" FontWeight="SemiBold"/>
+                <TextBox Name="OrderListEndpointTextBox" TextChanged="OrderListEndpoint_TextChanged"/>
+                <TextBlock Text="Ścieżka względna do endpointu listy zamówień (dodawana do głównego URL)" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+                <TextBlock Name="OrderListUrlPreview" FontSize="10" Foreground="Blue" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                <TextBlock Text="Endpoint szczegółów zamówienia:" FontWeight="SemiBold"/>
+                <TextBox Name="OrderDetailsEndpointTextBox" TextChanged="OrderDetailsEndpoint_TextChanged"/>
+                <TextBlock Text="Ścieżka względna do endpointu szczegółów zamówienia (może zawierać {id})" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+                <TextBlock Name="OrderDetailsUrlPreview" FontSize="10" Foreground="Blue" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                <!-- Test połączenia -->
+                <Border BorderBrush="#E0E0E0" BorderThickness="1" Padding="15" Margin="0,20,0,10" Background="#F5F5F5">
+                    <StackPanel>
+                        <TextBlock Text="🔄 Test połączenia" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <Button Name="TestConnectionButton" Content="🧪 Testuj połączenie" Click="TestConnectionButton_Click"/>
+                        <TextBlock Name="TestStatusText" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Przyciski -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="🔄 Resetuj" Click="ResetButton_Click"/>
+            <Button Content="💾 Zapisz konfigurację" Click="SaveButton_Click" IsDefault="True"/>
+            <Button Content="Anuluj" Click="CancelButton_Click" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>
+
