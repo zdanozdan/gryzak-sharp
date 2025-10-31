@@ -127,6 +127,7 @@ namespace Gryzak.ViewModels
 
         public ICommand RefreshCommand { get; }
         public ICommand ConfigureApiCommand { get; }
+        public ICommand OpenSubiektSettingsCommand { get; }
         public ICommand OrderSelectedCommand { get; }
         public ICommand DodajZKCommand { get; }
         public ICommand ZwolnijLicencjeCommand { get; }
@@ -139,6 +140,7 @@ namespace Gryzak.ViewModels
 
             RefreshCommand = new RelayCommand(async () => await LoadOrdersAsync(true));
             ConfigureApiCommand = new RelayCommand(() => OpenConfigDialog());
+            OpenSubiektSettingsCommand = new RelayCommand(() => OpenSubiektSettingsDialog());
             OrderSelectedCommand = new RelayCommand<Order>(order => OnOrderSelected(order));
             DodajZKCommand = new RelayCommand(() => DodajZK());
             ZwolnijLicencjeCommand = new RelayCommand(() => ZwolnijLicencje(), () => IsSubiektActive);
@@ -303,7 +305,7 @@ namespace Gryzak.ViewModels
                 ? AllOrders
                 : AllOrders.Where(o => o.Status == StatusFilter);
 
-            // Potem filtruj po tekście wyszukiwania (ID, klient, email, telefon, NIP)
+            // Potem filtruj po tekście wyszukiwania (ID, klient, email, telefon, NIP, kraj, kod ISO)
             if (!string.IsNullOrWhiteSpace(SearchText))
             {
                 var searchLower = SearchText.ToLower();
@@ -314,7 +316,10 @@ namespace Gryzak.ViewModels
                     (o.Phone?.ToLower().Contains(searchLower) ?? false) ||
                     (o.Nip?.ToLower().Contains(searchLower) ?? false) ||
                     (o.Company?.ToLower().Contains(searchLower) ?? false) ||
-                    (o.Address?.ToLower().Contains(searchLower) ?? false)
+                    (o.Address?.ToLower().Contains(searchLower) ?? false) ||
+                    (o.Country?.ToLower().Contains(searchLower) ?? false) ||
+                    (o.IsoCode3?.ToLower().Contains(searchLower) ?? false) ||
+                    (o.CountryWithIso3?.ToLower().Contains(searchLower) ?? false)
                 );
             }
 
@@ -359,6 +364,12 @@ namespace Gryzak.ViewModels
             // Sprawdź konfigurację i odśwież listę
             CheckApiConfiguration();
             _ = LoadOrdersAsync();
+        }
+
+        private void OpenSubiektSettingsDialog()
+        {
+            var settingsWindow = new Views.SubiektSettingsDialog(_configService);
+            settingsWindow.ShowDialog();
         }
 
         private void DodajZK()
@@ -551,6 +562,39 @@ namespace Gryzak.ViewModels
                     Console.WriteLine($"[MainViewModel] Zaktualizowano NIP: {order.Nip}");
                 }
 
+                // Aktualizuj kraj
+                if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    order.Country = countryProp.GetString() ?? "";
+                    Console.WriteLine($"[MainViewModel] Zaktualizowano kraj: {order.Country}");
+                }
+                
+                // Aktualizuj kod ISO 3
+                if (root.TryGetProperty("iso_code_3", out var iso3Prop) && iso3Prop.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    order.IsoCode3 = iso3Prop.GetString();
+                    Console.WriteLine($"[MainViewModel] Zaktualizowano ISO Code 3: {order.IsoCode3}");
+                }
+
+                // Pobierz currency_value do przeliczania totals
+                double currencyValueMultiplier = 1.0;
+                if (root.TryGetProperty("currency_value", out var currencyValueProp))
+                {
+                    if (currencyValueProp.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        currencyValueMultiplier = currencyValueProp.GetDouble();
+                    }
+                    else if (currencyValueProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var currencyValueStr = currencyValueProp.GetString();
+                        if (double.TryParse(currencyValueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                        {
+                            currencyValueMultiplier = parsed;
+                        }
+                    }
+                    Console.WriteLine($"[MainViewModel] Currency value multiplier: {currencyValueMultiplier}");
+                }
+
                 // Produkty
                 try
                 {
@@ -575,8 +619,33 @@ namespace Gryzak.ViewModels
                                 }
                                 if (p.TryGetProperty("price", out var pprice)) product.Price = pprice.GetString() ?? "";
                                 if (p.TryGetProperty("total", out var ptotal)) product.Total = ptotal.GetString() ?? "";
+                                if (p.TryGetProperty("tax", out var ptax)) product.Tax = ptax.GetString() ?? "";
                                 if (p.TryGetProperty("taxrate", out var ptx)) product.TaxRate = ptx.GetString() ?? "";
                                 if (p.TryGetProperty("discount", out var pdisc)) product.Discount = pdisc.GetString() ?? "";
+                                
+                                // Opcje produktu
+                                if (p.TryGetProperty("options", out var optionsObj) && optionsObj.ValueKind == System.Text.Json.JsonValueKind.Object)
+                                {
+                                    if (optionsObj.TryGetProperty("option", out var optionArray))
+                                    {
+                                        var options = new List<ProductOption>();
+                                        foreach (var opt in optionArray.EnumerateArray())
+                                        {
+                                            var option = new ProductOption();
+                                            if (opt.TryGetProperty("name", out var optName)) option.Name = optName.GetString() ?? "";
+                                            if (opt.TryGetProperty("value", out var optValue)) option.Value = optValue.GetString() ?? "";
+                                            if (!string.IsNullOrWhiteSpace(option.Name) || !string.IsNullOrWhiteSpace(option.Value))
+                                            {
+                                                options.Add(option);
+                                            }
+                                        }
+                                        if (options.Count > 0)
+                                        {
+                                            product.Options = options;
+                                        }
+                                    }
+                                }
+                                
                                 items.Add(product);
                             }
                             order.Items = items;
@@ -589,7 +658,7 @@ namespace Gryzak.ViewModels
                     Console.WriteLine($"[MainViewModel] Błąd parsowania produktów: {prodEx.Message}");
                 }
 
-                // Totals - wyszukaj kupon i sub_total
+                // Totals - wyszukaj kupon i sub_total (wartości są w PLN, trzeba przeliczyć przez currency_value)
                 try
                 {
                     if (root.TryGetProperty("totals", out var totalsProp) && totalsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
@@ -599,37 +668,60 @@ namespace Gryzak.ViewModels
                             if (totalEl.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == System.Text.Json.JsonValueKind.String)
                             {
                                 var code = codeProp.GetString();
-                                if (totalEl.TryGetProperty("value", out var valueProp) && valueProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                                double? valueParsed = null;
+                                
+                                // Spróbuj parsować jako string lub number
+                                if (totalEl.TryGetProperty("value", out var valueProp))
                                 {
-                                    var valueStr = valueProp.GetString();
-                                    if (double.TryParse(valueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value))
+                                    if (valueProp.ValueKind == System.Text.Json.JsonValueKind.String)
                                     {
-                                        if (code == "coupon")
+                                        var valueStr = valueProp.GetString();
+                                        if (double.TryParse(valueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value))
                                         {
-                                            // Wartość kuponu jest ujemna w API (np. -18.6665), więc użyj wartości bezwzględnej
-                                            order.CouponAmount = Math.Abs(value);
-                                            // Parsuj tytuł kuponu (np. "Kupon (-15% , ASA5050)")
-                                            if (totalEl.TryGetProperty("title", out var titleProp) && titleProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                                            {
-                                                order.CouponTitle = titleProp.GetString();
-                                            }
-                                            Console.WriteLine($"[MainViewModel] Znaleziono kupon: {order.CouponTitle} (wartość: {order.CouponAmount:F2})");
+                                            valueParsed = value;
                                         }
-                                        else if (code == "sub_total")
+                                    }
+                                    else if (valueProp.ValueKind == System.Text.Json.JsonValueKind.Number)
+                                    {
+                                        valueParsed = valueProp.GetDouble();
+                                    }
+                                }
+
+                                if (valueParsed.HasValue)
+                                {
+                                    // Przelicz wartość przez currency_value (wartości są w PLN)
+                                    var convertedValue = valueParsed.Value * currencyValueMultiplier;
+                                    
+                                    if (code == "coupon")
+                                    {
+                                        // Wartość kuponu jest ujemna w API (np. -18.6665), więc użyj wartości bezwzględnej
+                                        order.CouponAmount = Math.Abs(convertedValue);
+                                        // Parsuj tytuł kuponu (np. "Kupon (-15% , ASA5050)")
+                                        if (totalEl.TryGetProperty("title", out var titleProp) && titleProp.ValueKind == System.Text.Json.JsonValueKind.String)
                                         {
-                                            order.SubTotal = value;
-                                            Console.WriteLine($"[MainViewModel] Znaleziono sub_total: {order.SubTotal:F2}");
+                                            order.CouponTitle = titleProp.GetString();
                                         }
-                                        else if (code == "handling")
-                                        {
-                                            order.HandlingAmount = value;
-                                            Console.WriteLine($"[MainViewModel] Znaleziono handling: {order.HandlingAmount:F2}");
-                                        }
-                                        else if (code == "shipping")
-                                        {
-                                            order.ShippingAmount = value;
-                                            Console.WriteLine($"[MainViewModel] Znaleziono shipping: {order.ShippingAmount:F2}");
-                                        }
+                                        Console.WriteLine($"[MainViewModel] Znaleziono kupon: {order.CouponTitle} (wartość PLN: {valueParsed.Value:F2}, przeliczona: {order.CouponAmount:F2})");
+                                    }
+                                    else if (code == "sub_total")
+                                    {
+                                        order.SubTotal = convertedValue;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono sub_total (PLN: {valueParsed.Value:F2}, przeliczona: {order.SubTotal:F2})");
+                                    }
+                                    else if (code == "handling")
+                                    {
+                                        order.HandlingAmount = convertedValue;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono handling (PLN: {valueParsed.Value:F2}, przeliczona: {order.HandlingAmount:F2})");
+                                    }
+                                    else if (code == "shipping")
+                                    {
+                                        order.ShippingAmount = convertedValue;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono shipping (PLN: {valueParsed.Value:F2}, przeliczona: {order.ShippingAmount:F2})");
+                                    }
+                                    else if (code == "total")
+                                    {
+                                        order.Total = convertedValue.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                                        Console.WriteLine($"[MainViewModel] Znaleziono total (PLN: {valueParsed.Value:F2}, przeliczona: {order.Total})");
                                     }
                                 }
                             }

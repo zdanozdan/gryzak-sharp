@@ -30,8 +30,48 @@ namespace Gryzak.Models
         public string Total { get; set; } = "0.00";
         public string Currency { get; set; } = "PLN";
         public DateTime Date { get; set; }
+        
+        private string _country = "";
+        private string? _isoCode3;
+        
+        public string Country 
+        { 
+            get => _country; 
+            set 
+            { 
+                _country = value; 
+                OnPropertyChanged(); 
+                OnPropertyChanged(nameof(CountryWithIso3));
+            } 
+        }
+        
+        public string? IsoCode3 
+        { 
+            get => _isoCode3; 
+            set 
+            { 
+                _isoCode3 = value; 
+                OnPropertyChanged(); 
+                OnPropertyChanged(nameof(CountryWithIso3));
+            } 
+        }
+        
         public string AssignedTo { get; set; } = "Nieprzypisane";
         public List<Product> Items { get; set; } = new List<Product>();
+        
+        public string CountryWithIso3
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(Country))
+                    return "";
+                
+                if (!string.IsNullOrWhiteSpace(IsoCode3))
+                    return $"{Country} ({IsoCode3})";
+                
+                return Country;
+            }
+        }
         public double? CouponAmount { get; set; }
         public double? SubTotal { get; set; }
         public string? CouponTitle { get; set; }

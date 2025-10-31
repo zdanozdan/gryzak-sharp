@@ -75,9 +75,9 @@ namespace Gryzak.Views
                     // Sprawdź czy to podwójne kliknięcie
                     if (e.ClickCount == 2)
                     {
-                        // Podwójne kliknięcie - zaznacz zamówienie i otwórz ZK
+                        // Podwójne kliknięcie - zaznacz zamówienie i otwórz okno szczegółów
                         vm.OrderSelectedCommand.Execute(order);
-                        vm.DodajZKCommand.Execute(null);
+                        OpenOrderDetailsDialog(order, vm);
                     }
                     else if (e.ClickCount == 1)
                     {
@@ -86,6 +86,15 @@ namespace Gryzak.Views
                     }
                 }
             }
+        }
+
+        private void OpenOrderDetailsDialog(Order order, MainViewModel vm)
+        {
+            var detailsDialog = new OrderDetailsDialog(order, vm)
+            {
+                Owner = this
+            };
+            detailsDialog.ShowDialog();
         }
 
         private async void OrdersScrollViewer_ScrollChanged(object sender, System.Windows.Controls.ScrollChangedEventArgs e)
@@ -136,6 +145,31 @@ namespace Gryzak.Views
                 Owner = this
             };
             aboutDialog.ShowDialog();
+        }
+
+        private void LogoImage_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            // Otwórz okno z dużym logo
+            var logoWindow = new Window
+            {
+                Title = "Gryzak Logo",
+                Width = 400,
+                Height = 400,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                Background = System.Windows.Media.Brushes.White,
+                ResizeMode = ResizeMode.NoResize
+            };
+
+            var image = new System.Windows.Controls.Image
+            {
+                Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/gryzak.png")),
+                Stretch = System.Windows.Media.Stretch.Uniform,
+                Margin = new Thickness(20)
+            };
+
+            logoWindow.Content = image;
+            logoWindow.ShowDialog();
         }
     }
 

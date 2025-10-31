@@ -8,6 +8,7 @@ namespace Gryzak.Services
     public class ConfigService
     {
         private readonly string _configPath;
+        private readonly string _subiektConfigPath;
 
         public ConfigService()
         {
@@ -20,6 +21,7 @@ namespace Gryzak.Services
             }
             
             _configPath = Path.Combine(gryzakPath, "config.json");
+            _subiektConfigPath = Path.Combine(gryzakPath, "subiekt_config.json");
         }
 
         public ApiConfig LoadConfig()
@@ -79,6 +81,51 @@ namespace Gryzak.Services
                 ApiTimeout = 30,
                 OrderListEndpoint = "/orders",
                 OrderDetailsEndpoint = "/index.php?route=extension/module/orders&token=strefalicencji&order_id={order_id}&format=json"
+            };
+        }
+
+        public SubiektConfig LoadSubiektConfig()
+        {
+            try
+            {
+                if (File.Exists(_subiektConfigPath))
+                {
+                    var json = File.ReadAllText(_subiektConfigPath);
+                    var config = JsonSerializer.Deserialize<SubiektConfig>(json);
+                    if (config != null)
+                    {
+                        return config;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd ładowania konfiguracji Subiekt: {ex.Message}");
+            }
+
+            return GetDefaultSubiektConfig();
+        }
+
+        public void SaveSubiektConfig(SubiektConfig config)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_subiektConfigPath, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd zapisywania konfiguracji Subiekt: {ex.Message}");
+                throw;
+            }
+        }
+
+        private SubiektConfig GetDefaultSubiektConfig()
+        {
+            return new SubiektConfig
+            {
+                User = "Szef",
+                Password = "zdanoszef123"
             };
         }
     }

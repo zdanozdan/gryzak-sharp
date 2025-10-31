@@ -45,6 +45,7 @@
         <Menu Grid.Row="0" Background="#F5F5F5">
             <MenuItem Header="_Plik">
                 <MenuItem Header="Konfiguracja API" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
+                <MenuItem Header="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}"/>
                 <Separator/>
                 <MenuItem Header="Zwolnij licencję Subiekta GT" Command="{Binding ZwolnijLicencjeCommand}">
                     <MenuItem.Style>
@@ -70,7 +71,10 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" Text="Gryzak - Menedżer Zamówień" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Image Source="pack://application:,,,/gryzak_icon.png" Width="32" Height="32" Margin="0,0,10,0" MouseDown="LogoImage_MouseDown" Cursor="Hand" ToolTip="Kliknij, aby zobaczyć duże logo"/>
+                    <TextBlock Text="Gryzak - Menedżer Zamówień" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
                     <TextBox Name="SearchTextBox" Width="300" Padding="10,8" 
@@ -130,6 +134,7 @@
                                 <ColumnDefinition Width="120"/>
                                 <ColumnDefinition Width="120"/>
                                 <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="120"/>
                                 <ColumnDefinition Width="100"/>
                             </Grid.ColumnDefinitions>
 
@@ -157,8 +162,16 @@
                             </StackPanel>
                             <TextBlock Grid.Column="3" Text="{Binding Status}"/>
                             <TextBlock Grid.Column="4" Text="{Binding PaymentStatus}"/>
-                            <TextBlock Grid.Column="5" Text="{Binding AssignedTo}"/>
-                            <TextBlock Grid.Column="6" Text="{Binding Total, StringFormat='{}{0} {1}', ConverterParameter='{Binding Currency}'}"/>
+                            <TextBlock Grid.Column="5" Text="{Binding CountryWithIso3}"/>
+                            <TextBlock Grid.Column="6" Text="{Binding AssignedTo}"/>
+                            <TextBlock Grid.Column="7">
+                                <TextBlock.Text>
+                                    <MultiBinding StringFormat="{}{0} {1}">
+                                        <Binding Path="Total"/>
+                                        <Binding Path="Currency"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
                         </Grid>
                     </Border>
                 </DataTemplate>
@@ -241,6 +254,7 @@
                                         <ColumnDefinition Width="100"/>
                                         <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="120"/>
@@ -346,11 +360,31 @@
                                                 </Style>
                                             </TextBlock.Style>
                                         </TextBlock>
+                                        <!-- Country - pokaż tylko po kliknięciu, jeśli istnieje -->
+                                        <TextBlock Text="{Binding CountryWithIso3, StringFormat='Kraj: {0}'}" FontSize="11" Foreground="Gray">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding CountryWithIso3}" Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding CountryWithIso3}" Value="">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </StackPanel>
                                     <TextBlock Grid.Column="3" Text="{Binding Status}"/>
                                     <TextBlock Grid.Column="4" Text="{Binding PaymentStatus}"/>
-                                    <TextBlock Grid.Column="5" Text="{Binding AssignedTo}"/>
-                                    <TextBlock Grid.Column="6">
+                                    <TextBlock Grid.Column="5" Text="{Binding CountryWithIso3}"/>
+                                    <TextBlock Grid.Column="6" Text="{Binding AssignedTo}"/>
+                                    <TextBlock Grid.Column="7">
                                         <TextBlock.Text>
                                             <MultiBinding StringFormat="{}{0} {1}">
                                                 <Binding Path="Total"/>

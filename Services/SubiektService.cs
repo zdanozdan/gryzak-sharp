@@ -14,6 +14,13 @@ namespace Gryzak.Services
         private static dynamic? _cachedGt = null;
         private static dynamic? _cachedSubiekt = null;
 
+        private readonly ConfigService _configService;
+
+        public SubiektService()
+        {
+            _configService = new ConfigService();
+        }
+
         public bool CzyInstancjaAktywna()
         {
             return _cachedSubiekt != null && _cachedGt != null;
@@ -130,11 +137,12 @@ namespace Gryzak.Services
                     {
                         gt.Produkt = 1; // gtaProduktSubiekt
                         
-                        // Ustaw operatora i hasło PRZED uruchomieniem, aby pominąć okno logowania
-                        gt.Operator = "Szef";
-                        gt.OperatorHaslo = "zdanoszef123";
+                        // Wczytaj konfigurację i ustaw operatora i hasło PRZED uruchomieniem, aby pominąć okno logowania
+                        var subiektConfig = _configService.LoadSubiektConfig();
+                        gt.Operator = subiektConfig.User;
+                        gt.OperatorHaslo = subiektConfig.Password;
                         
-                        Console.WriteLine("[SubiektService] Ustawiono operatora i hasło - okno logowania zostanie pominięte.");
+                        Console.WriteLine($"[SubiektService] Ustawiono operatora: {subiektConfig.User} - okno logowania zostanie pominięte.");
                     }
                     catch (Exception ex)
                     {
@@ -369,6 +377,35 @@ namespace Gryzak.Services
                                 Console.WriteLine($"[SubiektService] Błąd dodawania informacji do uwag ZK: {couponEx.Message}");
                             }
                         }
+                        // Najpierw oblicz procent kuponu (jeśli jest kupon), aby zastosować go później na pozycjach
+                        double? couponPercentage = null;
+                        if (couponAmount.HasValue && items != null)
+                        {
+                            double totalProductsValue = 0.0;
+                            foreach (var it in items)
+                            {
+                                if (!string.IsNullOrWhiteSpace(it.Price))
+                                {
+                                    if (double.TryParse(it.Price, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var price))
+                                    {
+                                        totalProductsValue += price * it.Quantity;
+                                    }
+                                }
+                            }
+                            
+                            if (totalProductsValue > 0.0)
+                            {
+                                couponPercentage = (couponAmount.Value / totalProductsValue) * 100.0;
+                                Console.WriteLine($"[SubiektService] ANALIZA KUPONU:");
+                                Console.WriteLine($"[SubiektService] Wartość kuponu: {couponAmount.Value:F2}");
+                                Console.WriteLine($"[SubiektService] Suma wartości produktów: {totalProductsValue:F2}");
+                                Console.WriteLine($"[SubiektService] Procent kuponu względem produktów: {couponPercentage:F2}%");
+                            }
+                            else
+                            {
+                                Console.WriteLine("[SubiektService] Brak danych o cenach produktów - nie można obliczyć procentu kuponu.");
+                            }
+                        }
                         
                         // Dodaj pozycje z listy produktów (product_id)
                         if (items != null)
@@ -388,14 +425,20 @@ namespace Gryzak.Services
                                             try { pozycja.IloscJm = it.Quantity; } catch { }
                                         }
 
-                                        // Cena z API (netto), zaokrąglona zawsze w dół do 2 miejsc
+                                        // Cena z API (netto)
                                         double? apiPriceNet = null;
                                         if (!string.IsNullOrWhiteSpace(it.Price))
                                         {
                                             try
                                             {
                                                 var parsed = double.Parse(it.Price, System.Globalization.CultureInfo.InvariantCulture);
-                                                apiPriceNet = Math.Floor(parsed * 100.0) / 100.0;
+                                                // Odejmij procent kuponu od ceny (jeśli kupon istnieje)
+                                                if (couponPercentage.HasValue)
+                                                {
+                                                    parsed = parsed * (1.0 - couponPercentage.Value / 100.0);
+                                                }
+                                                
+                                                apiPriceNet = parsed;
                                             }
                                             catch { apiPriceNet = null; }
                                         }
@@ -445,206 +488,10 @@ namespace Gryzak.Services
                                 Console.WriteLine($"[SubiektService] Nie udało się dodać pozycji: {dodajPozEx.Message}");
                             }
                         }
-
-                        // Po dodaniu pozycji spróbuj przeliczyć dokument do zadanej wartości (PRZED dodaniem KOSZTY/1)
-                        try
-                        {
-                            // Użyj sub_total z API jako wartość docelowa (suma wartości produktów)
-                            if (!subTotal.HasValue)
-                            {
-                                Console.WriteLine("[SubiektService] BŁĄD: Brak wartości sub_total z API - nie można przeliczyć dokumentu do zadanej wartości.");
-                                throw new InvalidOperationException("Brak sub_total z API - nie można przeliczyć dokumentu.");
-                            }
-
-                            double desiredTotal = subTotal.Value;
-                            Console.WriteLine($"[SubiektService] Używam sub_total z API jako wartość docelowa: {desiredTotal:F2}");
-
-                            // Odejmij wartość kuponu z totals (jeśli jest przekazana)
-                            double couponValue = 0.0;
-                            if (couponAmount.HasValue)
-                            {
-                                couponValue = couponAmount.Value;
-                                Console.WriteLine($"[SubiektService] Używam wartości kuponu z totals: {couponValue:F2}");
-                            }
-                            else
-                            {
-                                // Fallback: jeśli w pozycjach znajdują się rabaty/kupony, odejmij je (wartościowe)
-                                if (items != null)
-                                {
-                                    foreach (var it in items)
-                                    {
-                                        if (!string.IsNullOrWhiteSpace(it.Discount))
-                                        {
-                                            if (double.TryParse(it.Discount, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
-                                            {
-                                                couponValue += d;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            var targetForPositions = desiredTotal - couponValue;
-                            if (targetForPositions < 0) targetForPositions = 0;
-                            Console.WriteLine($"[SubiektService] Docelowa wartość dokumentu (sub_total - kupon): {targetForPositions:F2}");
-
-                            bool recalculated = false;
-                            var docType = zkDokument.GetType();
-
-                            // 1) Spróbuj bezpośredniej metody: PrzeliczDoWartosci(double)
-                            var m1 = docType.GetMethod("PrzeliczDoWartosci");
-                            if (m1 != null)
-                            {
-                                try
-                                {
-                                    m1.Invoke(zkDokument, new object[] { targetForPositions });
-                                    Console.WriteLine($"[SubiektService] Przeliczono do zadanej wartości metodą PrzeliczDoWartosci({targetForPositions}).");
-                                    recalculated = true;
-                                }
-                                catch (Exception invEx)
-                                {
-                                    Console.WriteLine($"[SubiektService] PrzeliczDoWartosci() nie powiodło się: {invEx.Message}");
-                                }
-                            }
-
-                            // 2) Spróbuj alternatywnej nazwy: PrzeliczDoZadanejWartosci(double)
-                            if (!recalculated)
-                            {
-                                var m2 = docType.GetMethod("PrzeliczDoZadanejWartosci");
-                                if (m2 != null)
-                                {
-                                    try
-                                    {
-                                        m2.Invoke(zkDokument, new object[] { targetForPositions });
-                                        Console.WriteLine($"[SubiektService] Przeliczono do zadanej wartości metodą PrzeliczDoZadanejWartosci({targetForPositions}).");
-                                        recalculated = true;
-                                    }
-                                    catch (Exception invEx)
-                                    {
-                                        Console.WriteLine($"[SubiektService] PrzeliczDoZadanejWartosci() nie powiodło się: {invEx.Message}");
-                                    }
-                                }
-                            }
-
-                            // 3) Spróbuj przez właściwość Zadana/WartoscZadana i Przelicz()
-                            if (!recalculated)
-                            {
-                                var propNames = new[] { "WartoscZadana", "ZadanaWartosc" };
-                                foreach (var pn in propNames)
-                                {
-                                    var pi = docType.GetProperty(pn);
-                                    if (pi != null && pi.CanWrite)
-                                    {
-                                        try
-                                        {
-                                            pi.SetValue(zkDokument, targetForPositions);
-                                            Console.WriteLine($"[SubiektService] Ustawiono {pn} = {targetForPositions}.");
-                                            // Spróbuj wywołać Przelicz
-                                            var mPrz = docType.GetMethod("Przelicz") ?? docType.GetMethod("PrzeliczWartosci");
-                                            if (mPrz != null)
-                                            {
-                                                try
-                                                {
-                                                    mPrz.Invoke(zkDokument, null);
-                                                    Console.WriteLine("[SubiektService] Wywołano Przelicz() po ustawieniu wartości zadanej.");
-                                                    recalculated = true;
-                                                    break;
-                                                }
-                                                catch (Exception przEx)
-                                                {
-                                                    Console.WriteLine($"[SubiektService] Przelicz() nie powiodło się: {przEx.Message}");
-                                                }
-                                            }
-                                        }
-                                        catch (Exception setEx)
-                                        {
-                                            Console.WriteLine($"[SubiektService] Nie udało się ustawić {pn}: {setEx.Message}");
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (!recalculated)
-                            {
-                                Console.WriteLine("[SubiektService] Nie udało się przeliczyć dokumentu do zadanej wartości - brak znanych metod/właściwości.");
-
-                                // Fallback: policz globalny rabat procentowy lub dostosuj ostatnią pozycję,
-                                // aby suma netto pozycji (po rabatach) wyniosła targetForPositions
-                                try
-                                {
-                                    // Zbierz pozycje i oblicz aktualną sumę netto przed rabatami
-                                    dynamic pozycje = zkDokument.Pozycje;
-                                    var dynamicPositions = new System.Collections.Generic.List<dynamic>();
-                                    double baseSum = 0.0;
-                                    try
-                                    {
-                                        int lp = 1;
-                                        while (true)
-                                        {
-                                            dynamic poz = pozycje[lp];
-                                            if (poz == null) break;
-                                            dynamicPositions.Add(poz);
-                                            double price = 0.0;
-                                            double qty = 1.0;
-                                            try { price = Convert.ToDouble(poz.CenaNettoPrzedRabatem, System.Globalization.CultureInfo.InvariantCulture); } catch { }
-                                            try { qty = Convert.ToDouble(poz.IloscJm, System.Globalization.CultureInfo.InvariantCulture); } catch { }
-                                            baseSum += price * qty;
-                                            lp++;
-                                        }
-                                    }
-                                    catch
-                                    {
-                                        // Jeśli indeksowany dostęp nie działa, spróbuj enumeracji Pozycje (może nie wspiera)
-                                    }
-
-                                    if (baseSum > 0.0)
-                                    {
-                                        if (targetForPositions < baseSum)
-                                        {
-                                            var discount = (1.0 - (targetForPositions / baseSum)) * 100.0;
-                                            if (discount < 0) discount = 0;
-                                            if (discount > 99.99) discount = 99.99;
-                                            foreach (var poz in dynamicPositions)
-                                            {
-                                                try { poz.RabatProcent = discount; } catch { }
-                                            }
-                                            Console.WriteLine($"[SubiektService] Fallback: ustawiono globalny rabat {discount:F2}% aby osiągnąć {targetForPositions:F2}.");
-                                        }
-                                        else
-                                        {
-                                            // Docelowa wartość >= sumy bazowej: podnieś cenę ostatniej pozycji proporcjonalnie
-                                            double need = targetForPositions - baseSum;
-                                            if (dynamicPositions.Count > 0)
-                                            {
-                                                var last = dynamicPositions[dynamicPositions.Count - 1];
-                                                double lastPrice = 0.0;
-                                                double lastQty = 1.0;
-                                                try { lastPrice = Convert.ToDouble(last.CenaNettoPrzedRabatem, System.Globalization.CultureInfo.InvariantCulture); } catch { }
-                                                try { lastQty = Convert.ToDouble(last.IloscJm, System.Globalization.CultureInfo.InvariantCulture); } catch { }
-                                                double incrementPerUnit = 0.0;
-                                                if (lastQty > 0) incrementPerUnit = need / lastQty;
-                                                double newPrice = lastPrice + incrementPerUnit;
-                                                // Zaokrąglij zawsze w dół do 2 miejsc
-                                                newPrice = Math.Floor(newPrice * 100.0) / 100.0;
-                                                try { last.RabatProcent = 0.0; } catch { }
-                                                try { last.CenaNettoPrzedRabatem = newPrice; } catch { }
-                                                Console.WriteLine($"[SubiektService] Fallback: podniesiono cenę ostatniej pozycji do {newPrice:F2} aby osiągnąć {targetForPositions:F2}.");
-                                            }
-                                        }
-                                    }
-                                }
-                                catch (Exception fbEx)
-                                {
-                                    Console.WriteLine($"[SubiektService] Fallback przeliczenia nie powiódł się: {fbEx.Message}");
-                                }
-                            }
-                        }
-                        catch (Exception recalcEx)
-                        {
-                            Console.WriteLine($"[SubiektService] Błąd podczas przeliczania do zadanej wartości: {recalcEx.Message}");
-                        }
                         
-                        // Dodaj towar 'KOSZTY/1' na końcu (PO przeliczeniu, aby nie był uwzględniany w obliczeniach)
+                        
+
+                        // Dodaj towar 'KOSZTY/1' na końcu
                         // Tylko jeśli w API jest handling
                         if (handlingAmount.HasValue)
                         {
@@ -662,11 +509,11 @@ namespace Gryzak.Services
                                     try 
                                     { 
                                         kosztyPoz.CenaNettoPrzedRabatem = handlingAmount.Value;
-                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/1' z ceną handling ({handlingAmount.Value:F2}) po przeliczeniu.");
+                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/1' z ceną handling ({handlingAmount.Value:F2}).");
                                     }
                                     catch
                                     {
-                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/1' na końcu pozycji (po przeliczeniu), ale nie udało się ustawić ceny.");
+                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/1' na końcu pozycji, ale nie udało się ustawić ceny.");
                                     }
                                 }
                                 else
@@ -684,7 +531,7 @@ namespace Gryzak.Services
                             Console.WriteLine("[SubiektService] Brak handling w API - pomijam dodawanie 'KOSZTY/1'.");
                         }
                         
-                        // Dodaj towar 'KOSZTY/2' na końcu (PO przeliczeniu, aby nie był uwzględniany w obliczeniach)
+                        // Dodaj towar 'KOSZTY/2' na końcu
                         // Tylko jeśli w API jest shipping
                         if (shippingAmount.HasValue)
                         {
@@ -702,11 +549,11 @@ namespace Gryzak.Services
                                     try 
                                     { 
                                         shippingPoz.CenaNettoPrzedRabatem = shippingAmount.Value;
-                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/2' z ceną shipping ({shippingAmount.Value:F2}) po przeliczeniu.");
+                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/2' z ceną shipping ({shippingAmount.Value:F2}).");
                                     }
                                     catch
                                     {
-                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/2' na końcu pozycji (po przeliczeniu), ale nie udało się ustawić ceny.");
+                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/2' na końcu pozycji, ale nie udało się ustawić ceny.");
                                     }
                                 }
                                 else

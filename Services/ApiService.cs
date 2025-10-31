@@ -228,6 +228,8 @@ namespace Gryzak.Services
             var address2 = orderElement.TryGetProperty("payment_address_2", out var a2) ? a2.GetString() : null;
             var postcode = orderElement.TryGetProperty("payment_postcode", out var pc) ? pc.GetString() ?? "" : "";
             var city = orderElement.TryGetProperty("payment_city", out var c) ? c.GetString() ?? "" : "";
+            var country = orderElement.TryGetProperty("payment_country", out var countryProp) ? countryProp.GetString() ?? "" : "";
+            var isoCode3 = orderElement.TryGetProperty("iso_code_3", out var iso3) ? iso3.GetString() : null;
             var status = orderElement.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "";
             var paymentStatus = orderElement.TryGetProperty("payment_status", out var ps) ? ps.GetString() ?? "Nieznany" : "Nieznany";
             
@@ -257,6 +259,25 @@ namespace Gryzak.Services
             }
             
             var currency = orderElement.TryGetProperty("currency_code", out var curr) ? curr.GetString() ?? "PLN" : "PLN";
+            
+            // Pobierz currency_value do przeliczania total (wartości są w PLN, trzeba przeliczyć)
+            double currencyValueMultiplier = 1.0;
+            if (orderElement.TryGetProperty("currency_value", out var currencyValueProp))
+            {
+                if (currencyValueProp.ValueKind == JsonValueKind.Number)
+                {
+                    currencyValueMultiplier = currencyValueProp.GetDouble();
+                }
+                else if (currencyValueProp.ValueKind == JsonValueKind.String)
+                {
+                    var currencyValueStr = currencyValueProp.GetString();
+                    if (double.TryParse(currencyValueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                    {
+                        currencyValueMultiplier = parsed;
+                    }
+                }
+            }
+            
             var dateAdded = orderElement.TryGetProperty("date_added", out var date) ? date.GetString() ?? "" : "";
 
             var address = "";
@@ -279,14 +300,16 @@ namespace Gryzak.Services
                 }
             }
 
-            // Sformatuj total - parsuj i formatuj z InvariantCulture
+            // Sformatuj total - parsuj, przelicz przez currency_value i formatuj z InvariantCulture
             string formattedTotal = "0.00";
             if (!string.IsNullOrWhiteSpace(total) && total != "0")
             {
                 if (double.TryParse(total, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var totalVal))
                 {
-                    formattedTotal = totalVal.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                    Console.WriteLine($"[ApiService] Zamówienie {orderId}: total '{total}' -> sformatowane '{formattedTotal}'");
+                    // Przelicz wartość przez currency_value (wartość total jest w PLN)
+                    var convertedTotal = totalVal * currencyValueMultiplier;
+                    formattedTotal = convertedTotal.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                    Console.WriteLine($"[ApiService] Zamówienie {orderId}: total PLN '{total}' -> przeliczona '{formattedTotal}' (currency_value: {currencyValueMultiplier})");
                 }
                 else
                 {
@@ -322,7 +345,9 @@ namespace Gryzak.Services
                 PaymentStatus = paymentStatus,
                 Total = formattedTotal,
                 Currency = currency,
-                Date = dateParsed
+                Date = dateParsed,
+                Country = country,
+                IsoCode3 = isoCode3
             };
         }
 
