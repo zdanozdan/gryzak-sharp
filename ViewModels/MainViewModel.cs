@@ -389,7 +389,7 @@ namespace Gryzak.ViewModels
             }
             
             var subiektService = new Services.SubiektService();
-            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency);
+            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
 
@@ -695,6 +695,11 @@ namespace Gryzak.ViewModels
                                     {
                                         order.ShippingAmount = valueParsed.Value;
                                         Console.WriteLine($"[MainViewModel] Znaleziono shipping: {order.ShippingAmount:F2}");
+                                    }
+                                    else if (code == "cod_fee")
+                                    {
+                                        order.CodFeeAmount = valueParsed.Value;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono cod_fee: {order.CodFeeAmount:F2}");
                                     }
                                     else if (code == "total")
                                     {

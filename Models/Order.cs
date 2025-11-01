@@ -77,6 +77,7 @@ namespace Gryzak.Models
         public string? CouponTitle { get; set; }
         public double? HandlingAmount { get; set; }
         public double? ShippingAmount { get; set; }
+        public double? CodFeeAmount { get; set; }
 
         public bool IsSelected
         {

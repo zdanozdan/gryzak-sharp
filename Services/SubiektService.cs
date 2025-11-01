@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 
@@ -86,7 +87,7 @@ namespace Gryzak.Services
             InstancjaZmieniona?.Invoke(null, aktywna);
         }
 
-        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null)
+        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null)
         {
             try
             {
@@ -613,6 +614,288 @@ namespace Gryzak.Services
                         else
                         {
                             Console.WriteLine("[SubiektService] Brak shipping w API - pomijam dodawanie 'KOSZTY/2'.");
+                        }
+                        
+                        // Dodaj towar 'KOSZTY/2' na końcu
+                        // Tylko jeśli w API jest cod_fee
+                        if (codFeeAmount.HasValue)
+                        {
+                            try
+                            {
+                                dynamic towary = subiekt.Towary;
+                                dynamic towarCodFee = towary.Wczytaj("KOSZTY/2");
+                                
+                                if (towarCodFee != null)
+                                {
+                                    dynamic pozycje = zkDokument.Pozycje;
+                                    dynamic codFeePoz = pozycje.Dodaj(towarCodFee.Identyfikator);
+                                    try { codFeePoz.IloscJm = 1; } catch { }
+                                    // Ustaw cenę na wartość cod_fee z API
+                                    try 
+                                    { 
+                                        codFeePoz.CenaNettoPrzedRabatem = codFeeAmount.Value;
+                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/2' z ceną cod_fee ({codFeeAmount.Value:F2}).");
+                                    }
+                                    catch
+                                    {
+                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/2' na końcu pozycji, ale nie udało się ustawić ceny.");
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine("[SubiektService] Nie znaleziono towaru o symbolu 'KOSZTY/2'.");
+                                }
+                            }
+                            catch (Exception codFeeEx)
+                            {
+                                Console.WriteLine($"[SubiektService] Nie udało się dodać towaru 'KOSZTY/2' dla cod_fee: {codFeeEx.Message}");
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("[SubiektService] Brak cod_fee w API - pomijam dodawanie 'KOSZTY/2' dla cod_fee.");
+                        }
+                        
+                        // Przelicz dokument przed odczytem wartości (może być wymagane)
+                        try
+                        {
+                            zkDokument.Przelicz();
+                            Console.WriteLine("[SubiektService] Dokument ZK został przeliczony przed odczytem wartości pozycji.");
+                        }
+                        catch (Exception przeliczEx)
+                        {
+                            Console.WriteLine($"[SubiektService] Uwaga: Nie udało się przeliczyć dokumentu przed odczytem wartości: {przeliczEx.Message}");
+                        }
+                        
+                        // Odczytaj sumę wartości wszystkich pozycji z dokumentu ZK
+                        try
+                        {
+                            double sumaWartosci = 0.0;
+                            dynamic pozycje = zkDokument.Pozycje;
+                            
+                            // Przejdź przez wszystkie pozycje i zsumuj ich wartości
+                            // W Subiekcie GT indeksy pozycji zaczynają się od 1, nie od 0!
+                            int liczbaPozycji = pozycje.Liczba;
+                            Console.WriteLine($"[SubiektService] Liczba pozycji w dokumencie ZK: {liczbaPozycji}");
+                            
+                            for (int i = 1; i <= liczbaPozycji; i++)
+                            {
+                                try
+                                {
+                                    dynamic pozycja = pozycje.Element(i);
+                                    
+                                    // Odczytaj wartość pozycji bezpośrednio z WartoscBruttoPoRabacie
+                                    double wartoscPozycji = 0.0;
+                                    try
+                                    {
+                                        var wartosc = pozycja.WartoscBruttoPoRabacie;
+                                        wartoscPozycji = Convert.ToDouble(wartosc);
+                                    }
+                                    catch (Exception wartoscEx)
+                                    {
+                                        Console.WriteLine($"[SubiektService] Błąd odczytu WartoscBruttoPoRabacie dla pozycji {i}: {wartoscEx.Message}");
+                                    }
+                                    
+                                    sumaWartosci += wartoscPozycji;
+                                    Console.WriteLine($"[SubiektService] Pozycja {i}: Wartość = {wartoscPozycji:F2}");
+                                    
+                                    // Dodatkowe logowanie - sprawdź jakie właściwości pozycji są dostępne
+                                    try
+                                    {
+                                        var ilosc = pozycja.IloscJm;
+                                        Console.WriteLine($"[SubiektService]   - Ilość: {ilosc}");
+                                    }
+                                    catch { }
+                                    try
+                                    {
+                                        var cenaBruttoPoRabacie = pozycja.CenaBruttoPoRabacie;
+                                        Console.WriteLine($"[SubiektService]   - CenaBruttoPoRabacie: {cenaBruttoPoRabacie:F2}");
+                                    }
+                                    catch { }
+                                    try
+                                    {
+                                        var cenaNettoPoRabacie = pozycja.CenaNettoPoRabacie;
+                                        Console.WriteLine($"[SubiektService]   - CenaNettoPoRabacie: {cenaNettoPoRabacie:F2}");
+                                    }
+                                    catch { }
+                                }
+                                catch (Exception pozEx)
+                                {
+                                    Console.WriteLine($"[SubiektService] Błąd odczytu pozycji {i}: {pozEx.Message}");
+                                }
+                            }
+                            
+                            Console.WriteLine($"[SubiektService] =========================================");
+                            Console.WriteLine($"[SubiektService] SUMA WARTOŚCI WSZYSTKICH POZYCJI: {sumaWartosci:F2}");
+                            Console.WriteLine($"[SubiektService] =========================================");
+                            
+                            // Porównaj sumę pozycji ZK z wartością zamówienia z API
+                            if (!string.IsNullOrWhiteSpace(orderTotal))
+                            {
+                                try
+                                {
+                                    if (double.TryParse(orderTotal, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double orderTotalValue))
+                                    {
+                                        double roznica = Math.Abs(sumaWartosci - orderTotalValue);
+                                        double roznicaProcent = sumaWartosci > 0 ? (roznica / sumaWartosci) * 100.0 : 0.0;
+                                        
+                                        Console.WriteLine($"[SubiektService] Wartość zamówienia z API: {orderTotalValue:F2}");
+                                        Console.WriteLine($"[SubiektService] Różnica: {roznica:F2} ({roznicaProcent:F2}%)");
+                                        
+                                        // Jeśli różnica jest większa niż 0.01 (dopuszczamy małe różnice zaokrągleń)
+                                        if (roznica > 0.01)
+                                        {
+                                            // Analiza przyczyn różnicy
+                                            Console.WriteLine($"[SubiektService] =========================================");
+                                            Console.WriteLine($"[SubiektService] ANALIZA RÓŻNICY W WARTOŚCIACH");
+                                            Console.WriteLine($"[SubiektService] =========================================");
+                                            
+                                            var wnioski = new System.Collections.Generic.List<string>();
+                                            
+                                            // Porównaj bezpośrednio sumę ZK z wartością z API
+                                            // Wartość z API jest już finalną wartością (uwzględnia wszystkie składniki)
+                                            Console.WriteLine($"[SubiektService] Suma pozycji ZK: {sumaWartosci:F2}");
+                                            Console.WriteLine($"[SubiektService] Wartość zamówienia z API (total): {orderTotalValue:F2}");
+                                            Console.WriteLine($"[SubiektService] Różnica: {roznica:F2} ({roznicaProcent:F2}%)");
+                                            
+                                            // Sprawdź komponenty zamówienia z API (dla informacji)
+                                            double sumaKosztow = 0.0;
+                                            if (handlingAmount.HasValue && handlingAmount.Value > 0.01)
+                                            {
+                                                sumaKosztow += handlingAmount.Value;
+                                                Console.WriteLine($"[SubiektService] Handling z API: {handlingAmount.Value:F2}");
+                                            }
+                                            if (shippingAmount.HasValue && shippingAmount.Value > 0.01)
+                                            {
+                                                sumaKosztow += shippingAmount.Value;
+                                                Console.WriteLine($"[SubiektService] Shipping z API: {shippingAmount.Value:F2}");
+                                            }
+                                            if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01)
+                                            {
+                                                sumaKosztow += codFeeAmount.Value;
+                                                Console.WriteLine($"[SubiektService] Cod_fee z API: {codFeeAmount.Value:F2}");
+                                            }
+                                            if (sumaKosztow > 0.01)
+                                            {
+                                                Console.WriteLine($"[SubiektService] Suma kosztów z API: {sumaKosztow:F2}");
+                                            }
+                                            
+                                            if (couponAmount.HasValue && couponAmount.Value > 0.01)
+                                            {
+                                                Console.WriteLine($"[SubiektService] Kupon z API: -{couponAmount.Value:F2}");
+                                            }
+                                            
+                                            // Analiza różnicy między ZK a API
+                                            if (roznica > 0.01)
+                                            {
+                                                // Sprawdź czy ZK ma mniej niż API (może brakować pozycji)
+                                                if (sumaWartosci < orderTotalValue)
+                                                {
+                                                    double brakujacaKwota = orderTotalValue - sumaWartosci;
+                                                    wnioski.Add($"Suma ZK jest mniejsza o {brakujacaKwota:F2} - prawdopodobnie brakuje pozycji kosztów.");
+                                                    
+                                                    // Sprawdź które koszty mogą brakować
+                                                    if (handlingAmount.HasValue && handlingAmount.Value > 0.01)
+                                                    {
+                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/1' (handling: {handlingAmount.Value:F2}).");
+                                                    }
+                                                    if (shippingAmount.HasValue && shippingAmount.Value > 0.01)
+                                                    {
+                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/2' dla shipping ({shippingAmount.Value:F2}).");
+                                                    }
+                                                    if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01)
+                                                    {
+                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/2' dla cod_fee ({codFeeAmount.Value:F2}).");
+                                                    }
+                                                }
+                                                // Sprawdź czy ZK ma więcej niż API (może być różnica w cenach lub dodatkowe pozycje)
+                                                else if (sumaWartosci > orderTotalValue)
+                                                {
+                                                    double nadmiar = sumaWartosci - orderTotalValue;
+                                                    wnioski.Add($"Suma ZK jest większa o {nadmiar:F2} - możliwe różnice w cenach produktów, VAT lub dodatkowe pozycje.");
+                                                    
+                                                    // Sprawdź liczbę pozycji
+                                                    if (items != null && items.Any())
+                                                    {
+                                                        int liczbaPozycjiZK = pozycje.Liczba;
+                                                        int liczbaProduktow = items.Count();
+                                                        int liczbaKosztow = 0;
+                                                        if (handlingAmount.HasValue && handlingAmount.Value > 0.01) liczbaKosztow++;
+                                                        if (shippingAmount.HasValue && shippingAmount.Value > 0.01) liczbaKosztow++;
+                                                        if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01) liczbaKosztow++;
+                                                        
+                                                        int oczekiwanaLiczbaPozycji = liczbaProduktow + liczbaKosztow;
+                                                        if (liczbaPozycjiZK != oczekiwanaLiczbaPozycji)
+                                                        {
+                                                            wnioski.Add($"  Liczba pozycji w ZK ({liczbaPozycjiZK}) różni się od oczekiwanej ({oczekiwanaLiczbaPozycji} - {liczbaProduktow} produktów + {liczbaKosztow} kosztów).");
+                                                        }
+                                                    }
+                                                    
+                                                    wnioski.Add($"  Możliwe przyczyny: różnice w zaokrągleniach VAT, różne ceny w Subiekcie vs API, lub dodatkowe pozycje w ZK.");
+                                                }
+                                            }
+                                            else
+                                            {
+                                                wnioski.Add("Różnica jest minimalna (≤0.01) - wartości się zgadzają (możliwe małe różnice zaokrągleń).");
+                                            }
+                                            
+                                            // Wyświetl wnioski
+                                            Console.WriteLine($"[SubiektService] =========================================");
+                                            Console.WriteLine($"[SubiektService] WNIOSKI:");
+                                            foreach (var wniosek in wnioski)
+                                            {
+                                                Console.WriteLine($"[SubiektService]   - {wniosek}");
+                                            }
+                                            Console.WriteLine($"[SubiektService] =========================================");
+                                            
+                                            string komunikat = $"UWAGA: Suma wartości pozycji ZK ({sumaWartosci:F2}) różni się od wartości zamówienia z API ({orderTotalValue:F2}).\n\nRóżnica: {roznica:F2} ({roznicaProcent:F2}%).\n\nSzczegóły w konsoli.";
+                                            MessageBox.Show(
+                                                komunikat,
+                                                "Różnica w wartościach",
+                                                System.Windows.MessageBoxButton.OK,
+                                                System.Windows.MessageBoxImage.Warning);
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine($"[SubiektService] Wartości się zgadzają (różnica < 0.01).");
+                                        }
+                                    }
+                                }
+                                catch (Exception porownanieEx)
+                                {
+                                    Console.WriteLine($"[SubiektService] Błąd podczas porównywania wartości: {porownanieEx.Message}");
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[SubiektService] Brak wartości zamówienia z API do porównania.");
+                            }
+                            
+                            // Spróbuj też odczytać wartość bezpośrednio z dokumentu (jeśli dostępna)
+                            try
+                            {
+                                double wartoscDokumentuBrutto = zkDokument.WartoscBrutto;
+                                Console.WriteLine($"[SubiektService] Wartość brutto dokumentu ZK (z właściwości): {wartoscDokumentuBrutto:F2}");
+                            }
+                            catch { }
+                            
+                            try
+                            {
+                                double wartoscDokumentuNetto = zkDokument.WartoscNetto;
+                                Console.WriteLine($"[SubiektService] Wartość netto dokumentu ZK (z właściwości): {wartoscDokumentuNetto:F2}");
+                            }
+                            catch { }
+                            
+                            try
+                            {
+                                double wartoscDokumentu = zkDokument.Wartosc;
+                                Console.WriteLine($"[SubiektService] Wartość dokumentu ZK (z właściwości): {wartoscDokumentu:F2}");
+                            }
+                            catch { }
+                        }
+                        catch (Exception sumaEx)
+                        {
+                            Console.WriteLine($"[SubiektService] Błąd podczas odczytu sumy wartości pozycji: {sumaEx.Message}");
                         }
 
                         // Otwórz okno dokumentu używając metody Wyswietl() - zgodnie z przykładem
