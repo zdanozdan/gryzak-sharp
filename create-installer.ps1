@@ -9,15 +9,17 @@ param(
 
 Write-Host "=== Tworzenie instalatora Gryzak ===" -ForegroundColor Green
 
-# Krok 1: Publikacja aplikacji
+# Krok 1: Publikacja aplikacji (obie wersje: x64 i x86)
 if ($BuildFirst -and -not $PublishOnly) {
     Write-Host ""
-    Write-Host "1. Publikacja aplikacji w trybie Release..." -ForegroundColor Yellow
+    Write-Host "1. Publikacja aplikacji w trybie Release (x64 i x86)..." -ForegroundColor Yellow
     
+    # Publikacja x64
     if (Test-Path "publish\win-x64") {
         Remove-Item "publish\win-x64" -Recurse -Force -ErrorAction SilentlyContinue
     }
     
+    Write-Host "  Publikacja x64..." -ForegroundColor Cyan
     dotnet publish -c Release -r win-x64 --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
@@ -25,14 +27,36 @@ if ($BuildFirst -and -not $PublishOnly) {
         -o publish/win-x64
     
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Blad publikacji aplikacji" -ForegroundColor Red
+        Write-Host "Blad publikacji aplikacji x64" -ForegroundColor Red
         exit 1
     }
     
-    Write-Host "Aplikacja opublikowana do publish/win-x64" -ForegroundColor Green
+    Write-Host "  Aplikacja x64 opublikowana" -ForegroundColor Green
     
-    # Wyczysc niepotrzebne pliki
+    # Wyczysc niepotrzebne pliki x64
     Get-ChildItem -Path "publish\win-x64" -Filter "*.pdb" | Remove-Item -Force -ErrorAction SilentlyContinue
+    
+    # Publikacja x86
+    if (Test-Path "publish\win-x86") {
+        Remove-Item "publish\win-x86" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    
+    Write-Host "  Publikacja x86..." -ForegroundColor Cyan
+    dotnet publish -c Release -r win-x86 --self-contained true `
+        -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:EnableCompressionInSingleFile=true `
+        -o publish/win-x86
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Blad publikacji aplikacji x86" -ForegroundColor Red
+        exit 1
+    }
+    
+    Write-Host "  Aplikacja x86 opublikowana" -ForegroundColor Green
+    
+    # Wyczysc niepotrzebne pliki x86
+    Get-ChildItem -Path "publish\win-x86" -Filter "*.pdb" | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 if ($PublishOnly) {
@@ -55,10 +79,17 @@ if (-not (Test-Path $InnoSetupPath)) {
     exit 1
 }
 
-# Krok 3: Sprawdz czy plik publish istnieje
+# Krok 3: Sprawdz czy pliki publish istnieją (oba wymagane)
 if (-not (Test-Path "publish\win-x64\Gryzak.exe")) {
     Write-Host ""
     Write-Host "Nie znaleziono opublikowanej aplikacji w publish\win-x64\Gryzak.exe" -ForegroundColor Red
+    Write-Host "Uruchom najpierw: .\create-installer.ps1 -BuildFirst" -ForegroundColor Yellow
+    exit 1
+}
+
+if (-not (Test-Path "publish\win-x86\Gryzak.exe")) {
+    Write-Host ""
+    Write-Host "Nie znaleziono opublikowanej aplikacji w publish\win-x86\Gryzak.exe" -ForegroundColor Red
     Write-Host "Uruchom najpierw: .\create-installer.ps1 -BuildFirst" -ForegroundColor Yellow
     exit 1
 }

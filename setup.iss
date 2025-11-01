@@ -33,9 +33,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 
 [Files]
-; Uwaga: Folder publish\win-x64 musi istnieć przed kompilacją instalatora
-; Uruchom: .\create-installer.ps1 aby automatycznie utworzyć publikację i instalator
-Source: "publish\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Uwaga: Foldery publish\win-x64 i publish\win-x86 muszą istnieć przed kompilacją instalatora
+; Uruchom: .\publish.ps1 aby opublikować obie wersje, potem .\create-installer.ps1 aby utworzyć instalator
+; Automatyczne wykrywanie architektury: x64 dla 64-bitowych systemów, x86 dla 32-bitowych
+Source: "publish\win-x64\*"; DestDir: "{app}"; Check: Is64BitInstallMode; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "publish\win-x86\*"; DestDir: "{app}"; Check: not Is64BitInstallMode; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
