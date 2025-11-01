@@ -47,6 +47,8 @@
                 <MenuItem Header="Konfiguracja API" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
                 <MenuItem Header="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}"/>
                 <Separator/>
+                <MenuItem Header="Debug" Click="DebugMenuItem_Click"/>
+                <Separator/>
                 <MenuItem Header="Zwolnij licencję Subiekta GT" Command="{Binding ZwolnijLicencjeCommand}">
                     <MenuItem.Style>
                         <Style TargetType="MenuItem">

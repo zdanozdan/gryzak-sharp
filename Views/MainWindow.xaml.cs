@@ -14,6 +14,21 @@ namespace Gryzak.Views
         {
             InitializeComponent();
             this.Loaded += MainWindow_Loaded;
+            this.Closing += MainWindow_Closing;
+        }
+        
+        private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        {
+            // Zwolnij licencję Subiekta GT przed zamknięciem aplikacji
+            try
+            {
+                var subiektService = new Gryzak.Services.SubiektService();
+                subiektService.ZwolnijLicencje();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MainWindow] Błąd podczas zwalniania licencji przy zamykaniu: {ex.Message}");
+            }
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -134,8 +149,18 @@ namespace Gryzak.Views
 
             if (result == MessageBoxResult.Yes)
             {
+                // Licencja zostanie zwolniona w MainWindow_Closing
                 Application.Current.Shutdown();
             }
+        }
+
+        private void DebugMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var debugWindow = DebugWindow.GetOrCreateInstance();
+            
+            // Okno jest tworzone w osobnym wątku, więc jest całkowicie niezależne
+            // od modalnych okien (ShowDialog nie zablokuje tego okna)
+            debugWindow.ShowWindow();
         }
 
         private void AboutMenuItem_Click(object sender, RoutedEventArgs e)

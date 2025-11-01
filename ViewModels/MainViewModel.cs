@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows;
+using System.Text.Json;
+using System.Text.Encodings.Web;
 using Gryzak.Models;
 using Gryzak.Services;
 
@@ -389,7 +391,7 @@ namespace Gryzak.ViewModels
             }
             
             var subiektService = new Services.SubiektService();
-            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total);
+            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
 
@@ -463,8 +465,25 @@ namespace Gryzak.ViewModels
                 Console.WriteLine($"[MainViewModel] Ładowanie szczegółów zamówienia {orderId}...");
                 var detailsJson = await _apiService.GetOrderDetailsAsync(orderId);
                 
+                // Sformatuj JSON do pretty print
+                string formattedJson;
+                try
+                {
+                    using var doc = JsonDocument.Parse(detailsJson);
+                    formattedJson = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    });
+                }
+                catch
+                {
+                    // Jeśli nie można sparsować jako JSON, użyj oryginalnego tekstu
+                    formattedJson = detailsJson;
+                }
+                
                 Console.WriteLine("\n=== SZCZEGÓŁY ZAMÓWIENIA Z API ===");
-                Console.WriteLine(detailsJson);
+                Console.WriteLine(formattedJson);
                 Console.WriteLine("===================================\n");
                 
                 // Zaktualizuj zamówienie w liście
@@ -690,6 +709,11 @@ namespace Gryzak.ViewModels
                                     {
                                         order.HandlingAmount = valueParsed.Value;
                                         Console.WriteLine($"[MainViewModel] Znaleziono handling: {order.HandlingAmount:F2}");
+                                    }
+                                    else if (code == "gls")
+                                    {
+                                        order.GlsAmount = valueParsed.Value;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono gls: {order.GlsAmount:F2}");
                                     }
                                     else if (code == "shipping")
                                     {

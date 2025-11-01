@@ -34,35 +34,97 @@ namespace Gryzak.Services
         {
             try
             {
+                Console.WriteLine("[SubiektService] Zamykanie instancji Subiekta GT i zwolnienie licencji...");
+                
                 if (_cachedSubiekt != null)
                 {
-                    Console.WriteLine("[SubiektService] Zamykanie instancji Subiekta GT i zwolnienie licencji...");
-                    
                     try
                     {
-                        // Próbuj zamknąć instancję przez Zamknij() jeśli dostępne
-                        _cachedSubiekt.Zamknij();
-                        Console.WriteLine("[SubiektService] Wywołano Zamknij() na instancji Subiekta GT.");
+                        // Próbuj uzyskać dostęp do obiektu Aplikacja i zamknąć całą aplikację
+                        try
+                        {
+                            dynamic aplikacja = _cachedSubiekt.Aplikacja;
+                            if (aplikacja != null)
+                            {
+                                bool zakonczWynik = aplikacja.Zakoncz();
+                                Console.WriteLine($"[SubiektService] Wywołano Zakoncz() na obiekcie Aplikacja. Wynik: {zakonczWynik}");
+                                
+                                // Poczekaj chwilę na zamknięcie procesu
+                                System.Threading.Thread.Sleep(500);
+                            }
+                        }
+                        catch (Exception aplikacjaEx)
+                        {
+                            Console.WriteLine($"[SubiektService] Nie udało się zamknąć przez Aplikacja.Zakoncz(): {aplikacjaEx.Message}");
+                            // Próbuj alternatywną metodę - Zakoncz na obiekcie GT
+                            try
+                            {
+                                if (_cachedGt != null)
+                                {
+                                    // Spróbuj wywołać Zakoncz na obiekcie GT (jeśli dostępne)
+                                    try
+                                    {
+                                        dynamic aplikacjaGT = _cachedGt.Aplikacja;
+                                        if (aplikacjaGT != null)
+                                        {
+                                            bool zakonczWynik = aplikacjaGT.Zakoncz();
+                                            Console.WriteLine($"[SubiektService] Wywołano Zakoncz() na obiekcie GT.Aplikacja. Wynik: {zakonczWynik}");
+                                            System.Threading.Thread.Sleep(500);
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        Console.WriteLine("[SubiektService] Nie można uzyskać dostępu do GT.Aplikacja");
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                // Ignoruj błędy
+                            }
+                        }
                     }
                     catch (Exception zamknijEx)
                     {
-                        Console.WriteLine($"[SubiektService] Zamknij() nie zadziałał: {zamknijEx.Message}");
-                        // Spróbuj innej metody zamknięcia
-                        try
+                        Console.WriteLine($"[SubiektService] Błąd podczas próby zamknięcia aplikacji: {zamknijEx.Message}");
+                    }
+                    
+                    // Zwolnij referencje COM obiektów
+                    try
+                    {
+                        if (_cachedSubiekt != null)
                         {
-                            // Ustaw okno jako niewidoczne i spróbuj zamknąć
-                            _cachedSubiekt.Okno.Widoczne = false;
+                            Marshal.ReleaseComObject(_cachedSubiekt);
+                            Console.WriteLine("[SubiektService] Zwolniono referencję COM dla obiektu Subiekt.");
                         }
-                        catch
-                        {
-                            // Ignoruj błędy
-                        }
+                    }
+                    catch (Exception releaseEx)
+                    {
+                        Console.WriteLine($"[SubiektService] Błąd podczas zwalniania obiektu Subiekt: {releaseEx.Message}");
+                    }
+                }
+                
+                if (_cachedGt != null)
+                {
+                    try
+                    {
+                        Marshal.ReleaseComObject(_cachedGt);
+                        Console.WriteLine("[SubiektService] Zwolniono referencję COM dla obiektu GT.");
+                    }
+                    catch (Exception releaseEx)
+                    {
+                        Console.WriteLine($"[SubiektService] Błąd podczas zwalniania obiektu GT: {releaseEx.Message}");
                     }
                 }
                 
                 // Wyczyść cache niezależnie od tego czy zamknięcie się powiodło
                 _cachedSubiekt = null;
                 _cachedGt = null;
+                
+                // Wymuś garbage collection aby zwolnić wszystkie referencje COM
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
                 
                 // Powiadom o zmianie statusu
                 PowiadomOZmianieInstancji(false);
@@ -87,7 +149,7 @@ namespace Gryzak.Services
             InstancjaZmieniona?.Invoke(null, aktywna);
         }
 
-        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null)
+        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null)
         {
             try
             {
@@ -537,8 +599,18 @@ namespace Gryzak.Services
                         
 
                         // Dodaj towar 'KOSZTY/1' na końcu
-                        // Tylko jeśli w API jest handling
+                        // Suma handling + gls (oba używają KOSZTY/1)
+                        double sumaKosztowKOSZTY1 = 0.0;
                         if (handlingAmount.HasValue)
+                        {
+                            sumaKosztowKOSZTY1 += handlingAmount.Value;
+                        }
+                        if (glsAmount.HasValue)
+                        {
+                            sumaKosztowKOSZTY1 += glsAmount.Value;
+                        }
+                        
+                        if (sumaKosztowKOSZTY1 > 0.0)
                         {
                             try
                             {
@@ -550,11 +622,14 @@ namespace Gryzak.Services
                                     dynamic pozycje = zkDokument.Pozycje;
                                     dynamic kosztyPoz = pozycje.Dodaj(towarKoszty.Identyfikator);
                                     try { kosztyPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę na wartość handling z API
+                                    // Ustaw cenę na sumę handling + gls
                                     try 
                                     { 
-                                        kosztyPoz.CenaNettoPrzedRabatem = handlingAmount.Value;
-                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/1' z ceną handling ({handlingAmount.Value:F2}).");
+                                        kosztyPoz.CenaNettoPrzedRabatem = sumaKosztowKOSZTY1;
+                                        var skladniki = new System.Collections.Generic.List<string>();
+                                        if (handlingAmount.HasValue && handlingAmount.Value > 0) skladniki.Add($"handling ({handlingAmount.Value:F2})");
+                                        if (glsAmount.HasValue && glsAmount.Value > 0) skladniki.Add($"gls ({glsAmount.Value:F2})");
+                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/1' z ceną {sumaKosztowKOSZTY1:F2} (składniki: {string.Join(" + ", skladniki)}).");
                                     }
                                     catch
                                     {
@@ -573,7 +648,7 @@ namespace Gryzak.Services
                         }
                         else
                         {
-                            Console.WriteLine("[SubiektService] Brak handling w API - pomijam dodawanie 'KOSZTY/1'.");
+                            Console.WriteLine("[SubiektService] Brak handling i gls w API - pomijam dodawanie 'KOSZTY/1'.");
                         }
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
@@ -742,8 +817,9 @@ namespace Gryzak.Services
                                         Console.WriteLine($"[SubiektService] Wartość zamówienia z API: {orderTotalValue:F2}");
                                         Console.WriteLine($"[SubiektService] Różnica: {roznica:F2} ({roznicaProcent:F2}%)");
                                         
-                                        // Jeśli różnica jest większa niż 0.01 (dopuszczamy małe różnice zaokrągleń)
-                                        if (roznica > 0.01)
+                                        // Jeśli różnica jest większa niż próg tolerancji (0.001 = 0.01 grosza)
+                                        // Używamy progu zamiast > 0.0 aby uniknąć błędów zaokrąglenia zmiennoprzecinkowych
+                                        if (roznica > 0.001)
                                         {
                                             // Analiza przyczyn różnicy
                                             Console.WriteLine($"[SubiektService] =========================================");
@@ -764,6 +840,11 @@ namespace Gryzak.Services
                                             {
                                                 sumaKosztow += handlingAmount.Value;
                                                 Console.WriteLine($"[SubiektService] Handling z API: {handlingAmount.Value:F2}");
+                                            }
+                                            if (glsAmount.HasValue && glsAmount.Value > 0.01)
+                                            {
+                                                sumaKosztow += glsAmount.Value;
+                                                Console.WriteLine($"[SubiektService] Gls z API: {glsAmount.Value:F2}");
                                             }
                                             if (shippingAmount.HasValue && shippingAmount.Value > 0.01)
                                             {
@@ -795,9 +876,10 @@ namespace Gryzak.Services
                                                     wnioski.Add($"Suma ZK jest mniejsza o {brakujacaKwota:F2} - prawdopodobnie brakuje pozycji kosztów.");
                                                     
                                                     // Sprawdź które koszty mogą brakować
-                                                    if (handlingAmount.HasValue && handlingAmount.Value > 0.01)
+                                                    if ((handlingAmount.HasValue && handlingAmount.Value > 0.01) || (glsAmount.HasValue && glsAmount.Value > 0.01))
                                                     {
-                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/1' (handling: {handlingAmount.Value:F2}).");
+                                                        double sumaKosztowKOSZTY1Wnioski = (handlingAmount ?? 0) + (glsAmount ?? 0);
+                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/1' (handling: {handlingAmount ?? 0:F2} + gls: {glsAmount ?? 0:F2} = {sumaKosztowKOSZTY1Wnioski:F2}).");
                                                     }
                                                     if (shippingAmount.HasValue && shippingAmount.Value > 0.01)
                                                     {
@@ -820,9 +902,9 @@ namespace Gryzak.Services
                                                         int liczbaPozycjiZK = pozycje.Liczba;
                                                         int liczbaProduktow = items.Count();
                                                         int liczbaKosztow = 0;
-                                                        if (handlingAmount.HasValue && handlingAmount.Value > 0.01) liczbaKosztow++;
-                                                        if (shippingAmount.HasValue && shippingAmount.Value > 0.01) liczbaKosztow++;
-                                                        if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01) liczbaKosztow++;
+                                                        if ((handlingAmount.HasValue && handlingAmount.Value > 0.01) || (glsAmount.HasValue && glsAmount.Value > 0.01)) liczbaKosztow++; // KOSZTY/1 dla handling+gls
+                                                        if (shippingAmount.HasValue && shippingAmount.Value > 0.01) liczbaKosztow++; // KOSZTY/2 dla shipping
+                                                        if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01) liczbaKosztow++; // KOSZTY/2 dla cod_fee
                                                         
                                                         int oczekiwanaLiczbaPozycji = liczbaProduktow + liczbaKosztow;
                                                         if (liczbaPozycjiZK != oczekiwanaLiczbaPozycji)
@@ -836,7 +918,7 @@ namespace Gryzak.Services
                                             }
                                             else
                                             {
-                                                wnioski.Add("Różnica jest minimalna (≤0.01) - wartości się zgadzają (możliwe małe różnice zaokrągleń).");
+                                                wnioski.Add("Wartości się zgadzają (różnica = 0.00).");
                                             }
                                             
                                             // Wyświetl wnioski
@@ -848,16 +930,333 @@ namespace Gryzak.Services
                                             }
                                             Console.WriteLine($"[SubiektService] =========================================");
                                             
-                                            string komunikat = $"UWAGA: Suma wartości pozycji ZK ({sumaWartosci:F2}) różni się od wartości zamówienia z API ({orderTotalValue:F2}).\n\nRóżnica: {roznica:F2} ({roznicaProcent:F2}%).\n\nSzczegóły w konsoli.";
-                                            MessageBox.Show(
-                                                komunikat,
-                                                "Różnica w wartościach",
-                                                System.Windows.MessageBoxButton.OK,
-                                                System.Windows.MessageBoxImage.Warning);
+                                            string komunikat = $"Suma wartości pozycji w dokumencie ZK: {sumaWartosci:F2} zł\nWartość zamówienia z API: {orderTotalValue:F2} zł\n\nRóżnica: {roznica:F2} zł ({roznicaProcent:F2}%)\n\nKorekta zostanie wykonana w następującej kolejności:\n1. Pozycja KOSZTY/1 (jeśli istnieje)\n2. Pozycja KOSZTY/2 (jeśli istnieje)\n3. Pierwsza pozycja produktowa";
+                                            
+                                            var dialog = new Gryzak.Views.KorektaWartosciDialog(komunikat);
+                                            bool czyKorygowac = dialog.ShowDialog() == true && dialog.CzyKorygowac;
+                                            
+                                            if (czyKorygowac)
+                                            {
+                                                // Koryguj różnicę w kolejności: KOSZTY/1 -> KOSZTY/2 -> pierwsza pozycja produktowa
+                                                try
+                                                {
+                                                    if (pozycje.Liczba > 0)
+                                                    {
+                                                        // Pobierz identyfikatory towarów KOSZTY/1 i KOSZTY/2
+                                                        int? towarKOSZTY1Id = null;
+                                                        int? towarKOSZTY2Id = null;
+                                                        
+                                                        try
+                                                        {
+                                                            dynamic towary = subiekt.Towary;
+                                                            dynamic towarKOSZTY1 = towary.Wczytaj("KOSZTY/1");
+                                                            if (towarKOSZTY1 != null)
+                                                            {
+                                                                towarKOSZTY1Id = towarKOSZTY1.Identyfikator;
+                                                            }
+                                                            dynamic towarKOSZTY2 = towary.Wczytaj("KOSZTY/2");
+                                                            if (towarKOSZTY2 != null)
+                                                            {
+                                                                towarKOSZTY2Id = towarKOSZTY2.Identyfikator;
+                                                            }
+                                                        }
+                                                        catch
+                                                        {
+                                                            Console.WriteLine("[SubiektService] Nie udało się odczytać identyfikatorów towarów KOSZTY.");
+                                                        }
+                                                        
+                                                        double pozostalaRoznica = roznica;
+                                                        bool czyZKwieksze = sumaWartosci > orderTotalValue;
+                                                        
+                                                        // Krok 1: Spróbuj skorygować KOSZTY/1 jeśli istnieje
+                                                        if (towarKOSZTY1Id.HasValue && pozostalaRoznica > 0.001)
+                                                        {
+                                                            for (int i = 1; i <= pozycje.Liczba; i++)
+                                                            {
+                                                                try
+                                                                {
+                                                                    dynamic poz = pozycje.Element(i);
+                                                                    int? towarId = null;
+                                                                    try
+                                                                    {
+                                                                        dynamic towar = poz.Towar;
+                                                                        if (towar != null)
+                                                                        {
+                                                                            towarId = towar.Identyfikator;
+                                                                        }
+                                                                    }
+                                                                    catch
+                                                                    {
+                                                                        try
+                                                                        {
+                                                                            towarId = poz.IdentyfikatorTowaru;
+                                                                        }
+                                                                        catch { }
+                                                                    }
+                                                                    
+                                                                    if (towarId.HasValue && towarId.Value == towarKOSZTY1Id.Value)
+                                                                    {
+                                                                        // To jest pozycja KOSZTY/1 - skoryguj ją
+                                                                        double aktualnaWartosc = 0.0;
+                                                                        try
+                                                                        {
+                                                                            var wartosc = poz.WartoscBruttoPoRabacie;
+                                                                            aktualnaWartosc = Convert.ToDouble(wartosc);
+                                                                        }
+                                                                        catch { }
+                                                                        
+                                                                        double ilosc = 1.0;
+                                                                        try
+                                                                        {
+                                                                            ilosc = Convert.ToDouble(poz.IloscJm);
+                                                                        }
+                                                                        catch { }
+                                                                        
+                                                                        if (ilosc > 0)
+                                                                        {
+                                                                            double nowaWartosc = czyZKwieksze
+                                                                                ? Math.Max(0, aktualnaWartosc - pozostalaRoznica)
+                                                                                : aktualnaWartosc + pozostalaRoznica;
+                                                                            double nowaCenaBrutto = nowaWartosc / ilosc;
+                                                                            
+                                                                            poz.CenaBruttoPoRabacie = nowaCenaBrutto;
+                                                                            zkDokument.Przelicz();
+                                                                            
+                                                                            Console.WriteLine($"[SubiektService] Skorygowano pozycję KOSZTY/1 (pozycja {i}):");
+                                                                            Console.WriteLine($"[SubiektService]   Stara wartość: {aktualnaWartosc:F2}");
+                                                                            Console.WriteLine($"[SubiektService]   Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}");
+                                                                            Console.WriteLine($"[SubiektService]   Nowa wartość: {nowaWartosc:F2}");
+                                                                            
+                                                                            // Oblicz ile różnicy zostało skorygowane
+                                                                            double skorygowanaRoznica = Math.Abs(aktualnaWartosc - nowaWartosc);
+                                                                            pozostalaRoznica -= skorygowanaRoznica;
+                                                                            
+                                                                            if (pozostalaRoznica <= 0.001) break;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                catch { }
+                                                            }
+                                                        }
+                                                        
+                                                        // Krok 2: Spróbuj skorygować KOSZTY/2 jeśli istnieje i różnica nadal jest
+                                                        if (towarKOSZTY2Id.HasValue && pozostalaRoznica > 0.001)
+                                                        {
+                                                            for (int i = 1; i <= pozycje.Liczba; i++)
+                                                            {
+                                                                try
+                                                                {
+                                                                    dynamic poz = pozycje.Element(i);
+                                                                    int? towarId = null;
+                                                                    try
+                                                                    {
+                                                                        dynamic towar = poz.Towar;
+                                                                        if (towar != null)
+                                                                        {
+                                                                            towarId = towar.Identyfikator;
+                                                                        }
+                                                                    }
+                                                                    catch
+                                                                    {
+                                                                        try
+                                                                        {
+                                                                            towarId = poz.IdentyfikatorTowaru;
+                                                                        }
+                                                                        catch { }
+                                                                    }
+                                                                    
+                                                                    if (towarId.HasValue && towarId.Value == towarKOSZTY2Id.Value)
+                                                                    {
+                                                                        // To jest pozycja KOSZTY/2 - skoryguj ją
+                                                                        double aktualnaWartosc = 0.0;
+                                                                        try
+                                                                        {
+                                                                            var wartosc = poz.WartoscBruttoPoRabacie;
+                                                                            aktualnaWartosc = Convert.ToDouble(wartosc);
+                                                                        }
+                                                                        catch { }
+                                                                        
+                                                                        double ilosc = 1.0;
+                                                                        try
+                                                                        {
+                                                                            ilosc = Convert.ToDouble(poz.IloscJm);
+                                                                        }
+                                                                        catch { }
+                                                                        
+                                                                        if (ilosc > 0)
+                                                                        {
+                                                                            double nowaWartosc = czyZKwieksze
+                                                                                ? Math.Max(0, aktualnaWartosc - pozostalaRoznica)
+                                                                                : aktualnaWartosc + pozostalaRoznica;
+                                                                            double nowaCenaBrutto = nowaWartosc / ilosc;
+                                                                            
+                                                                            poz.CenaBruttoPoRabacie = nowaCenaBrutto;
+                                                                            zkDokument.Przelicz();
+                                                                            
+                                                                            Console.WriteLine($"[SubiektService] Skorygowano pozycję KOSZTY/2 (pozycja {i}):");
+                                                                            Console.WriteLine($"[SubiektService]   Stara wartość: {aktualnaWartosc:F2}");
+                                                                            Console.WriteLine($"[SubiektService]   Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}");
+                                                                            Console.WriteLine($"[SubiektService]   Nowa wartość: {nowaWartosc:F2}");
+                                                                            
+                                                                            // Oblicz ile różnicy zostało skorygowane
+                                                                            double skorygowanaRoznica = Math.Abs(aktualnaWartosc - nowaWartosc);
+                                                                            pozostalaRoznica -= skorygowanaRoznica;
+                                                                            
+                                                                            if (pozostalaRoznica <= 0.001) break;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                catch { }
+                                                            }
+                                                        }
+                                                        
+                                                        // Krok 3: Jeśli nadal jest różnica, skoryguj pierwszą pozycję produktową (pierwsza nie-KOSZTY)
+                                                        if (pozostalaRoznica > 0.001)
+                                                        {
+                                                            for (int i = 1; i <= pozycje.Liczba; i++)
+                                                            {
+                                                                try
+                                                                {
+                                                                    dynamic poz = pozycje.Element(i);
+                                                                    int? towarId = null;
+                                                                    bool jestKoszty = false;
+                                                                    try
+                                                                    {
+                                                                        dynamic towar = poz.Towar;
+                                                                        if (towar != null)
+                                                                        {
+                                                                            towarId = towar.Identyfikator;
+                                                                            if (towarId.HasValue && towarKOSZTY1Id.HasValue && towarId.Value == towarKOSZTY1Id.Value)
+                                                                            {
+                                                                                jestKoszty = true;
+                                                                            }
+                                                                            if (towarId.HasValue && towarKOSZTY2Id.HasValue && towarId.Value == towarKOSZTY2Id.Value)
+                                                                            {
+                                                                                jestKoszty = true;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    catch
+                                                                    {
+                                                                        try
+                                                                        {
+                                                                            towarId = poz.IdentyfikatorTowaru;
+                                                                            if (towarId.HasValue && towarKOSZTY1Id.HasValue && towarId.Value == towarKOSZTY1Id.Value)
+                                                                            {
+                                                                                jestKoszty = true;
+                                                                            }
+                                                                            if (towarId.HasValue && towarKOSZTY2Id.HasValue && towarId.Value == towarKOSZTY2Id.Value)
+                                                                            {
+                                                                                jestKoszty = true;
+                                                                            }
+                                                                        }
+                                                                        catch { }
+                                                                    }
+                                                                    
+                                                                    if (!jestKoszty)
+                                                                    {
+                                                                        // To jest pozycja produktowa - skoryguj ją
+                                                                        double aktualnaWartosc = 0.0;
+                                                                        try
+                                                                        {
+                                                                            var wartosc = poz.WartoscBruttoPoRabacie;
+                                                                            aktualnaWartosc = Convert.ToDouble(wartosc);
+                                                                        }
+                                                                        catch { }
+                                                                        
+                                                                        double ilosc = 0.0;
+                                                                        try
+                                                                        {
+                                                                            ilosc = Convert.ToDouble(poz.IloscJm);
+                                                                        }
+                                                                        catch { }
+                                                                        
+                                                                        if (ilosc > 0)
+                                                                        {
+                                                                            double nowaWartosc = czyZKwieksze
+                                                                                ? aktualnaWartosc - pozostalaRoznica
+                                                                                : aktualnaWartosc + pozostalaRoznica;
+                                                                            double nowaCenaBrutto = nowaWartosc / ilosc;
+                                                                            
+                                                                            poz.CenaBruttoPoRabacie = nowaCenaBrutto;
+                                                                            zkDokument.Przelicz();
+                                                                            
+                                                                            Console.WriteLine($"[SubiektService] Skorygowano pierwszą pozycję produktową (pozycja {i}):");
+                                                                            Console.WriteLine($"[SubiektService]   Stara wartość: {aktualnaWartosc:F2}");
+                                                                            Console.WriteLine($"[SubiektService]   Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}");
+                                                                            Console.WriteLine($"[SubiektService]   Nowa wartość: {nowaWartosc:F2}");
+                                                                            Console.WriteLine($"[SubiektService]   Nowa cena brutto: {nowaCenaBrutto:F2}");
+                                                                            
+                                                                            pozostalaRoznica = 0.0;
+                                                                            break; // Korekta zakończona
+                                                                        }
+                                                                    }
+                                                                }
+                                                                catch { }
+                                                            }
+                                                        }
+                                                        
+                                                        // Przelicz dokument po wszystkich zmianach
+                                                        zkDokument.Przelicz();
+                                                        
+                                                        // Odczytaj sumę ponownie po korekcie
+                                                        double sumaPoKorekcie = 0.0;
+                                                        for (int j = 1; j <= pozycje.Liczba; j++)
+                                                        {
+                                                            try
+                                                            {
+                                                                dynamic poz = pozycje.Element(j);
+                                                                var wart = poz.WartoscBruttoPoRabacie;
+                                                                sumaPoKorekcie += Convert.ToDouble(wart);
+                                                            }
+                                                            catch { }
+                                                        }
+                                                        
+                                                        double roznicaPoKorekcie = Math.Abs(sumaPoKorekcie - orderTotalValue);
+                                                        Console.WriteLine($"[SubiektService] Suma po korekcie: {sumaPoKorekcie:F2}");
+                                                        Console.WriteLine($"[SubiektService] Różnica po korekcie: {roznicaPoKorekcie:F2}");
+                                                        
+                                                        if (roznicaPoKorekcie <= 0.001)
+                                                        {
+                                                            Console.WriteLine($"[SubiektService] Korekta zakończona pomyślnie. Wartości są teraz zgodne.");
+                                                        }
+                                                        else
+                                                        {
+                                                            MessageBox.Show(
+                                                                $"Korekta wykonana, ale różnica nadal wynosi {roznicaPoKorekcie:F2}.\n\nMożliwe przyczyny: zaokrąglenia lub różnice w VAT.",
+                                                                "Błąd korekty",
+                                                                System.Windows.MessageBoxButton.OK,
+                                                                System.Windows.MessageBoxImage.Warning);
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        Console.WriteLine("[SubiektService] Błąd: Brak pozycji w dokumencie - nie można wykonać korekty.");
+                                                        MessageBox.Show(
+                                                            "Nie można skorygować - brak pozycji w dokumencie.",
+                                                            "Błąd korekty",
+                                                            System.Windows.MessageBoxButton.OK,
+                                                            System.Windows.MessageBoxImage.Error);
+                                                    }
+                                                }
+                                                catch (Exception cenaEx)
+                                                {
+                                                    Console.WriteLine($"[SubiektService] Błąd podczas korekty ceny: {cenaEx.Message}");
+                                                    MessageBox.Show(
+                                                        $"Błąd podczas korekty: {cenaEx.Message}",
+                                                        "Błąd korekty",
+                                                        System.Windows.MessageBoxButton.OK,
+                                                        System.Windows.MessageBoxImage.Error);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                Console.WriteLine("[SubiektService] Użytkownik wybrał 'Pozostaw' - różnica nie została skorygowana.");
+                                            }
                                         }
                                         else
                                         {
-                                            Console.WriteLine($"[SubiektService] Wartości się zgadzają (różnica < 0.01).");
+                                            Console.WriteLine($"[SubiektService] Wartości się zgadzają (różnica = 0.00).");
                                         }
                                     }
                                 }
