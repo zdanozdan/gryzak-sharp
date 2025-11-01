@@ -260,24 +260,6 @@ namespace Gryzak.Services
             
             var currency = orderElement.TryGetProperty("currency_code", out var curr) ? curr.GetString() ?? "PLN" : "PLN";
             
-            // Pobierz currency_value do przeliczania total (wartości są w PLN, trzeba przeliczyć)
-            double currencyValueMultiplier = 1.0;
-            if (orderElement.TryGetProperty("currency_value", out var currencyValueProp))
-            {
-                if (currencyValueProp.ValueKind == JsonValueKind.Number)
-                {
-                    currencyValueMultiplier = currencyValueProp.GetDouble();
-                }
-                else if (currencyValueProp.ValueKind == JsonValueKind.String)
-                {
-                    var currencyValueStr = currencyValueProp.GetString();
-                    if (double.TryParse(currencyValueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                    {
-                        currencyValueMultiplier = parsed;
-                    }
-                }
-            }
-            
             var dateAdded = orderElement.TryGetProperty("date_added", out var date) ? date.GetString() ?? "" : "";
 
             var address = "";
@@ -300,16 +282,14 @@ namespace Gryzak.Services
                 }
             }
 
-            // Sformatuj total - parsuj, przelicz przez currency_value i formatuj z InvariantCulture
+            // Sformatuj total - parsuj i formatuj z InvariantCulture (API zwraca już przeliczone wartości)
             string formattedTotal = "0.00";
             if (!string.IsNullOrWhiteSpace(total) && total != "0")
             {
                 if (double.TryParse(total, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var totalVal))
                 {
-                    // Przelicz wartość przez currency_value (wartość total jest w PLN)
-                    var convertedTotal = totalVal * currencyValueMultiplier;
-                    formattedTotal = convertedTotal.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                    Console.WriteLine($"[ApiService] Zamówienie {orderId}: total PLN '{total}' -> przeliczona '{formattedTotal}' (currency_value: {currencyValueMultiplier})");
+                    formattedTotal = totalVal.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                    Console.WriteLine($"[ApiService] Zamówienie {orderId}: total '{total}' -> sformatowane '{formattedTotal}'");
                 }
                 else
                 {

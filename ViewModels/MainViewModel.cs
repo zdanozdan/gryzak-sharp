@@ -389,7 +389,7 @@ namespace Gryzak.ViewModels
             }
             
             var subiektService = new Services.SubiektService();
-            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount);
+            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
 
@@ -576,25 +576,6 @@ namespace Gryzak.ViewModels
                     Console.WriteLine($"[MainViewModel] Zaktualizowano ISO Code 3: {order.IsoCode3}");
                 }
 
-                // Pobierz currency_value do przeliczania totals
-                double currencyValueMultiplier = 1.0;
-                if (root.TryGetProperty("currency_value", out var currencyValueProp))
-                {
-                    if (currencyValueProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-                    {
-                        currencyValueMultiplier = currencyValueProp.GetDouble();
-                    }
-                    else if (currencyValueProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var currencyValueStr = currencyValueProp.GetString();
-                        if (double.TryParse(currencyValueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                        {
-                            currencyValueMultiplier = parsed;
-                        }
-                    }
-                    Console.WriteLine($"[MainViewModel] Currency value multiplier: {currencyValueMultiplier}");
-                }
-
                 // Produkty
                 try
                 {
@@ -658,7 +639,7 @@ namespace Gryzak.ViewModels
                     Console.WriteLine($"[MainViewModel] Błąd parsowania produktów: {prodEx.Message}");
                 }
 
-                // Totals - wyszukaj kupon i sub_total (wartości są w PLN, trzeba przeliczyć przez currency_value)
+                // Totals - wyszukaj kupon i sub_total (API zwraca już przeliczone wartości)
                 try
                 {
                     if (root.TryGetProperty("totals", out var totalsProp) && totalsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
@@ -689,39 +670,36 @@ namespace Gryzak.ViewModels
 
                                 if (valueParsed.HasValue)
                                 {
-                                    // Przelicz wartość przez currency_value (wartości są w PLN)
-                                    var convertedValue = valueParsed.Value * currencyValueMultiplier;
-                                    
                                     if (code == "coupon")
                                     {
                                         // Wartość kuponu jest ujemna w API (np. -18.6665), więc użyj wartości bezwzględnej
-                                        order.CouponAmount = Math.Abs(convertedValue);
+                                        order.CouponAmount = Math.Abs(valueParsed.Value);
                                         // Parsuj tytuł kuponu (np. "Kupon (-15% , ASA5050)")
                                         if (totalEl.TryGetProperty("title", out var titleProp) && titleProp.ValueKind == System.Text.Json.JsonValueKind.String)
                                         {
                                             order.CouponTitle = titleProp.GetString();
                                         }
-                                        Console.WriteLine($"[MainViewModel] Znaleziono kupon: {order.CouponTitle} (wartość PLN: {valueParsed.Value:F2}, przeliczona: {order.CouponAmount:F2})");
+                                        Console.WriteLine($"[MainViewModel] Znaleziono kupon: {order.CouponTitle} (wartość: {order.CouponAmount:F2})");
                                     }
                                     else if (code == "sub_total")
                                     {
-                                        order.SubTotal = convertedValue;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono sub_total (PLN: {valueParsed.Value:F2}, przeliczona: {order.SubTotal:F2})");
+                                        order.SubTotal = valueParsed.Value;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono sub_total: {order.SubTotal:F2}");
                                     }
                                     else if (code == "handling")
                                     {
-                                        order.HandlingAmount = convertedValue;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono handling (PLN: {valueParsed.Value:F2}, przeliczona: {order.HandlingAmount:F2})");
+                                        order.HandlingAmount = valueParsed.Value;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono handling: {order.HandlingAmount:F2}");
                                     }
                                     else if (code == "shipping")
                                     {
-                                        order.ShippingAmount = convertedValue;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono shipping (PLN: {valueParsed.Value:F2}, przeliczona: {order.ShippingAmount:F2})");
+                                        order.ShippingAmount = valueParsed.Value;
+                                        Console.WriteLine($"[MainViewModel] Znaleziono shipping: {order.ShippingAmount:F2}");
                                     }
                                     else if (code == "total")
                                     {
-                                        order.Total = convertedValue.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                                        Console.WriteLine($"[MainViewModel] Znaleziono total (PLN: {valueParsed.Value:F2}, przeliczona: {order.Total})");
+                                        order.Total = valueParsed.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                                        Console.WriteLine($"[MainViewModel] Znaleziono total: {order.Total}");
                                     }
                                 }
                             }

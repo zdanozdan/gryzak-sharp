@@ -134,7 +134,6 @@
                                 <ColumnDefinition Width="120"/>
                                 <ColumnDefinition Width="120"/>
                                 <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="120"/>
                                 <ColumnDefinition Width="100"/>
                             </Grid.ColumnDefinitions>
 
@@ -163,8 +162,7 @@
                             <TextBlock Grid.Column="3" Text="{Binding Status}"/>
                             <TextBlock Grid.Column="4" Text="{Binding PaymentStatus}"/>
                             <TextBlock Grid.Column="5" Text="{Binding CountryWithIso3}"/>
-                            <TextBlock Grid.Column="6" Text="{Binding AssignedTo}"/>
-                            <TextBlock Grid.Column="7">
+                            <TextBlock Grid.Column="6">
                                 <TextBlock.Text>
                                     <MultiBinding StringFormat="{}{0} {1}">
                                         <Binding Path="Total"/>
@@ -215,9 +213,9 @@
                             <TextBlock Grid.Column="0" Text="ID Zamówienia" FontWeight="Bold" Foreground="White"/>
                             <TextBlock Grid.Column="1" Text="Data" FontWeight="Bold" Foreground="White"/>
                             <TextBlock Grid.Column="2" Text="Klient" FontWeight="Bold" Foreground="White"/>
-                            <TextBlock Grid.Column="3" Text="Status" FontWeight="Bold" Foreground="White"/>
-                            <TextBlock Grid.Column="4" Text="Status Płatności" FontWeight="Bold" Foreground="White"/>
-                            <TextBlock Grid.Column="5" Text="Obsługuje" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="3" Text="Status zamówienia" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="4" Text="Status płatności" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Grid.Column="5" Text="Kraj" FontWeight="Bold" Foreground="White"/>
                             <TextBlock Grid.Column="6" Text="Wartość" FontWeight="Bold" Foreground="White" HorizontalAlignment="Right"/>
                         </Grid>
                     </Border>
@@ -254,7 +252,6 @@
                                         <ColumnDefinition Width="100"/>
                                         <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="120"/>
                                         <ColumnDefinition Width="120"/>
@@ -383,8 +380,7 @@
                                     <TextBlock Grid.Column="3" Text="{Binding Status}"/>
                                     <TextBlock Grid.Column="4" Text="{Binding PaymentStatus}"/>
                                     <TextBlock Grid.Column="5" Text="{Binding CountryWithIso3}"/>
-                                    <TextBlock Grid.Column="6" Text="{Binding AssignedTo}"/>
-                                    <TextBlock Grid.Column="7">
+                                    <TextBlock Grid.Column="6">
                                         <TextBlock.Text>
                                             <MultiBinding StringFormat="{}{0} {1}">
                                                 <Binding Path="Total"/>

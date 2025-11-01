@@ -1,0 +1,68 @@
+<Window x:Class="Gryzak.Views.SubiektSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="⚙️ Ustawienia Subiekt GT" 
+        Height="380" Width="500"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Icon="pack://application:,,,/gryzak_icon.png">
+    
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="0,5,0,15"/>
+            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="0,5,0,15"/>
+            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Background" Value="#2196F3"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Nagłówek -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="⚙️ Ustawienia Subiekt GT" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
+            <TextBlock Text="Ustawienia logowania do Subiekt GT" FontSize="12" Foreground="Gray"/>
+        </StackPanel>
+
+        <!-- Formularz -->
+        <Grid Grid.Row="1">
+            <StackPanel>
+                <TextBlock Text="Użytkownik:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                <TextBox Name="UserTextBox"/>
+
+                <TextBlock Text="Hasło:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                <PasswordBox Name="PasswordBox"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Przyciski -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="💾 Zapisz" Click="SaveButton_Click" IsDefault="True"/>
+            <Button Content="Anuluj" Click="CancelButton_Click" IsCancel="True" Background="#E0E0E0" Foreground="Black"/>
+        </StackPanel>
+    </Grid>
+</Window>
+

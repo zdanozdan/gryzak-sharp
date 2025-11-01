@@ -70,6 +70,10 @@ artifacts/
 # Application state/config
 config.json
 
+# Published and installer files
+publish/
+installer/
+
 # Temporary files
 *.cache
 *.tmp

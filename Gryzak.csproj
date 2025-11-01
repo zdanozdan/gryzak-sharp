@@ -5,6 +5,14 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
+    <AssemblyName>Gryzak</AssemblyName>
+    <Product>Gryzak - Menedżer Zamówień</Product>
+    <Version>1.0.0</Version>
+    <Authors>Your Company</Authors>
+    <Company>Your Company</Company>
+    <Description>Aplikacja do zarządzania zamówieniami ze sklepu internetowego</Description>
+    <Copyright>Copyright © 2024</Copyright>
+    <ApplicationIcon>gryzak.iconset/1-96da4866.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

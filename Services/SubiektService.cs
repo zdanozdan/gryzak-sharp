@@ -86,7 +86,7 @@ namespace Gryzak.Services
             InstancjaZmieniona?.Invoke(null, aktywna);
         }
 
-        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null)
+        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null)
         {
             try
             {
@@ -162,6 +162,8 @@ namespace Gryzak.Services
                             return;
                         }
                         Console.WriteLine("[SubiektService] Subiekt GT uruchomiony w tle (bez interfejsu użytkownika).");
+                        
+
                         
                         // Zapisz w cache dla następnych użyć
                         _cachedGt = gt;
@@ -312,6 +314,44 @@ namespace Gryzak.Services
                             }
                         }
                         
+                        // Ustaw walutę dokumentu (jeśli została podana)
+                        // Używamy atrybutu WalutaSymbol, który przyjmuje symbol waluty jako string (np. "EUR", "USD", "PLN")
+                        if (!string.IsNullOrWhiteSpace(currency))
+                        {
+                            try
+                            {
+                                zkDokument.WalutaSymbol = currency;
+                                Console.WriteLine($"[SubiektService] Ustawiono walutę dokumentu ZK: {currency}");
+                                
+                                // Opcjonalnie można pobrać kurs waluty automatycznie po ustawieniu symbolu
+                                try
+                                {
+                                    zkDokument.PobierzKursWaluty();
+                                    Console.WriteLine($"[SubiektService] Pobrano kurs waluty dla {currency}");
+                                }
+                                catch (Exception kursEx)
+                                {
+                                    Console.WriteLine($"[SubiektService] Uwaga: Nie udało się pobrać kursu waluty automatycznie: {kursEx.Message}");
+                                    // To nie jest błąd krytyczny, kurs można ustawić ręcznie później
+                                }
+                            }
+                            catch (Exception walutaEx)
+                            {
+                                Console.WriteLine($"[SubiektService] Nie udało się ustawić waluty: {walutaEx.Message}");
+                            }
+                        }
+                        
+                        // Ustaw przeliczanie dokumentu od cen brutto (ponieważ ustawiamy CenaBruttoPoRabacie dla pozycji)
+                        try
+                        {
+                            zkDokument.LiczonyOdCenBrutto = true;
+                            Console.WriteLine("[SubiektService] Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = true)");
+                        }
+                        catch (Exception bruttoEx)
+                        {
+                            Console.WriteLine($"[SubiektService] Nie udało się ustawić LiczoneOdCenBrutto: {bruttoEx.Message}");
+                        }
+                        
                         // Dodaj informacje o kuponie i numerze zamówienia do uwag dokumentu (jeśli jest kupon)
                         if ((!string.IsNullOrWhiteSpace(couponTitle) && couponAmount.HasValue) || !string.IsNullOrWhiteSpace(orderId))
                         {
@@ -425,57 +465,61 @@ namespace Gryzak.Services
                                             try { pozycja.IloscJm = it.Quantity; } catch { }
                                         }
 
-                                        // Cena z API (netto)
-                                        double? apiPriceNet = null;
+                                        // Oblicz cenę brutto z API (Price + Tax)
+                                        double? apiPriceBrutto = null;
                                         if (!string.IsNullOrWhiteSpace(it.Price))
                                         {
                                             try
                                             {
-                                                var parsed = double.Parse(it.Price, System.Globalization.CultureInfo.InvariantCulture);
-                                                // Odejmij procent kuponu od ceny (jeśli kupon istnieje)
-                                                if (couponPercentage.HasValue)
+                                                var priceNetto = double.Parse(it.Price, System.Globalization.CultureInfo.InvariantCulture);
+                                                var tax = 0.0;
+                                                
+                                                // Dodaj podatek jeśli jest dostępny
+                                                if (!string.IsNullOrWhiteSpace(it.Tax))
                                                 {
-                                                    parsed = parsed * (1.0 - couponPercentage.Value / 100.0);
+                                                    if (double.TryParse(it.Tax, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsedTax))
+                                                    {
+                                                        tax = parsedTax;
+                                                    }
                                                 }
                                                 
-                                                apiPriceNet = parsed;
+                                                // Oblicz cenę brutto
+                                                var priceBrutto = priceNetto + tax;
+                                                
+                                                // Odejmij procent kuponu od ceny brutto (jeśli kupon istnieje)
+                                                if (couponPercentage.HasValue)
+                                                {
+                                                    priceBrutto = priceBrutto * (1.0 - couponPercentage.Value / 100.0);
+                                                }
+                                                
+                                                apiPriceBrutto = priceBrutto;
                                             }
-                                            catch { apiPriceNet = null; }
+                                            catch (Exception priceEx)
+                                            {
+                                                Console.WriteLine($"[SubiektService] Błąd parsowania ceny dla produktu {it.ProductId}: {priceEx.Message}");
+                                                apiPriceBrutto = null;
+                                            }
                                         }
 
-                                        try
+                                        // Ustaw cenę brutto po rabacie z API
+                                        if (apiPriceBrutto.HasValue)
                                         {
-                                            // Cena bazowa z kartoteki (ustawiana automatycznie przez Subiekta po dodaniu pozycji)
-                                            double basePrice = 0.0;
-                                            try { basePrice = Convert.ToDouble(pozycja.CenaNettoPrzedRabatem, System.Globalization.CultureInfo.InvariantCulture); } catch { basePrice = 0.0; }
-
-                                            if (apiPriceNet.HasValue && basePrice > 0.0)
+                                            try
                                             {
-                                                // Jeśli cena API jest niższa od bazowej, policz rabat procentowy
-                                                if (apiPriceNet.Value < basePrice)
-                                                {
-                                                    var discount = (1.0 - (apiPriceNet.Value / basePrice)) * 100.0;
-                                                    if (discount < 0) discount = 0;
-                                                    if (discount > 99.99) discount = 99.99;
-                                                    try { pozycja.RabatProcent = discount; } catch { }
-                                                }
-                                                else
-                                                {
-                                                    // Cena API >= bazowej: rabat 0, opcjonalnie podnieś bazę do ceny API
-                                                    try { pozycja.RabatProcent = 0.0; } catch { }
-                                                    // Jeżeli chcemy wymusić dokładnie cenę API przy cenie wyższej niż bazowa
-                                                    try { pozycja.CenaNettoPrzedRabatem = apiPriceNet.Value; } catch { }
-                                                }
+                                                pozycja.CenaBruttoPoRabacie = apiPriceBrutto.Value;
+                                                Console.WriteLine($"[SubiektService] Ustawiono CenaBruttoPoRabacie={apiPriceBrutto.Value:F2} dla produktu ID={towarId} (Price={it.Price}, Tax={it.Tax})");
                                             }
-                                            else if (apiPriceNet.HasValue)
+                                            catch (Exception cenaEx)
                                             {
-                                                // Brak wiarygodnej ceny bazowej: ustaw po prostu cenę przed rabatem
-                                                try { pozycja.CenaNettoPrzedRabatem = apiPriceNet.Value; } catch { }
+                                                Console.WriteLine($"[SubiektService] Nie udało się ustawić CenaBruttoPoRabacie: {cenaEx.Message}");
                                             }
                                         }
-                                        catch { }
-
-                                        Console.WriteLine($"[SubiektService] Dodano pozycję towarową o ID={towarId} (qty={it.Quantity}, apiPrice={it.Price}).");
+                                        else
+                                        {
+                                            Console.WriteLine($"[SubiektService] Brak ceny brutto z API dla produktu ID={towarId}");
+                                        }
+                                        
+                                        Console.WriteLine($"[SubiektService] Dodano pozycję towarową o ID={towarId} (qty={it.Quantity}, apiPriceNetto={it.Price}, apiPriceBrutto={apiPriceBrutto?.ToString("F2") ?? "brak"}).");
                                     }
                                     else
                                     {
