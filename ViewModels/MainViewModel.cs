@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows;
 using System.Text.Json;
 using System.Text.Encodings.Web;
+using System.IO;
 using Gryzak.Models;
 using Gryzak.Services;
 
@@ -19,6 +20,8 @@ namespace Gryzak.ViewModels
     {
         private readonly ApiService _apiService;
         private readonly ConfigService _configService;
+        private readonly Dictionary<string, string> _countryMap = new Dictionary<string, string>();
+        private readonly Dictionary<string, string> _viesMap = new Dictionary<string, string>();
         private bool _isLoading;
         private bool _isLoadingMore;
         private bool _isApiConfigured;
@@ -160,7 +163,65 @@ namespace Gryzak.ViewModels
             // Upewnij się, że StatusFilter jest ustawione przed pierwszym ładowaniem
             StatusFilter = "Wszystkie statusy";
             
+            LoadCountryMap();
+            
             _ = LoadOrdersAsync(false);
+        }
+        
+        private void LoadCountryMap()
+        {
+            try
+            {
+                var jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kraje_iso2.json");
+                if (!File.Exists(jsonPath))
+                {
+                    Console.WriteLine($"[MainViewModel] Plik kraje_iso2.json nie został znaleziony: {jsonPath}");
+                    return;
+                }
+                
+                var jsonContent = File.ReadAllText(jsonPath, System.Text.Encoding.UTF8);
+                var countries = JsonSerializer.Deserialize<List<CountryInfo>>(jsonContent);
+                
+                if (countries != null)
+                {
+                    foreach (var country in countries)
+                    {
+                        if (!string.IsNullOrWhiteSpace(country.code) && !string.IsNullOrWhiteSpace(country.name_pl))
+                        {
+                            _countryMap[country.code.ToUpperInvariant()] = country.name_pl;
+                            
+                            // Dodaj również mapę VIES jeśli dostępna
+                            if (!string.IsNullOrWhiteSpace(country.code_vies))
+                            {
+                                _viesMap[country.code.ToUpperInvariant()] = country.code_vies;
+                            }
+                        }
+                    }
+                    Console.WriteLine($"[MainViewModel] Wczytano {_countryMap.Count} krajów z pliku kraje_iso2.json, z czego {_viesMap.Count} z kodami VIES");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MainViewModel] Błąd podczas wczytywania mapy krajów: {ex.Message}");
+            }
+        }
+        
+        private class CountryInfo
+        {
+            public string name_pl { get; set; } = "";
+            public string name_en { get; set; } = "";
+            public string code { get; set; } = "";
+            public string? code_vies { get; set; }
+        }
+        
+        public Dictionary<string, string> GetCountryMap()
+        {
+            return _countryMap;
+        }
+        
+        public Dictionary<string, string> GetViesMap()
+        {
+            return _viesMap;
         }
 
         private void CheckApiConfiguration()
@@ -231,6 +292,17 @@ namespace Gryzak.ViewModels
                         // Sprawdź czy zamówienie nie jest już w liście (duplikaty)
                         if (!AllOrders.Any(o => o.Id == order.Id))
                         {
+                            // Mapuj kraj z ISO code 2 na polską nazwę jeśli dostępne
+                            if (!string.IsNullOrWhiteSpace(order.IsoCode2))
+                            {
+                                var isoCode2 = order.IsoCode2.ToUpperInvariant();
+                                if (_countryMap.TryGetValue(isoCode2, out var polishName))
+                                {
+                                    order.Country = polishName;
+                                    Console.WriteLine($"[Gryzak] Zmapowano kraj (ISO {isoCode2}): {order.Country}");
+                                }
+                            }
+                            
                             AllOrders.Add(order);
                             Console.WriteLine($"[Gryzak] Dodano zamówienie: {order.Id} - {order.Customer}");
                             
@@ -379,19 +451,15 @@ namespace Gryzak.ViewModels
             // Pobierz NIP z wybranego zamówienia
             var nip = SelectedOrder?.Nip;
             
-            // Jeśli NIP nie jest dostępny, pokaż ostrzeżenie
-            if (string.IsNullOrWhiteSpace(nip))
-            {
-                MessageBox.Show(
-                    "Wybrane zamówienie nie posiada numeru NIP.\n\n" +
-                    "Dokument ZK zostanie otwarty bez przypisanego kontrahenta.",
-                    "Brak NIP",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-            
+            // Nie pokazujemy już MessageBox - dialog wyboru kontrahenta obsługuje wybór
             var subiektService = new Services.SubiektService();
-            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount);
+            var orderEmail = SelectedOrder?.Email;
+            // Jeśli email to "Brak email", traktuj jako null
+            if (orderEmail == "Brak email" || string.IsNullOrWhiteSpace(orderEmail))
+            {
+                orderEmail = null;
+            }
+            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
 
@@ -581,11 +649,48 @@ namespace Gryzak.ViewModels
                     Console.WriteLine($"[MainViewModel] Zaktualizowano NIP: {order.Nip}");
                 }
 
-                // Aktualizuj kraj
-                if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                // Aktualizuj kraj - użyj kod ISO 2 aby znaleźć polską nazwę kraju
+                JsonElement? iso2Prop = null;
+                string? iso2Value = null;
+                
+                // Spróbuj najpierw payment_iso_code_2 (szczegóły zamówienia)
+                if (root.TryGetProperty("payment_iso_code_2", out var paymentIso2Prop))
                 {
-                    order.Country = countryProp.GetString() ?? "";
-                    Console.WriteLine($"[MainViewModel] Zaktualizowano kraj: {order.Country}");
+                    iso2Prop = paymentIso2Prop;
+                }
+                // Fallback: iso_code_2 (lista zamówień)
+                else if (root.TryGetProperty("iso_code_2", out var iso2PropFallback))
+                {
+                    iso2Prop = iso2PropFallback;
+                }
+                
+                if (iso2Prop.HasValue && iso2Prop.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    iso2Value = iso2Prop.Value.GetString()?.ToUpperInvariant();
+                    order.IsoCode2 = iso2Value;
+                    if (!string.IsNullOrWhiteSpace(iso2Value) && _countryMap.TryGetValue(iso2Value, out var polishName))
+                    {
+                        order.Country = polishName;
+                        Console.WriteLine($"[MainViewModel] Zaktualizowano kraj (ISO {iso2Value}): {order.Country}");
+                    }
+                    else
+                    {
+                        // Jeśli nie znaleziono w mapie, użyj oryginalnej nazwy z API
+                        if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            order.Country = countryProp.GetString() ?? "";
+                            Console.WriteLine($"[MainViewModel] Zaktualizowano kraj (oryginalna nazwa): {order.Country}");
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback: użyj oryginalnej nazwy z API
+                    if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        order.Country = countryProp.GetString() ?? "";
+                        Console.WriteLine($"[MainViewModel] Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {order.Country}");
+                    }
                 }
                 
                 // Aktualizuj kod ISO 3

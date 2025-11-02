@@ -229,6 +229,7 @@ namespace Gryzak.Services
             var postcode = orderElement.TryGetProperty("payment_postcode", out var pc) ? pc.GetString() ?? "" : "";
             var city = orderElement.TryGetProperty("payment_city", out var c) ? c.GetString() ?? "" : "";
             var country = orderElement.TryGetProperty("payment_country", out var countryProp) ? countryProp.GetString() ?? "" : "";
+            var isoCode2 = orderElement.TryGetProperty("iso_code_2", out var iso2) ? iso2.GetString() : null;
             var isoCode3 = orderElement.TryGetProperty("iso_code_3", out var iso3) ? iso3.GetString() : null;
             var status = orderElement.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "";
             var paymentStatus = orderElement.TryGetProperty("payment_status", out var ps) ? ps.GetString() ?? "Nieznany" : "Nieznany";
@@ -321,12 +322,17 @@ namespace Gryzak.Services
                 Company = company,
                 Nip = vat,
                 Address = string.IsNullOrWhiteSpace(address) ? null : address,
+                PaymentAddress1 = string.IsNullOrWhiteSpace(address1) ? null : address1,
+                PaymentAddress2 = string.IsNullOrWhiteSpace(address2) ? null : address2,
+                PaymentPostcode = string.IsNullOrWhiteSpace(postcode) ? null : postcode,
+                PaymentCity = string.IsNullOrWhiteSpace(city) ? null : city,
                 Status = status,
                 PaymentStatus = paymentStatus,
                 Total = formattedTotal,
                 Currency = currency,
                 Date = dateParsed,
                 Country = country,
+                IsoCode2 = isoCode2,
                 IsoCode3 = isoCode3
             };
         }

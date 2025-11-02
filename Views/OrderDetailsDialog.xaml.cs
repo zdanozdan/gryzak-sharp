@@ -356,12 +356,67 @@ namespace Gryzak.Views
                     Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano NIP: {CustomerNip}");
                 }
 
-                // Aktualizuj kraj
-                if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                // Aktualizuj kraj - użyj kod ISO 2 aby znaleźć polską nazwę kraju
+                System.Text.Json.JsonElement? iso2Prop = null;
+                string? iso2Value = null;
+                
+                // Spróbuj najpierw payment_iso_code_2 (szczegóły zamówienia)
+                if (root.TryGetProperty("payment_iso_code_2", out var paymentIso2Prop))
                 {
-                    _order.Country = countryProp.GetString() ?? "";
-                    CustomerCountry = _order.CountryWithIso3;
-                    Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj: {_order.Country}");
+                    iso2Prop = paymentIso2Prop;
+                }
+                // Fallback: iso_code_2 (lista zamówień)
+                else if (root.TryGetProperty("iso_code_2", out var iso2PropFallback))
+                {
+                    iso2Prop = iso2PropFallback;
+                }
+                
+                if (iso2Prop.HasValue && iso2Prop.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    iso2Value = iso2Prop.Value.GetString()?.ToUpperInvariant();
+                    _order.IsoCode2 = iso2Value;
+                    
+                    // Jeśli mamy MainViewModel, użyj jego mapy krajów
+                    if (_mainViewModel != null)
+                    {
+                        var countryMap = _mainViewModel.GetCountryMap();
+                        if (!string.IsNullOrWhiteSpace(iso2Value) && countryMap.TryGetValue(iso2Value, out var polishName))
+                        {
+                            _order.Country = polishName;
+                            CustomerCountry = _order.CountryWithIso3;
+                            Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (ISO {iso2Value}): {_order.Country}");
+                        }
+                        else
+                        {
+                            // Jeśli nie znaleziono w mapie, użyj oryginalnej nazwy z API
+                            if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                _order.Country = countryProp.GetString() ?? "";
+                                CustomerCountry = _order.CountryWithIso3;
+                                Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (oryginalna nazwa): {_order.Country}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Jeśli nie mamy MainViewModel, użyj oryginalnej nazwy
+                        if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            _order.Country = countryProp.GetString() ?? "";
+                            CustomerCountry = _order.CountryWithIso3;
+                            Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (oryginalna nazwa, brak MainViewModel): {_order.Country}");
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback: użyj oryginalnej nazwy z API
+                    if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        _order.Country = countryProp.GetString() ?? "";
+                        CustomerCountry = _order.CountryWithIso3;
+                        Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {_order.Country}");
+                    }
                 }
                 
                 // Aktualizuj kod ISO 3
@@ -543,14 +598,18 @@ namespace Gryzak.Views
 
         private void OpenZKButton_Click(object sender, RoutedEventArgs e)
         {
+            Console.WriteLine("[OrderDetailsDialog] Przycisk 'Otwórz ZK' został kliknięty");
+            
             if (_order != null && _mainViewModel != null)
             {
                 // Zaznacz zamówienie i otwórz ZK
                 _mainViewModel.SelectedOrder = _order;
+                Console.WriteLine("[OrderDetailsDialog] Uruchamianie komendy DodajZK");
                 _mainViewModel.DodajZKCommand.Execute(null);
             }
             
             // Zamknij okno po otwarciu ZK
+            Console.WriteLine("[OrderDetailsDialog] Zamykanie okna szczegółów zamówienia");
             DialogResult = true;
             Close();
         }

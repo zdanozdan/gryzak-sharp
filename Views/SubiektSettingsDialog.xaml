@@ -5,9 +5,10 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="⚙️ Ustawienia Subiekt GT" 
-        Height="380" Width="500"
+        Height="600" Width="550"
+        MinHeight="500" MinWidth="500"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         Icon="pack://application:,,,/gryzak_icon.png">
     
     <Window.Resources>
@@ -48,15 +49,59 @@
         </StackPanel>
 
         <!-- Formularz -->
-        <Grid Grid.Row="1">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <TextBlock Text="Użytkownik:" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                <TextBox Name="UserTextBox"/>
+                <!-- Sekcja: Ustawienia serwera -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Ustawienia serwera MSSQL" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+                        
+                        <TextBlock Text="Adres serwera:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="ServerAddressTextBox"/>
+                        
+                        <TextBlock Text="Username:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="ServerUsernameTextBox"/>
+                        
+                        <TextBlock Text="Password:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <PasswordBox Name="ServerPasswordBox"/>
+                        
+                        <Button Name="TestConnectionButton" 
+                                Content="🔌 Testuj połączenie" 
+                                Click="TestConnectionButton_Click"
+                                HorizontalAlignment="Left"
+                                Margin="0,10,0,0"
+                                Background="#4CAF50"
+                                Foreground="White"
+                                Padding="12,8"/>
+                    </StackPanel>
+                </Border>
 
-                <TextBlock Text="Hasło:" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                <PasswordBox Name="PasswordBox"/>
+                <!-- Sekcja: Użytkownik Subiekt GT -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Użytkownik Subiekt GT" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+                        
+                        <TextBlock Text="Użytkownik:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox Name="UserComboBox" 
+                                  IsEditable="True"
+                                  DisplayMemberPath="DisplayName"
+                                  SelectedValuePath="UserName"/>
+
+                        <TextBlock Text="Hasło:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <PasswordBox Name="PasswordBox"/>
+                        
+                        <Button Name="LoadUsersButton" 
+                                Content="📋 Pobierz listę użytkowników" 
+                                Click="LoadUsersButton_Click"
+                                HorizontalAlignment="Left"
+                                Margin="0,10,0,0"
+                                Background="#FF9800"
+                                Foreground="White"
+                                Padding="12,8"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
-        </Grid>
+        </ScrollViewer>
 
         <!-- Przyciski -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">

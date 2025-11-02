@@ -17,11 +17,17 @@
 
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
   </ItemGroup>
 
   <ItemGroup>
     <Resource Include="gryzak_icon.png" />
     <Resource Include="gryzak.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="kraje_iso2.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="gt_example.cs" />

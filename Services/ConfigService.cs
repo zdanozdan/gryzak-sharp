@@ -124,6 +124,9 @@ namespace Gryzak.Services
         {
             return new SubiektConfig
             {
+                ServerAddress = "",
+                ServerUsername = "",
+                ServerPassword = "",
                 User = "Szef",
                 Password = "zdanoszef123"
             };

@@ -4,6 +4,8 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Text.Json;
+using System.IO;
 using Gryzak.Views;
 using Microsoft.Data.SqlClient;
 
@@ -17,12 +19,65 @@ namespace Gryzak.Services
         // Cache dla obiektu GT i Subiekta - aby nie uruchamiać od nowa za każdym razem
         private static dynamic? _cachedGt = null;
         private static dynamic? _cachedSubiekt = null;
+        
+        // Cache dla mapy kodów VIES - aby nie wczytywać od nowa za każdym razem
+        private static Dictionary<string, string>? _viesMapCache = null;
 
         private readonly ConfigService _configService;
 
         public SubiektService()
         {
             _configService = new ConfigService();
+        }
+        
+        private class CountryInfo
+        {
+            public string name_pl { get; set; } = "";
+            public string name_en { get; set; } = "";
+            public string code { get; set; } = "";
+            public string? code_vies { get; set; }
+        }
+        
+        /// <summary>
+        /// Wczytuje mapę kodów VIES z pliku kraje_iso2.json
+        /// </summary>
+        private static Dictionary<string, string> LoadViesMap()
+        {
+            if (_viesMapCache != null)
+            {
+                return _viesMapCache;
+            }
+            
+            var viesMap = new Dictionary<string, string>();
+            
+            try
+            {
+                var jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kraje_iso2.json");
+                if (File.Exists(jsonPath))
+                {
+                    var jsonContent = File.ReadAllText(jsonPath, System.Text.Encoding.UTF8);
+                    var countries = JsonSerializer.Deserialize<List<CountryInfo>>(jsonContent);
+                    
+                    if (countries != null)
+                    {
+                        foreach (var country in countries)
+                        {
+                            if (!string.IsNullOrWhiteSpace(country.code) && !string.IsNullOrWhiteSpace(country.code_vies))
+                            {
+                                viesMap[country.code.ToUpperInvariant()] = country.code_vies;
+                            }
+                        }
+                        Console.WriteLine($"[SubiektService] Wczytano {viesMap.Count} kodów VIES z pliku kraje_iso2.json");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SubiektService] Błąd podczas wczytywania mapy VIES: {ex.Message}");
+            }
+            
+            _viesMapCache = viesMap;
+            return viesMap;
         }
 
         public bool CzyInstancjaAktywna()
@@ -33,7 +88,15 @@ namespace Gryzak.Services
         /// <summary>
         /// Wyszukuje kontrahenta przez zapytanie SQL do bazy MSSQL
         /// </summary>
-        private int? WyszukajKontrahentaPrzezSQL(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null)
+        private int? WyszukajKontrahentaPrzezSQL(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        {
+            return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, false);
+        }
+        
+        /// <summary>
+        /// Wewnętrzna metoda do wyszukiwania kontrahenta przez SQL z obsługą rekurencji
+        /// </summary>
+        private int? WyszukajKontrahentaPrzezSQLInternal(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool isRecursive = false)
         {
             int? selectedId = null;
             
@@ -204,6 +267,7 @@ AND (
                             Console.WriteLine($"[SubiektService] Wyświetlam dialog wyboru kontrahenta ({kontrahenci.Count} wyników)...");
                             
                             // Użyj synchronicznego Invoke, aby upewnić się że dialog jest wyświetlony
+                            bool shouldAddNew = false;
                             Application.Current?.Dispatcher.Invoke(() =>
                             {
                                 try
@@ -232,14 +296,23 @@ AND (
                                     dialog.Topmost = false;
                                     Console.WriteLine($"[SubiektService] Dialog ShowDialog() zakończył się z wynikiem: {result}");
                                     
-                                    if (result == true && dialog.SelectedKontrahent != null)
+                                    // Sprawdź czy użytkownik kliknął "Nowy"
+                                    if (dialog.ShouldAddNew)
                                     {
-                                        selectedId = dialog.SelectedKontrahent.Id;
-                                        Console.WriteLine($"[SubiektService] Użytkownik wybrał kontrahenta: ID={dialog.SelectedKontrahent.Id}, Symbol={dialog.SelectedKontrahent.Symbol}");
+                                        Console.WriteLine("[SubiektService] Użytkownik chce dodać nowego kontrahenta - otwieram okno Subiekta GT");
+                                        shouldAddNew = true;
                                     }
                                     else
                                     {
-                                        Console.WriteLine("[SubiektService] Użytkownik anulował wybór kontrahenta lub nie wybrał żadnego - ZK zostanie otwarte bez kontrahenta.");
+                                        if (result == true && dialog.SelectedKontrahent != null)
+                                        {
+                                            selectedId = dialog.SelectedKontrahent.Id;
+                                            Console.WriteLine($"[SubiektService] Użytkownik wybrał kontrahenta: ID={dialog.SelectedKontrahent.Id}, Symbol={dialog.SelectedKontrahent.Symbol}");
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine("[SubiektService] Użytkownik anulował wybór kontrahenta lub nie wybrał żadnego - ZK zostanie otwarte bez kontrahenta.");
+                                        }
                                     }
                                 }
                                 catch (Exception dialogEx)
@@ -248,6 +321,25 @@ AND (
                                     Console.WriteLine($"[SubiektService] Stack trace: {dialogEx.StackTrace}");
                                 }
                             }, System.Windows.Threading.DispatcherPriority.Normal);
+                            
+                            // Jeśli użytkownik chce dodać nowego kontrahenta, otwórz okno Subiekta GT
+                            if (shouldAddNew)
+                            {
+                                Console.WriteLine("[SubiektService] Otwieram okno dodawania kontrahenta...");
+                                try
+                                {
+                                    // Przekaż dane z API do metody DodajKontrahenta
+                                    DodajKontrahenta(customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2);
+                                }
+                                catch (Exception addEx)
+                                {
+                                    Console.WriteLine($"[SubiektService] Błąd podczas otwierania okna dodawania kontrahenta: {addEx.Message}");
+                                }
+                                
+                                // Po zamknięciu okna Subiekta GT, wywołaj rekurencyjnie wyszukiwanie, aby ponownie pokazać dialog
+                                Console.WriteLine("[SubiektService] Okno Subiekta GT zostało zamknięte - ponownie wyświetlam dialog wyboru kontrahenta...");
+                                return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, true);
+                            }
                             
                             Console.WriteLine($"[SubiektService] WyszukajKontrahentaPrzezSQL zwraca: {selectedId?.ToString() ?? "null"}");
                             return selectedId;
@@ -259,6 +351,530 @@ AND (
             {
                 Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania kontrahenta przez SQL: {ex.Message}");
                 return null;
+            }
+        }
+        
+        /// <summary>
+        /// Otwiera okno Subiekta GT do dodawania nowego kontrahenta
+        /// </summary>
+        public void DodajKontrahenta()
+        {
+            DodajKontrahenta(null, null, null, null, null, null, null, null, null, null, null);
+        }
+        
+        /// <summary>
+        /// Otwiera okno Subiekta GT do dodawania nowego kontrahenta z wypełnionymi danymi z API
+        /// </summary>
+        public void DodajKontrahenta(string? customerName = null, string? nip = null, string? company = null, string? email = null, string? phone = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        {
+            try
+            {
+                Console.WriteLine("[SubiektService] Próba otwarcia okna dodawania kontrahenta...");
+                
+                dynamic? gt = null;
+                dynamic? subiekt = null;
+                
+                // Sprawdź czy mamy już uruchomioną instancję w cache
+                if (_cachedSubiekt != null && _cachedGt != null)
+                {
+                    subiekt = _cachedSubiekt;
+                    gt = _cachedGt;
+                    Console.WriteLine("[SubiektService] Używam istniejącej instancji Subiekta GT z cache.");
+                    PowiadomOZmianieInstancji(true);
+                }
+                
+                // Jeśli nie ma działającej instancji, utwórz nową
+                if (subiekt == null)
+                {
+                    Console.WriteLine("[SubiektService] Uruchamiam nową instancję Subiekta GT...");
+                    
+                    // Utworz obiekt GT (COM)
+                    Type? gtType = Type.GetTypeFromProgID("InsERT.gt");
+                    if (gtType == null)
+                    {
+                        Console.WriteLine("[SubiektService] BŁĄD: Nie można załadować typu COM 'InsERT.gt'.");
+                        MessageBox.Show(
+                            "Nie można połączyć się z Subiektem GT.\n\nUpewnij się, że:\n- Sfera dla Subiekta GT jest zainstalowana\n- Subiekt GT jest zainstalowany",
+                            "Błąd połączenia",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                        return;
+                    }
+                    
+                    gt = Activator.CreateInstance(gtType);
+                    if (gt == null)
+                    {
+                        Console.WriteLine("[SubiektService] BŁĄD: Nie można utworzyć instancji obiektu GT.");
+                        return;
+                    }
+                    
+                    // Ustaw parametry połączenia i logowania
+                    try
+                    {
+                        gt.Produkt = 1; // gtaProduktSubiekt
+                        
+                        // Wczytaj konfigurację i ustaw operatora i hasło
+                        var subiektConfig = _configService.LoadSubiektConfig();
+                        gt.Operator = subiektConfig.User;
+                        gt.OperatorHaslo = subiektConfig.Password;
+                        
+                        Console.WriteLine($"[SubiektService] Ustawiono operatora: {subiektConfig.User}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] BŁĄD podczas konfiguracji GT: {ex.Message}");
+                    }
+                    
+                    // Uruchom Subiekta GT
+                    try
+                    {
+                        subiekt = gt.Uruchom(2, 4); // Dopasuj operatora + uruchom w tle
+                        if (subiekt == null)
+                        {
+                            Console.WriteLine("[SubiektService] BŁĄD: Uruchomienie Subiekta GT zwróciło null.");
+                            return;
+                        }
+                        Console.WriteLine("[SubiektService] Subiekt GT uruchomiony.");
+                        
+                        // Zapisz w cache dla następnych użyć
+                        _cachedGt = gt;
+                        _cachedSubiekt = subiekt;
+                        
+                        // Powiadom o aktywności instancji
+                        PowiadomOZmianieInstancji(true);
+                        
+                        // Ustaw główne okno jako niewidoczne
+                        try
+                        {
+                            subiekt.Okno.Widoczne = false;
+                            Console.WriteLine("[SubiektService] Główne okno Subiekta GT ustawione jako niewidoczne.");
+                        }
+                        catch (Exception oknoEx)
+                        {
+                            Console.WriteLine($"[SubiektService] Uwaga: Nie można ustawić głównego okna jako niewidoczne: {oknoEx.Message}");
+                        }
+                    }
+                    catch (COMException comEx)
+                    {
+                        Console.WriteLine($"[SubiektService] BŁĄD COM: {comEx.Message}");
+                        _cachedSubiekt = null;
+                        _cachedGt = null;
+                        MessageBox.Show(
+                            $"Błąd podczas uruchamiania Subiekta GT:\n\n{comEx.Message}\n\nUpewnij się, że Subiekt GT jest zainstalowany i Sfera jest aktywowana.",
+                            "Błąd uruchamiania",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] BŁĄD: {ex.Message}");
+                        _cachedSubiekt = null;
+                        _cachedGt = null;
+                        MessageBox.Show(
+                            $"Błąd podczas uruchamiania Subiekta GT:\n\n{ex.Message}",
+                            "Błąd",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                        return;
+                    }
+                }
+                
+                // Dodaj nowego kontrahenta
+                try
+                {
+                    Console.WriteLine("[SubiektService] Próba dodania nowego kontrahenta...");
+                    dynamic kontrahenci = subiekt.Kontrahenci;
+                    if (kontrahenci != null)
+                    {
+                        dynamic nowyKontrahent = kontrahenci.Dodaj();
+                        if (nowyKontrahent != null)
+                        {
+                            // Jeśli dane z API są dostępne, wypełnij pola kontrahenta
+                            if (customerName != null || nip != null || company != null || email != null || phone != null || address1 != null || postcode != null || city != null)
+                            {
+                                WypelnijDaneKontrahenta(nowyKontrahent, customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2);
+                            }
+                            
+                            // Wyświetl okno kartotekowe kontrahenta
+                            nowyKontrahent.Wyswietl();
+                            Console.WriteLine("[SubiektService] Okno kartotekowe kontrahenta zostało otwarte.");
+                        }
+                        else
+                        {
+                            Console.WriteLine("[SubiektService] BŁĄD: Nie udało się utworzyć nowego kontrahenta.");
+                            MessageBox.Show(
+                                "Nie udało się utworzyć nowego kontrahenta.",
+                                "Błąd",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Error);
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("[SubiektService] BŁĄD: Nie udało się uzyskać dostępu do kolekcji kontrahentów.");
+                        MessageBox.Show(
+                            "Nie udało się uzyskać dostępu do kolekcji kontrahentów.",
+                            "Błąd",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                    }
+                }
+                catch (Exception kontrEx)
+                {
+                    Console.WriteLine($"[SubiektService] BŁĄD podczas dodawania kontrahenta: {kontrEx.Message}");
+                    Console.WriteLine($"[SubiektService] Stack trace: {kontrEx.StackTrace}");
+                    MessageBox.Show(
+                        $"Błąd podczas dodawania kontrahenta:\n\n{kontrEx.Message}",
+                        "Błąd",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SubiektService] BŁĄD podczas otwierania okna dodawania kontrahenta: {ex.Message}");
+                MessageBox.Show(
+                    $"Błąd podczas otwierania okna dodawania kontrahenta:\n\n{ex.Message}",
+                    "Błąd",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
+        }
+        
+        /// <summary>
+        /// Wyszukuje ID kraju w słowniku państw Subiekta GT po nazwie
+        /// </summary>
+        private int? WyszukajKrajWgNazwy(string countryName)
+        {
+            if (string.IsNullOrWhiteSpace(countryName))
+                return null;
+                
+            try
+            {
+                var subiektConfig = _configService.LoadSubiektConfig();
+                string serverAddress = subiektConfig.ServerAddress ?? "";
+                string username = subiektConfig.ServerUsername ?? "";
+                string password = subiektConfig.ServerPassword ?? "";
+                
+                if (string.IsNullOrWhiteSpace(serverAddress))
+                {
+                    Console.WriteLine("[SubiektService] Brak adresu serwera MSSQL - pomijam wyszukiwanie kraju.");
+                    return null;
+                }
+                
+                var builder = new SqlConnectionStringBuilder
+                {
+                    DataSource = serverAddress,
+                    UserID = username,
+                    Password = password,
+                    ConnectTimeout = 10,
+                    Encrypt = false
+                };
+                
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    builder.IntegratedSecurity = true;
+                }
+                
+                string connectionString = builder.ConnectionString;
+                
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    connection.Open();
+                    
+                    // Szukaj kraju w słowniku państw
+                    string sqlQuery = @"
+SELECT TOP(1) pa_Id
+FROM dbo.sl_Panstwo
+WHERE pa_Nazwa = @CountryName";
+                    
+                    using (var command = new SqlCommand(sqlQuery, connection))
+                    {
+                        command.Parameters.AddWithValue("@CountryName", countryName);
+                        
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                var countryId = reader.IsDBNull(0) ? null : (int?)Convert.ToInt32(reader.GetValue(0));
+                                if (countryId.HasValue)
+                                {
+                                    Console.WriteLine($"[SubiektService] Znaleziono kraj '{countryName}' w słowniku: ID={countryId.Value}");
+                                    return countryId.Value;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Console.WriteLine($"[SubiektService] Nie znaleziono kraju '{countryName}' w słowniku państw.");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania kraju: {ex.Message}");
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// Wypełnia dane kontrahenta w obiekcie Subiekta GT
+        /// </summary>
+        private void WypelnijDaneKontrahenta(dynamic kontrahent, string? customerName, string? nip, string? company, string? email, string? phone, string? address1, string? address2, string? postcode, string? city, string? country, string? isoCode2 = null)
+        {
+            try
+            {
+                Console.WriteLine("[SubiektService] Wypełnianie danych kontrahenta...");
+                
+                // Ustaw typ kontrahenta - 2 = gtaKontrahentTypOdbiorca (Odbiorca)
+                try
+                {
+                    kontrahent.Typ = 2;
+                    Console.WriteLine("[SubiektService] Ustawiono Typ=2 (Odbiorca)");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SubiektService] Nie udało się ustawić Typ: {ex.Message}");
+                }
+                
+                // Ustaw województwo na (brak) - gtaBrak = -2147483648
+                try
+                {
+                    kontrahent.Wojewodztwo = unchecked((int)0x80000000);
+                    Console.WriteLine("[SubiektService] Ustawiono Wojewodztwo=(brak)");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SubiektService] Nie udało się ustawić Wojewodztwo: {ex.Message}");
+                }
+                
+                // Zbuduj pełną nazwę: imię, nazwisko i firma (jeśli dostępne)
+                string pelnaNazwa = "";
+                if (!string.IsNullOrWhiteSpace(customerName))
+                {
+                    pelnaNazwa = customerName;
+                }
+                if (!string.IsNullOrWhiteSpace(company))
+                {
+                    if (!string.IsNullOrWhiteSpace(pelnaNazwa))
+                    {
+                        pelnaNazwa += ", " + company;
+                    }
+                    else
+                    {
+                        pelnaNazwa = company;
+                    }
+                }
+                
+                // Jeśli mamy jakąkolwiek nazwę, ustaw wszystkie pola
+                if (!string.IsNullOrWhiteSpace(pelnaNazwa))
+                {
+                    // Symbol - Subiekt GT może generować to automatycznie lub wymaga unikalnej wartości
+                    // Pomijamy ustawianie Symbol programowo, aby uniknąć błędów związanych z duplikatami
+                    // try
+                    // {
+                    //     kontrahent.Symbol = pelnaNazwa;
+                    //     Console.WriteLine($"[SubiektService] Ustawiono Symbol: {pelnaNazwa}");
+                    // }
+                    // catch (Exception ex)
+                    // {
+                    //     Console.WriteLine($"[SubiektService] Nie udało się ustawić Symbol: {ex.Message}");
+                    // }
+                    
+                    // Nazwa
+                    try
+                    {
+                        kontrahent.Nazwa = pelnaNazwa;
+                        Console.WriteLine($"[SubiektService] Ustawiono Nazwa: {pelnaNazwa}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Nazwa: {ex.Message}");
+                    }
+                    
+                    // Nazwa pełna
+                    try
+                    {
+                        kontrahent.NazwaPelna = pelnaNazwa;
+                        Console.WriteLine($"[SubiektService] Ustawiono NazwaPelna: {pelnaNazwa}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić NazwaPelna: {ex.Message}");
+                    }
+                }
+                
+                // NIP - dodaj prefiks UE jeśli dostępny
+                if (!string.IsNullOrWhiteSpace(nip))
+                {
+                    try
+                    {
+                        string nipZPrefiksem = nip;
+                        
+                        // Jeśli mamy kod ISO2, spróbuj dodać prefiks VIES
+                        if (!string.IsNullOrWhiteSpace(isoCode2))
+                        {
+                            var viesMap = LoadViesMap();
+                            if (viesMap.TryGetValue(isoCode2.ToUpperInvariant(), out var viesCode))
+                            {
+                                nipZPrefiksem = viesCode + nip;
+                                Console.WriteLine($"[SubiektService] Dodaję prefiks VIES do NIP: {nipZPrefiksem}");
+                            }
+                        }
+                        
+                        kontrahent.NIP = nipZPrefiksem;
+                        Console.WriteLine($"[SubiektService] Ustawiono NIP: {nipZPrefiksem}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić NIP: {ex.Message}");
+                    }
+                }
+                
+                // Ulica
+                if (!string.IsNullOrWhiteSpace(address1))
+                {
+                    try
+                    {
+                        kontrahent.Ulica = address1;
+                        Console.WriteLine($"[SubiektService] Ustawiono Ulica: {address1}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Ulica: {ex.Message}");
+                    }
+                }
+                
+                // Miejscowość
+                if (!string.IsNullOrWhiteSpace(city))
+                {
+                    try
+                    {
+                        kontrahent.Miejscowosc = city;
+                        Console.WriteLine($"[SubiektService] Ustawiono Miejscowosc: {city}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Miejscowosc: {ex.Message}");
+                    }
+                }
+                
+                // Kod pocztowy
+                if (!string.IsNullOrWhiteSpace(postcode))
+                {
+                    try
+                    {
+                        kontrahent.KodPocztowy = postcode;
+                        Console.WriteLine($"[SubiektService] Ustawiono KodPocztowy: {postcode}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić KodPocztowy: {ex.Message}");
+                    }
+                }
+                
+                // Email
+                if (!string.IsNullOrWhiteSpace(email) && email != "Brak email")
+                {
+                    try
+                    {
+                        dynamic emaile = kontrahent.Emaile;
+                        if (emaile != null)
+                        {
+                            dynamic nowyEmail = emaile.Dodaj(email);
+                            if (nowyEmail != null)
+                            {
+                                nowyEmail.Podstawowy = true;
+                                Console.WriteLine($"[SubiektService] Ustawiono Email: {email}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Email: {ex.Message}");
+                    }
+                }
+                
+                // Telefon
+                if (!string.IsNullOrWhiteSpace(phone) && phone != "Brak telefonu")
+                {
+                    try
+                    {
+                        dynamic telefony = kontrahent.Telefony;
+                        if (telefony != null)
+                        {
+                            dynamic nowyTelefon = telefony.Dodaj(phone);
+                            if (nowyTelefon != null)
+                            {
+                                nowyTelefon.Podstawowy = true;
+                                Console.WriteLine($"[SubiektService] Ustawiono Telefon: {phone}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Telefon: {ex.Message}");
+                    }
+                }
+                
+                // Kraj - wyszukaj ID w słowniku państw i ustaw
+                // UWAGA: Najpierw ustawiamy PodatnikVatUE, a potem Panstwo, aby event wywołał się poprawnie
+                if (!string.IsNullOrWhiteSpace(country))
+                {
+                    try
+                    {
+                        // Najpierw ustaw PodatnikVatUE jeśli kraj jest w UE (ale nie dla Polski)
+                        if (!string.IsNullOrWhiteSpace(isoCode2))
+                        {
+                            var isoCodeUpper = isoCode2.ToUpperInvariant();
+                            // Pomijamy Polskę - tylko kraje UE poza Polską
+                            if (isoCodeUpper != "PL")
+                            {
+                                var viesMap = LoadViesMap();
+                                if (viesMap.TryGetValue(isoCodeUpper, out var viesCode))
+                                {
+                                    try
+                                    {
+                                        kontrahent.PodatnikVatUE = true;
+                                        Console.WriteLine($"[SubiektService] Ustawiono PodatnikVatUE=True (kraj UE: {viesCode})");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine($"[SubiektService] Nie udało się ustawić PodatnikVatUE: {ex.Message}");
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[SubiektService] Pomijam ustawienie PodatnikVatUE dla Polski (PL)");
+                            }
+                        }
+                        
+                        // Teraz ustaw Panstwo (to powinno wywołać event w Subiekcie GT)
+                        var countryId = WyszukajKrajWgNazwy(country);
+                        if (countryId.HasValue)
+                        {
+                            kontrahent.Panstwo = countryId.Value;
+                            Console.WriteLine($"[SubiektService] Ustawiono Panstwo: {country} (ID={countryId.Value})");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[SubiektService] Nie znaleziono kraju '{country}' w słowniku - pomijam ustawienie Panstwo");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SubiektService] Błąd podczas ustawiania Panstwo: {ex.Message}");
+                    }
+                }
+                
+                Console.WriteLine("[SubiektService] Dane kontrahenta zostały wypełnione.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SubiektService] BŁĄD podczas wypełniania danych kontrahenta: {ex.Message}");
+                Console.WriteLine($"[SubiektService] Stack trace: {ex.StackTrace}");
             }
         }
         
@@ -384,7 +1000,7 @@ AND (
             InstancjaZmieniona?.Invoke(null, aktywna);
         }
 
-        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null)
+        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
         {
             try
             {
@@ -589,7 +1205,7 @@ AND (
                                     
                                     // Spróbuj wyszukać kontrahenta przez SQL po emailu
                                     Console.WriteLine($"[SubiektService] Próba wyszukania kontrahenta przez SQL...");
-                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address);
+                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
                                     
                                     if (kontrahentId.HasValue)
                                     {
@@ -612,7 +1228,7 @@ AND (
                                 try
                                 {
                                     Console.WriteLine($"[SubiektService] Próba wyszukania kontrahenta przez SQL (po błędzie NIP)...");
-                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address);
+                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
                                     
                                     if (kontrahentId.HasValue && zkDokument != null)
                                     {
@@ -639,7 +1255,7 @@ AND (
                             // Próbuj wyszukać kontrahenta przez SQL nawet gdy nie ma NIP
                             try
                             {
-                                int? kontrahentId = WyszukajKontrahentaPrzezSQL(null, email, customerName, phone, company, address);
+                                int? kontrahentId = WyszukajKontrahentaPrzezSQL(null, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
                                 
                                 if (kontrahentId.HasValue && zkDokument != null)
                                 {
