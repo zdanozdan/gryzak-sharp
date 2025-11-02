@@ -13,6 +13,7 @@ using System.Text.Encodings.Web;
 using System.IO;
 using Gryzak.Models;
 using Gryzak.Services;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak.ViewModels
 {
@@ -35,6 +36,7 @@ namespace Gryzak.ViewModels
         private string _progressText = "";
         private double _progressValue = 0;
         private bool _isProgressVisible = false;
+        private Views.SplashWindow? _splashWindow;
 
         public ObservableCollection<Order> AllOrders { get; } = new ObservableCollection<Order>();
         public ObservableCollection<Order> FilteredOrders { get; } = new ObservableCollection<Order>();
@@ -165,7 +167,13 @@ namespace Gryzak.ViewModels
             
             LoadCountryMap();
             
-            _ = LoadOrdersAsync(false);
+            // Nie ładuj zamówień automatycznie - będzie to zrobione podczas splash screen
+            // _ = LoadOrdersAsync(false);
+        }
+        
+        public void SetSplashWindow(Views.SplashWindow splashWindow)
+        {
+            _splashWindow = splashWindow;
         }
         
         private void LoadCountryMap()
@@ -175,7 +183,7 @@ namespace Gryzak.ViewModels
                 var jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kraje_iso2.json");
                 if (!File.Exists(jsonPath))
                 {
-                    Console.WriteLine($"[MainViewModel] Plik kraje_iso2.json nie został znaleziony: {jsonPath}");
+                    Warning($"Plik kraje_iso2.json nie został znaleziony: {jsonPath}", "MainViewModel");
                     return;
                 }
                 
@@ -197,12 +205,12 @@ namespace Gryzak.ViewModels
                             }
                         }
                     }
-                    Console.WriteLine($"[MainViewModel] Wczytano {_countryMap.Count} krajów z pliku kraje_iso2.json, z czego {_viesMap.Count} z kodami VIES");
+                    Info($"Wczytano {_countryMap.Count} krajów z pliku kraje_iso2.json, z czego {_viesMap.Count} z kodami VIES", "MainViewModel");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[MainViewModel] Błąd podczas wczytywania mapy krajów: {ex.Message}");
+                Error(ex, "MainViewModel", "Błąd podczas wczytywania mapy krajów");
             }
         }
         
@@ -230,7 +238,7 @@ namespace Gryzak.ViewModels
             IsApiConfigured = !string.IsNullOrWhiteSpace(config.ApiUrl);
         }
 
-        private async Task LoadOrdersAsync(bool reset = false)
+        public async Task LoadOrdersAsync(bool reset = false)
         {
             if (reset)
             {
@@ -257,7 +265,7 @@ namespace Gryzak.ViewModels
                 if (isFirstPage)
                 {
                     IsLoading = true;
-                    UpdateProgress("Ładowanie zamówień...", 10);
+                    UpdateProgress("Ładowanie zamówień z API...", 30);
                 }
                 else
                 {
@@ -266,11 +274,11 @@ namespace Gryzak.ViewModels
 
                 var orders = await _apiService.LoadOrdersAsync(_currentPage);
                 
-                Console.WriteLine($"[Gryzak] Załadowano stronę {_currentPage}: {orders.Count} zamówień");
+                Debug("Załadowano stronę {_currentPage}: {orders.Count} zamówień", "MainViewModel");
                 
                 if (isFirstPage)
                 {
-                    UpdateProgress("Przetwarzanie danych...", 50);
+                    UpdateProgress("Przetwarzanie danych zamówień...", 60);
                 }
 
                 // Jeśli API zwraca mniej niż 20 zamówień lub 0, uznaj to za ostatnią stronę
@@ -278,12 +286,12 @@ namespace Gryzak.ViewModels
                 {
                     _hasMorePages = false;
                     OnPropertyChanged(nameof(HasMorePages));
-                    Console.WriteLine($"[Gryzak] Ostatnia strona - zwrócono {orders.Count} zamówień");
+                    Debug("Ostatnia strona - zwrócono {orders.Count} zamówień", "MainViewModel");
                 }
 
                 if (orders.Count == 0)
                 {
-                    Console.WriteLine($"[Gryzak] Brak zamówień na stronie {_currentPage}");
+                    Debug("Brak zamówień na stronie {_currentPage}", "MainViewModel");
                 }
                 else
                 {
@@ -299,12 +307,12 @@ namespace Gryzak.ViewModels
                                 if (_countryMap.TryGetValue(isoCode2, out var polishName))
                                 {
                                     order.Country = polishName;
-                                    Console.WriteLine($"[Gryzak] Zmapowano kraj (ISO {isoCode2}): {order.Country}");
+                                    Debug("Zmapowano kraj (ISO {isoCode2}): {order.Country}", "MainViewModel");
                                 }
                             }
                             
                             AllOrders.Add(order);
-                            Console.WriteLine($"[Gryzak] Dodano zamówienie: {order.Id} - {order.Customer}");
+                            Debug("Dodano zamówienie: {order.Id} - {order.Customer}", "MainViewModel");
                             
                             // Jeśli to zaznaczone zamówienie, ustaw flagę
                             if (SelectedOrder != null && SelectedOrder.Id == order.Id)
@@ -323,16 +331,28 @@ namespace Gryzak.ViewModels
                 
                 if (isFirstPage)
                 {
-                    UpdateProgress("Ładowanie zakończone", 100);
-                    await Task.Delay(500); // Pokaż 100% przez 500ms
-                    HideProgress();
+                    UpdateProgress("Zamówienia załadowane", 85);
+                    
+                    // Jeśli ładowaliśmy podczas splash screena, ukryj progress bar
+                    // (splash screen zostanie zamknięty w App.xaml.cs)
+                    if (_splashWindow != null)
+                    {
+                        await Task.Delay(100); // Krótkie opóźnienie aby użytkownik zobaczył "Zamówienia załadowane"
+                        HideProgress();
+                    }
+                    else
+                    {
+                        // Normalne ładowanie (bez splash screen) - ukryj po chwili
+                        await Task.Delay(500);
+                        HideProgress();
+                    }
                 }
                 
-                Console.WriteLine($"[Gryzak] Przetworzonych zamówień: {AllOrders.Count}, przefiltrowanych: {FilteredOrders.Count}, HasOrders: {HasOrders}, HasMorePages: {_hasMorePages}");
+                Debug("Przetworzonych zamówień: {AllOrders.Count}, przefiltrowanych: {FilteredOrders.Count}, HasOrders: {HasOrders}, HasMorePages: {_hasMorePages}", "MainViewModel");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Gryzak] Błąd ładowania: {ex.Message}");
+                Error(ex, "MainViewModel", "Błąd ładowania");
                 if (isFirstPage)
                 {
                     UpdateProgress("Błąd ładowania", 0);
@@ -351,7 +371,7 @@ namespace Gryzak.ViewModels
             {
                 IsLoading = false;
                 IsLoadingMore = false;
-                Console.WriteLine($"[Gryzak] IsLoading: {IsLoading}, IsLoadingMore: {IsLoadingMore}");
+                Debug("IsLoading: {IsLoading}, IsLoadingMore: {IsLoadingMore}", "MainViewModel");
             }
         }
 
@@ -367,11 +387,11 @@ namespace Gryzak.ViewModels
         {
             FilteredOrders.Clear();
             
-            Console.WriteLine($"[Gryzak] FilterOrders - StatusFilter: '{StatusFilter}', SearchText: '{SearchText}', AllOrders.Count: {AllOrders.Count}");
+            Debug("FilterOrders - StatusFilter: '{StatusFilter}', SearchText: '{SearchText}', AllOrders.Count: {AllOrders.Count}", "MainViewModel");
             
             if (AllOrders.Count > 0)
             {
-                Console.WriteLine($"[Gryzak] Przykładowy status pierwszego zamówienia: '{AllOrders[0].Status}'");
+                Debug("Przykładowy status pierwszego zamówienia: '{AllOrders[0].Status}'", "MainViewModel");
             }
 
             // Najpierw filtruj po statusie
@@ -398,14 +418,14 @@ namespace Gryzak.ViewModels
             }
 
             var ordersList = orders.ToList();
-            Console.WriteLine($"[Gryzak] Po filtrowaniu: {ordersList.Count} zamówień");
+            Debug("Po filtrowaniu: {ordersList.Count} zamówień", "MainViewModel");
 
             foreach (var order in ordersList)
             {
                 FilteredOrders.Add(order);
             }
 
-            Console.WriteLine($"[Gryzak] FilteredOrders.Count: {FilteredOrders.Count}");
+            Debug("FilteredOrders.Count: {FilteredOrders.Count}", "MainViewModel");
             OnPropertyChanged(nameof(HasOrders));
             UpdateStatistics();
         }
@@ -421,6 +441,12 @@ namespace Gryzak.ViewModels
             ProgressText = text;
             ProgressValue = value;
             IsProgressVisible = !string.IsNullOrEmpty(text);
+            
+            // Aktualizuj splash screen jeśli jest dostępny
+            if (_splashWindow != null)
+            {
+                _splashWindow.UpdateProgress(value, text);
+            }
         }
 
         public void HideProgress()
@@ -505,21 +531,21 @@ namespace Gryzak.ViewModels
                 order.IsSelected = true;
                 
                 // Wypisz pełne dane zamówienia do konsoli
-                Console.WriteLine("\n=== ZAZNACZONO ZAMÓWIENIE ===");
-                Console.WriteLine($"ID Zamówienia: {order.Id}");
-                Console.WriteLine($"Klient: {order.Customer}");
-                Console.WriteLine($"Email: {order.Email}");
-                Console.WriteLine($"Telefon: {order.Phone}");
-                Console.WriteLine($"Firma: {order.Company ?? "Brak"}");
-                Console.WriteLine($"NIP: {order.Nip ?? "Brak"}");
-                Console.WriteLine($"Adres: {order.Address ?? "Brak"}");
-                Console.WriteLine($"Status: {order.Status}");
-                Console.WriteLine($"Status Płatności: {order.PaymentStatus}");
-                Console.WriteLine($"Wartość: {order.Total} {order.Currency}");
-                Console.WriteLine($"Data: {order.Date:dd.MM.yyyy HH:mm}");
-                Console.WriteLine($"Obsługuje: {order.AssignedTo}");
-                Console.WriteLine($"Liczba produktów: {order.Items?.Count ?? 0}");
-                Console.WriteLine("==========================\n");
+                Debug("=== ZAZNACZONO ZAMÓWIENIE ===", "MainViewModel");
+                Debug("ID Zamówienia: {order.Id}", "MainViewModel");
+                Debug("Klient: {order.Customer}", "MainViewModel");
+                Debug("Email: {order.Email}", "MainViewModel");
+                Debug("Telefon: {order.Phone}", "MainViewModel");
+                Debug($"Firma: {order.Company ?? "Brak"}", "MainViewModel");
+                Debug($"NIP: {order.Nip ?? "Brak"}", "MainViewModel");
+                Debug($"Adres: {order.Address ?? "Brak"}", "MainViewModel");
+                Debug("Status: {order.Status}", "MainViewModel");
+                Debug("Status Płatności: {order.PaymentStatus}", "MainViewModel");
+                Debug("Wartość: {order.Total} {order.Currency}", "MainViewModel");
+                Debug("Data: {order.Date:dd.MM.yyyy HH:mm}", "MainViewModel");
+                Debug("Obsługuje: {order.AssignedTo}", "MainViewModel");
+                Debug("Liczba produktów: {order.Items?.Count ?? 0}", "MainViewModel");
+                Debug("==========================", "MainViewModel");
                 
                 // Pobierz szczegóły zamówienia z API
                 LoadOrderDetailsAsync(order.Id);
@@ -530,7 +556,7 @@ namespace Gryzak.ViewModels
         {
             try
             {
-                Console.WriteLine($"[MainViewModel] Ładowanie szczegółów zamówienia {orderId}...");
+                Debug("Ładowanie szczegółów zamówienia {orderId}...", "MainViewModel");
                 var detailsJson = await _apiService.GetOrderDetailsAsync(orderId);
                 
                 // Sformatuj JSON do pretty print
@@ -550,16 +576,16 @@ namespace Gryzak.ViewModels
                     formattedJson = detailsJson;
                 }
                 
-                Console.WriteLine("\n=== SZCZEGÓŁY ZAMÓWIENIA Z API ===");
-                Console.WriteLine(formattedJson);
-                Console.WriteLine("===================================\n");
+                Debug("=== SZCZEGÓŁY ZAMÓWIENIA Z API ===", "MainViewModel");
+                Debug(formattedJson, "MainViewModel");
+                Debug("===================================", "MainViewModel");
                 
                 // Zaktualizuj zamówienie w liście
                 UpdateOrderFromDetails(SelectedOrder, detailsJson);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[MainViewModel] Błąd ładowania szczegółów zamówienia: {ex.Message}");
+                Error(ex, "MainViewModel", "Błąd ładowania szczegółów zamówienia");
             }
         }
         
@@ -576,14 +602,14 @@ namespace Gryzak.ViewModels
                 if (root.TryGetProperty("email", out var emailProp) && emailProp.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.Email = emailProp.GetString() ?? "Brak email";
-                    Console.WriteLine($"[MainViewModel] Zaktualizowano email: {order.Email}");
+                    Debug("Zaktualizowano email: {order.Email}", "MainViewModel");
                 }
                 
                 // Aktualizuj telefon
                 if (root.TryGetProperty("telephone", out var telProp) && telProp.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.Phone = telProp.GetString() ?? "Brak telefonu";
-                    Console.WriteLine($"[MainViewModel] Zaktualizowano telefon: {order.Phone}");
+                    Debug("Zaktualizowano telefon: {order.Phone}", "MainViewModel");
                 }
                 
                 // Aktualizuj nazwę firmy (payment_company)
@@ -596,7 +622,7 @@ namespace Gryzak.ViewModels
                         companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
                         companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
                         order.Company = companyValue;
-                        Console.WriteLine($"[MainViewModel] Zaktualizowano firmę: {order.Company}");
+                        Debug("Zaktualizowano firmę: {order.Company}", "MainViewModel");
                     }
                 }
                 
@@ -639,14 +665,14 @@ namespace Gryzak.ViewModels
                     }
                     
                     order.Address = string.Join(", ", addressParts.Where(s => !string.IsNullOrWhiteSpace(s)));
-                    Console.WriteLine($"[MainViewModel] Zaktualizowano adres: {order.Address}");
+                    Debug("Zaktualizowano adres: {order.Address}", "MainViewModel");
                 }
                 
                 // Aktualizuj NIP (vat)
                 if (root.TryGetProperty("vat", out var vatProp) && vatProp.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.Nip = vatProp.GetString();
-                    Console.WriteLine($"[MainViewModel] Zaktualizowano NIP: {order.Nip}");
+                    Debug("Zaktualizowano NIP: {order.Nip}", "MainViewModel");
                 }
 
                 // Aktualizuj kraj - użyj kod ISO 2 aby znaleźć polską nazwę kraju
@@ -671,7 +697,7 @@ namespace Gryzak.ViewModels
                     if (!string.IsNullOrWhiteSpace(iso2Value) && _countryMap.TryGetValue(iso2Value, out var polishName))
                     {
                         order.Country = polishName;
-                        Console.WriteLine($"[MainViewModel] Zaktualizowano kraj (ISO {iso2Value}): {order.Country}");
+                        Debug("Zaktualizowano kraj (ISO {iso2Value}): {order.Country}", "MainViewModel");
                     }
                     else
                     {
@@ -679,7 +705,7 @@ namespace Gryzak.ViewModels
                         if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
                         {
                             order.Country = countryProp.GetString() ?? "";
-                            Console.WriteLine($"[MainViewModel] Zaktualizowano kraj (oryginalna nazwa): {order.Country}");
+                            Debug("Zaktualizowano kraj (oryginalna nazwa): {order.Country}", "MainViewModel");
                         }
                     }
                 }
@@ -689,7 +715,7 @@ namespace Gryzak.ViewModels
                     if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
                     {
                         order.Country = countryProp.GetString() ?? "";
-                        Console.WriteLine($"[MainViewModel] Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {order.Country}");
+                        Debug("Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {order.Country}", "MainViewModel");
                     }
                 }
                 
@@ -697,7 +723,7 @@ namespace Gryzak.ViewModels
                 if (root.TryGetProperty("iso_code_3", out var iso3Prop) && iso3Prop.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.IsoCode3 = iso3Prop.GetString();
-                    Console.WriteLine($"[MainViewModel] Zaktualizowano ISO Code 3: {order.IsoCode3}");
+                    Debug("Zaktualizowano ISO Code 3: {order.IsoCode3}", "MainViewModel");
                 }
 
                 // Produkty
@@ -754,13 +780,13 @@ namespace Gryzak.ViewModels
                                 items.Add(product);
                             }
                             order.Items = items;
-                            Console.WriteLine($"[MainViewModel] Załadowano produkty: {items.Count}");
+                            Debug("Załadowano produkty: {items.Count}", "MainViewModel");
                         }
                     }
                 }
                 catch (Exception prodEx)
                 {
-                    Console.WriteLine($"[MainViewModel] Błąd parsowania produktów: {prodEx.Message}");
+                    Error(prodEx, "MainViewModel", "Błąd parsowania produktów");
                 }
 
                 // Totals - wyszukaj kupon i sub_total (API zwraca już przeliczone wartości)
@@ -803,37 +829,37 @@ namespace Gryzak.ViewModels
                                         {
                                             order.CouponTitle = titleProp.GetString();
                                         }
-                                        Console.WriteLine($"[MainViewModel] Znaleziono kupon: {order.CouponTitle} (wartość: {order.CouponAmount:F2})");
+                                        Debug("Znaleziono kupon: {order.CouponTitle} (wartość: {order.CouponAmount:F2})", "MainViewModel");
                                     }
                                     else if (code == "sub_total")
                                     {
                                         order.SubTotal = valueParsed.Value;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono sub_total: {order.SubTotal:F2}");
+                                        Debug("Znaleziono sub_total: {order.SubTotal:F2}", "MainViewModel");
                                     }
                                     else if (code == "handling")
                                     {
                                         order.HandlingAmount = valueParsed.Value;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono handling: {order.HandlingAmount:F2}");
+                                        Debug("Znaleziono handling: {order.HandlingAmount:F2}", "MainViewModel");
                                     }
                                     else if (code == "gls")
                                     {
                                         order.GlsAmount = valueParsed.Value;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono gls: {order.GlsAmount:F2}");
+                                        Debug("Znaleziono gls: {order.GlsAmount:F2}", "MainViewModel");
                                     }
                                     else if (code == "shipping")
                                     {
                                         order.ShippingAmount = valueParsed.Value;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono shipping: {order.ShippingAmount:F2}");
+                                        Debug("Znaleziono shipping: {order.ShippingAmount:F2}", "MainViewModel");
                                     }
                                     else if (code == "cod_fee")
                                     {
                                         order.CodFeeAmount = valueParsed.Value;
-                                        Console.WriteLine($"[MainViewModel] Znaleziono cod_fee: {order.CodFeeAmount:F2}");
+                                        Debug("Znaleziono cod_fee: {order.CodFeeAmount:F2}", "MainViewModel");
                                     }
                                     else if (code == "total")
                                     {
                                         order.Total = valueParsed.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                                        Console.WriteLine($"[MainViewModel] Znaleziono total: {order.Total}");
+                                        Debug("Znaleziono total: {order.Total}", "MainViewModel");
                                     }
                                 }
                             }
@@ -842,12 +868,12 @@ namespace Gryzak.ViewModels
                 }
                 catch (Exception totalsEx)
                 {
-                    Console.WriteLine($"[MainViewModel] Błąd parsowania totals: {totalsEx.Message}");
+                    Error(totalsEx, "MainViewModel", "Błąd parsowania totals");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[MainViewModel] Błąd parsowania szczegółów zamówienia: {ex.Message}");
+                Error(ex, "MainViewModel", "Błąd parsowania szczegółów zamówienia");
             }
         }
 

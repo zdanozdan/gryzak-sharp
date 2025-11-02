@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.IO;
 using Gryzak.Views;
 using Microsoft.Data.SqlClient;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak.Services
 {
@@ -67,13 +68,13 @@ namespace Gryzak.Services
                                 viesMap[country.code.ToUpperInvariant()] = country.code_vies;
                             }
                         }
-                        Console.WriteLine($"[SubiektService] Wczytano {viesMap.Count} kodów VIES z pliku kraje_iso2.json");
+                        Info($"Wczytano {viesMap.Count} kodów VIES z pliku kraje_iso2.json", "SubiektService");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SubiektService] Błąd podczas wczytywania mapy VIES: {ex.Message}");
+                Error($"Błąd podczas wczytywania mapy VIES: {ex.Message}", "SubiektService");
             }
             
             _viesMapCache = viesMap;
@@ -110,7 +111,7 @@ namespace Gryzak.Services
                 
                 if (string.IsNullOrWhiteSpace(serverAddress))
                 {
-                    Console.WriteLine("[SubiektService] Brak adresu serwera MSSQL w konfiguracji - pomijam wyszukiwanie przez SQL.");
+                    Debug("Brak adresu serwera MSSQL w konfiguracji - pomijam wyszukiwanie przez SQL.", "SubiektService");
                     return null;
                 }
                 
@@ -140,7 +141,7 @@ namespace Gryzak.Services
                     // Jeśli nie ma emaila ani nazwy klienta, nie wykonuj zapytania
                     if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName))
                     {
-                        Console.WriteLine("[SubiektService] Brak adresu email i nazwy klienta - pomijam wyszukiwanie przez SQL.");
+                        Debug("Brak adresu email i nazwy klienta - pomijam wyszukiwanie przez SQL.", "SubiektService");
                         return null;
                     }
                     
@@ -195,7 +196,7 @@ AND (
                     sqlQuery += string.Join("\n        OR \n        ", conditions);
                     sqlQuery += "\n    )\n";
                     
-                    Console.WriteLine($"[SubiektService] Wykonuję zapytanie SQL do wyszukania kontrahenta (email: {email}, customerName: {customerName}):");
+                    Debug($"Wykonuję zapytanie SQL do wyszukania kontrahenta (email: {email}, customerName: {customerName}):", "SubiektService");
                     
                     using (var command = new SqlCommand(sqlQuery, connection))
                     {
@@ -229,7 +230,7 @@ AND (
                                 loggedQuery = loggedQuery.Replace($"@NamePart{i}", $"'%{nameParts[i]}%'");
                             }
                         }
-                        Console.WriteLine($"[SubiektService] {loggedQuery}");
+                        Info("{loggedQuery}", "SubiektService");
                         
                         
                         using (var reader = command.ExecuteReader())
@@ -257,75 +258,97 @@ AND (
                             // Użytkownik może zdecydować czy wybrać kontrahenta, dodać nowego, czy kontynuować bez kontrahenta
                             if (kontrahenci.Count > 0)
                             {
-                                Console.WriteLine($"[SubiektService] Znaleziono {kontrahenci.Count} kontrahentów przez SQL.");
+                                Info("Znaleziono {kontrahenci.Count} kontrahentów przez SQL.", "SubiektService");
                             }
                             else
                             {
-                                Console.WriteLine($"[SubiektService] Nie znaleziono kontrahentów przez SQL - wyświetlam dialog z pustą listą.");
+                                Info("Nie znaleziono kontrahentów przez SQL - wyświetlam dialog z pustą listą.", "SubiektService");
                             }
                             
-                            Console.WriteLine($"[SubiektService] Wyświetlam dialog wyboru kontrahenta ({kontrahenci.Count} wyników)...");
+                            Info("Wyświetlam dialog wyboru kontrahenta ({kontrahenci.Count} wyników)...", "SubiektService");
                             
                             // Użyj synchronicznego Invoke, aby upewnić się że dialog jest wyświetlony
                             bool shouldAddNew = false;
+                            bool shouldCancel = false;
                             Application.Current?.Dispatcher.Invoke(() =>
                             {
                                 try
                                 {
-                                    Console.WriteLine("[SubiektService] Tworzę dialog SelectKontrahentDialog...");
+                                    Info("Tworzę dialog SelectKontrahentDialog...", "SubiektService");
                                     var dialog = new SelectKontrahentDialog(kontrahenci, customerName, email, phone, company, nip, address);
                                     
-                                    // Ustaw właściciela dialogu, aby był widoczny
-                                    if (Application.Current?.MainWindow != null)
+                                    // Ustaw właściciela dialogu PO utworzeniu okna ale PRZED ShowDialog
+                                    // W WPF można ustawić Owner tylko jeśli okno główne jest już wyświetlone
+                                    bool hasOwner = false;
+                                    try
                                     {
-                                        dialog.Owner = Application.Current.MainWindow;
-                                        dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                                        if (Application.Current?.MainWindow != null && Application.Current.MainWindow.IsLoaded)
+                                        {
+                                            dialog.Owner = Application.Current.MainWindow;
+                                            hasOwner = true;
+                                        }
                                     }
-                                    else
+                                    catch (Exception ownerEx)
                                     {
-                                        dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                                        Warning($"Nie można ustawić Owner dla dialogu: {ownerEx.Message}", "SubiektService");
+                                        // Kontynuuj bez Owner - okno będzie wycentrowane na ekranie
+                                        hasOwner = false;
                                     }
+                                    
+                                    // Ustaw lokalizację okna PRZED wyświetleniem (ale PO ustawieniu Owner)
+                                    dialog.WindowStartupLocation = hasOwner ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
                                     
                                     // Ustaw dialog na wierzchu, aby był widoczny
                                     dialog.Topmost = true;
                                     
-                                    Console.WriteLine("[SubiektService] Wyświetlam dialog ShowDialog()...");
+                                    Info("Wyświetlam dialog ShowDialog()...", "SubiektService");
                                     bool? result = dialog.ShowDialog();
                                     
                                     // Wyłącz Topmost po zamknięciu dialogu
                                     dialog.Topmost = false;
-                                    Console.WriteLine($"[SubiektService] Dialog ShowDialog() zakończył się z wynikiem: {result}");
+                                    Info("Dialog ShowDialog() zakończył się z wynikiem: {result}", "SubiektService");
                                     
-                                    // Sprawdź czy użytkownik kliknął "Nowy"
-                                    if (dialog.ShouldAddNew)
+                                    // Sprawdź najpierw specjalne akcje (kolejność ma znaczenie!)
+                                    if (dialog.ShouldOpenEmpty)
                                     {
-                                        Console.WriteLine("[SubiektService] Użytkownik chce dodać nowego kontrahenta - otwieram okno Subiekta GT");
+                                        Info("Użytkownik wybrał 'Pusty' - ZK zostanie otwarte bez kontrahenta.", "SubiektService");
+                                        selectedId = null; // Explicitnie ustaw na null aby otworzyć ZK bez kontrahenta
+                                    }
+                                    else if (dialog.ShouldAddNew)
+                                    {
+                                        Info("Użytkownik chce dodać nowego kontrahenta - otwieram okno Subiekta GT", "SubiektService");
                                         shouldAddNew = true;
+                                    }
+                                    else if (result == true && dialog.SelectedKontrahent != null)
+                                    {
+                                        selectedId = dialog.SelectedKontrahent.Id;
+                                        Info("Użytkownik wybrał kontrahenta: ID={dialog.SelectedKontrahent.Id}, Symbol={dialog.SelectedKontrahent.Symbol}", "SubiektService");
                                     }
                                     else
                                     {
-                                        if (result == true && dialog.SelectedKontrahent != null)
-                                        {
-                                            selectedId = dialog.SelectedKontrahent.Id;
-                                            Console.WriteLine($"[SubiektService] Użytkownik wybrał kontrahenta: ID={dialog.SelectedKontrahent.Id}, Symbol={dialog.SelectedKontrahent.Symbol}");
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine("[SubiektService] Użytkownik anulował wybór kontrahenta lub nie wybrał żadnego - ZK zostanie otwarte bez kontrahenta.");
-                                        }
+                                        // Użytkownik kliknął Anuluj lub zamknął okno - nie otwieraj ZK
+                                        Info("Użytkownik anulował wybór kontrahenta - dialog zostanie zamknięty bez otwierania ZK.", "SubiektService");
+                                        shouldCancel = true; // Anuluj całkowicie - nie otwieraj ZK
                                     }
                                 }
                                 catch (Exception dialogEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Błąd podczas wyświetlania dialogu wyboru kontrahenta: {dialogEx.Message}");
-                                    Console.WriteLine($"[SubiektService] Stack trace: {dialogEx.StackTrace}");
+                                    Error(dialogEx, "SubiektService", "Błąd podczas wyświetlania dialogu wyboru kontrahenta");
                                 }
                             }, System.Windows.Threading.DispatcherPriority.Normal);
+                            
+                            // Jeśli użytkownik anulował, zakończ bez otwierania ZK
+                            // Używamy -1 jako specjalnej wartości oznaczającej anulowanie
+                            if (shouldCancel)
+                            {
+                                Info("Anulowano otwieranie ZK - zwracam -1 (specjalna wartość dla anulowania)", "SubiektService");
+                                return -1;
+                            }
                             
                             // Jeśli użytkownik chce dodać nowego kontrahenta, otwórz okno Subiekta GT
                             if (shouldAddNew)
                             {
-                                Console.WriteLine("[SubiektService] Otwieram okno dodawania kontrahenta...");
+                                Info("Otwieram okno dodawania kontrahenta...", "SubiektService");
                                 try
                                 {
                                     // Przekaż dane z API do metody DodajKontrahenta
@@ -333,15 +356,15 @@ AND (
                                 }
                                 catch (Exception addEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Błąd podczas otwierania okna dodawania kontrahenta: {addEx.Message}");
+                                    Error(addEx, "SubiektService", "Błąd podczas otwierania okna dodawania kontrahenta");
                                 }
                                 
                                 // Po zamknięciu okna Subiekta GT, wywołaj rekurencyjnie wyszukiwanie, aby ponownie pokazać dialog
-                                Console.WriteLine("[SubiektService] Okno Subiekta GT zostało zamknięte - ponownie wyświetlam dialog wyboru kontrahenta...");
+                                Info("Okno Subiekta GT zostało zamknięte - ponownie wyświetlam dialog wyboru kontrahenta...", "SubiektService");
                                 return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, true);
                             }
                             
-                            Console.WriteLine($"[SubiektService] WyszukajKontrahentaPrzezSQL zwraca: {selectedId?.ToString() ?? "null"}");
+                            Debug($"WyszukajKontrahentaPrzezSQL zwraca: {selectedId?.ToString() ?? "null"}", "SubiektService");
                             return selectedId;
                         }
                     }
@@ -349,7 +372,7 @@ AND (
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania kontrahenta przez SQL: {ex.Message}");
+                Error(ex, "SubiektService", "Błąd podczas wyszukiwania kontrahenta przez SQL");
                 return null;
             }
         }
@@ -369,7 +392,7 @@ AND (
         {
             try
             {
-                Console.WriteLine("[SubiektService] Próba otwarcia okna dodawania kontrahenta...");
+                Info("Próba otwarcia okna dodawania kontrahenta...", "SubiektService");
                 
                 dynamic? gt = null;
                 dynamic? subiekt = null;
@@ -379,20 +402,20 @@ AND (
                 {
                     subiekt = _cachedSubiekt;
                     gt = _cachedGt;
-                    Console.WriteLine("[SubiektService] Używam istniejącej instancji Subiekta GT z cache.");
+                    Info("Używam istniejącej instancji Subiekta GT z cache.", "SubiektService");
                     PowiadomOZmianieInstancji(true);
                 }
                 
                 // Jeśli nie ma działającej instancji, utwórz nową
                 if (subiekt == null)
                 {
-                    Console.WriteLine("[SubiektService] Uruchamiam nową instancję Subiekta GT...");
+                    Info("Uruchamiam nową instancję Subiekta GT...", "SubiektService");
                     
                     // Utworz obiekt GT (COM)
                     Type? gtType = Type.GetTypeFromProgID("InsERT.gt");
                     if (gtType == null)
                     {
-                        Console.WriteLine("[SubiektService] BŁĄD: Nie można załadować typu COM 'InsERT.gt'.");
+                        Info("BŁĄD: Nie można załadować typu COM 'InsERT.gt'.", "SubiektService");
                         MessageBox.Show(
                             "Nie można połączyć się z Subiektem GT.\n\nUpewnij się, że:\n- Sfera dla Subiekta GT jest zainstalowana\n- Subiekt GT jest zainstalowany",
                             "Błąd połączenia",
@@ -404,7 +427,7 @@ AND (
                     gt = Activator.CreateInstance(gtType);
                     if (gt == null)
                     {
-                        Console.WriteLine("[SubiektService] BŁĄD: Nie można utworzyć instancji obiektu GT.");
+                        Info("BŁĄD: Nie można utworzyć instancji obiektu GT.", "SubiektService");
                         return;
                     }
                     
@@ -418,11 +441,11 @@ AND (
                         gt.Operator = subiektConfig.User;
                         gt.OperatorHaslo = subiektConfig.Password;
                         
-                        Console.WriteLine($"[SubiektService] Ustawiono operatora: {subiektConfig.User}");
+                        Info("Ustawiono operatora: {subiektConfig.User}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] BŁĄD podczas konfiguracji GT: {ex.Message}");
+                        Error(ex, "SubiektService", "Błąd podczas konfiguracji GT");
                     }
                     
                     // Uruchom Subiekta GT
@@ -431,10 +454,10 @@ AND (
                         subiekt = gt.Uruchom(2, 4); // Dopasuj operatora + uruchom w tle
                         if (subiekt == null)
                         {
-                            Console.WriteLine("[SubiektService] BŁĄD: Uruchomienie Subiekta GT zwróciło null.");
+                            Info("BŁĄD: Uruchomienie Subiekta GT zwróciło null.", "SubiektService");
                             return;
                         }
-                        Console.WriteLine("[SubiektService] Subiekt GT uruchomiony.");
+                        Info("Subiekt GT uruchomiony.", "SubiektService");
                         
                         // Zapisz w cache dla następnych użyć
                         _cachedGt = gt;
@@ -447,16 +470,16 @@ AND (
                         try
                         {
                             subiekt.Okno.Widoczne = false;
-                            Console.WriteLine("[SubiektService] Główne okno Subiekta GT ustawione jako niewidoczne.");
+                            Info("Główne okno Subiekta GT ustawione jako niewidoczne.", "SubiektService");
                         }
                         catch (Exception oknoEx)
                         {
-                            Console.WriteLine($"[SubiektService] Uwaga: Nie można ustawić głównego okna jako niewidoczne: {oknoEx.Message}");
+                            Warning($"Nie można ustawić głównego okna jako niewidoczne: {oknoEx.Message}", "SubiektService");
                         }
                     }
                     catch (COMException comEx)
                     {
-                        Console.WriteLine($"[SubiektService] BŁĄD COM: {comEx.Message}");
+                        Error($"Błąd COM: {comEx.Message}", "SubiektService");
                         _cachedSubiekt = null;
                         _cachedGt = null;
                         MessageBox.Show(
@@ -468,7 +491,7 @@ AND (
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] BŁĄD: {ex.Message}");
+                        Error(ex, "SubiektService");
                         _cachedSubiekt = null;
                         _cachedGt = null;
                         MessageBox.Show(
@@ -483,7 +506,7 @@ AND (
                 // Dodaj nowego kontrahenta
                 try
                 {
-                    Console.WriteLine("[SubiektService] Próba dodania nowego kontrahenta...");
+                    Info("Próba dodania nowego kontrahenta...", "SubiektService");
                     dynamic kontrahenci = subiekt.Kontrahenci;
                     if (kontrahenci != null)
                     {
@@ -498,11 +521,11 @@ AND (
                             
                             // Wyświetl okno kartotekowe kontrahenta
                             nowyKontrahent.Wyswietl();
-                            Console.WriteLine("[SubiektService] Okno kartotekowe kontrahenta zostało otwarte.");
+                            Info("Okno kartotekowe kontrahenta zostało otwarte.", "SubiektService");
                         }
                         else
                         {
-                            Console.WriteLine("[SubiektService] BŁĄD: Nie udało się utworzyć nowego kontrahenta.");
+                            Info("BŁĄD: Nie udało się utworzyć nowego kontrahenta.", "SubiektService");
                             MessageBox.Show(
                                 "Nie udało się utworzyć nowego kontrahenta.",
                                 "Błąd",
@@ -512,7 +535,7 @@ AND (
                     }
                     else
                     {
-                        Console.WriteLine("[SubiektService] BŁĄD: Nie udało się uzyskać dostępu do kolekcji kontrahentów.");
+                        Info("BŁĄD: Nie udało się uzyskać dostępu do kolekcji kontrahentów.", "SubiektService");
                         MessageBox.Show(
                             "Nie udało się uzyskać dostępu do kolekcji kontrahentów.",
                             "Błąd",
@@ -522,8 +545,7 @@ AND (
                 }
                 catch (Exception kontrEx)
                 {
-                    Console.WriteLine($"[SubiektService] BŁĄD podczas dodawania kontrahenta: {kontrEx.Message}");
-                    Console.WriteLine($"[SubiektService] Stack trace: {kontrEx.StackTrace}");
+                    Error(kontrEx, "SubiektService", "Błąd podczas dodawania kontrahenta");
                     MessageBox.Show(
                         $"Błąd podczas dodawania kontrahenta:\n\n{kontrEx.Message}",
                         "Błąd",
@@ -533,7 +555,7 @@ AND (
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SubiektService] BŁĄD podczas otwierania okna dodawania kontrahenta: {ex.Message}");
+                Error(ex, "SubiektService", "Błąd podczas otwierania okna dodawania kontrahenta");
                 MessageBox.Show(
                     $"Błąd podczas otwierania okna dodawania kontrahenta:\n\n{ex.Message}",
                     "Błąd",
@@ -559,7 +581,7 @@ AND (
                 
                 if (string.IsNullOrWhiteSpace(serverAddress))
                 {
-                    Console.WriteLine("[SubiektService] Brak adresu serwera MSSQL - pomijam wyszukiwanie kraju.");
+                    Info("Brak adresu serwera MSSQL - pomijam wyszukiwanie kraju.", "SubiektService");
                     return null;
                 }
                 
@@ -600,7 +622,7 @@ WHERE pa_Nazwa = @CountryName";
                                 var countryId = reader.IsDBNull(0) ? null : (int?)Convert.ToInt32(reader.GetValue(0));
                                 if (countryId.HasValue)
                                 {
-                                    Console.WriteLine($"[SubiektService] Znaleziono kraj '{countryName}' w słowniku: ID={countryId.Value}");
+                                    Info("Znaleziono kraj '{countryName}' w słowniku: ID={countryId.Value}", "SubiektService");
                                     return countryId.Value;
                                 }
                             }
@@ -608,12 +630,91 @@ WHERE pa_Nazwa = @CountryName";
                     }
                 }
                 
-                Console.WriteLine($"[SubiektService] Nie znaleziono kraju '{countryName}' w słowniku państw.");
+                Info("Nie znaleziono kraju '{countryName}' w słowniku państw.", "SubiektService");
                 return null;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania kraju: {ex.Message}");
+                Error(ex, "SubiektService", "Błąd podczas wyszukiwania kraju");
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// Sprawdza czy dokument z podanym numerem oryginalnym już istnieje w Subiekcie
+        /// Zwraca dok_Id dokumentu jeśli istnieje, null w przeciwnym razie
+        /// </summary>
+        private int? PobierzIdIstniejacegoDokumentu(string numerOryginalny)
+        {
+            if (string.IsNullOrWhiteSpace(numerOryginalny))
+            {
+                return null;
+            }
+            
+            try
+            {
+                var subiektConfig = _configService.LoadSubiektConfig();
+                string serverAddress = subiektConfig.ServerAddress ?? "";
+                string username = subiektConfig.ServerUsername ?? "";
+                string password = subiektConfig.ServerPassword ?? "";
+                
+                if (string.IsNullOrWhiteSpace(serverAddress))
+                {
+                    Info("Brak adresu serwera MSSQL - pomijam sprawdzanie istnienia dokumentu.", "SubiektService");
+                    return null;
+                }
+                
+                var builder = new SqlConnectionStringBuilder
+                {
+                    DataSource = serverAddress,
+                    UserID = username,
+                    Password = password,
+                    ConnectTimeout = 10,
+                    Encrypt = false
+                };
+                
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    builder.IntegratedSecurity = true;
+                }
+                
+                string connectionString = builder.ConnectionString;
+                
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    connection.Open();
+                    
+                    string sqlQuery = @"
+SELECT 
+    [dok_Id],
+    [dok_NrPelnyOryg]
+FROM [MIKRAN].[dbo].[dok__Dokument]
+WHERE dok_NrPelnyOryg = @NumerOryginalny";
+                    
+                    using (var command = new SqlCommand(sqlQuery, connection))
+                    {
+                        command.Parameters.AddWithValue("@NumerOryginalny", numerOryginalny);
+                        
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                var dokId = reader.IsDBNull(0) ? null : (int?)Convert.ToInt32(reader.GetValue(0));
+                                var nrPelnyOryg = reader.IsDBNull(1) ? null : reader.GetString(1);
+                                Info("Znaleziono istniejący dokument z numerem oryginalnym '{numerOryginalny}' (dok_Id={dokId})", "SubiektService");
+                                return dokId;
+                            }
+                        }
+                    }
+                }
+                
+                Info("Nie znaleziono dokumentu z numerem oryginalnym '{numerOryginalny}'", "SubiektService");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "SubiektService", "Błąd podczas sprawdzania istnienia dokumentu");
+                // W przypadku błędu zwracamy null, aby nie blokować otwierania ZK
                 return null;
             }
         }
@@ -625,28 +726,28 @@ WHERE pa_Nazwa = @CountryName";
         {
             try
             {
-                Console.WriteLine("[SubiektService] Wypełnianie danych kontrahenta...");
+                Info("Wypełnianie danych kontrahenta...", "SubiektService");
                 
                 // Ustaw typ kontrahenta - 2 = gtaKontrahentTypOdbiorca (Odbiorca)
                 try
                 {
                     kontrahent.Typ = 2;
-                    Console.WriteLine("[SubiektService] Ustawiono Typ=2 (Odbiorca)");
+                    Info("Ustawiono Typ=2 (Odbiorca)", "SubiektService");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[SubiektService] Nie udało się ustawić Typ: {ex.Message}");
+                    Warning($"Nie udało się ustawić Typ: {ex.Message}", "SubiektService");
                 }
                 
                 // Ustaw województwo na (brak) - gtaBrak = -2147483648
                 try
                 {
                     kontrahent.Wojewodztwo = unchecked((int)0x80000000);
-                    Console.WriteLine("[SubiektService] Ustawiono Wojewodztwo=(brak)");
+                    Info("Ustawiono Wojewodztwo=(brak)", "SubiektService");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[SubiektService] Nie udało się ustawić Wojewodztwo: {ex.Message}");
+                    Warning($"Nie udało się ustawić Wojewodztwo: {ex.Message}", "SubiektService");
                 }
                 
                 // Zbuduj pełną nazwę: imię, nazwisko i firma (jeśli dostępne)
@@ -675,33 +776,33 @@ WHERE pa_Nazwa = @CountryName";
                     // try
                     // {
                     //     kontrahent.Symbol = pelnaNazwa;
-                    //     Console.WriteLine($"[SubiektService] Ustawiono Symbol: {pelnaNazwa}");
+                    //     Info("Ustawiono Symbol: {pelnaNazwa}", "SubiektService");
                     // }
                     // catch (Exception ex)
                     // {
-                    //     Console.WriteLine($"[SubiektService] Nie udało się ustawić Symbol: {ex.Message}");
+                    //     Info("Nie udało się ustawić Symbol: {ex.Message}", "SubiektService");
                     // }
                     
                     // Nazwa
                     try
                     {
                         kontrahent.Nazwa = pelnaNazwa;
-                        Console.WriteLine($"[SubiektService] Ustawiono Nazwa: {pelnaNazwa}");
+                        Info("Ustawiono Nazwa: {pelnaNazwa}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Nazwa: {ex.Message}");
+                        Warning($"Nie udało się ustawić Nazwa: {ex.Message}", "SubiektService");
                     }
                     
                     // Nazwa pełna
                     try
                     {
                         kontrahent.NazwaPelna = pelnaNazwa;
-                        Console.WriteLine($"[SubiektService] Ustawiono NazwaPelna: {pelnaNazwa}");
+                        Info("Ustawiono NazwaPelna: {pelnaNazwa}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić NazwaPelna: {ex.Message}");
+                        Warning($"Nie udało się ustawić NazwaPelna: {ex.Message}", "SubiektService");
                     }
                 }
                 
@@ -719,16 +820,16 @@ WHERE pa_Nazwa = @CountryName";
                             if (viesMap.TryGetValue(isoCode2.ToUpperInvariant(), out var viesCode))
                             {
                                 nipZPrefiksem = viesCode + nip;
-                                Console.WriteLine($"[SubiektService] Dodaję prefiks VIES do NIP: {nipZPrefiksem}");
+                                Info("Dodaję prefiks VIES do NIP: {nipZPrefiksem}", "SubiektService");
                             }
                         }
                         
                         kontrahent.NIP = nipZPrefiksem;
-                        Console.WriteLine($"[SubiektService] Ustawiono NIP: {nipZPrefiksem}");
+                        Info("Ustawiono NIP: {nipZPrefiksem}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić NIP: {ex.Message}");
+                        Warning($"Nie udało się ustawić NIP: {ex.Message}", "SubiektService");
                     }
                 }
                 
@@ -738,11 +839,11 @@ WHERE pa_Nazwa = @CountryName";
                     try
                     {
                         kontrahent.Ulica = address1;
-                        Console.WriteLine($"[SubiektService] Ustawiono Ulica: {address1}");
+                        Info("Ustawiono Ulica: {address1}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Ulica: {ex.Message}");
+                        Warning($"Nie udało się ustawić Ulica: {ex.Message}", "SubiektService");
                     }
                 }
                 
@@ -752,11 +853,11 @@ WHERE pa_Nazwa = @CountryName";
                     try
                     {
                         kontrahent.Miejscowosc = city;
-                        Console.WriteLine($"[SubiektService] Ustawiono Miejscowosc: {city}");
+                        Info("Ustawiono Miejscowosc: {city}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Miejscowosc: {ex.Message}");
+                        Warning($"Nie udało się ustawić Miejscowosc: {ex.Message}", "SubiektService");
                     }
                 }
                 
@@ -766,11 +867,11 @@ WHERE pa_Nazwa = @CountryName";
                     try
                     {
                         kontrahent.KodPocztowy = postcode;
-                        Console.WriteLine($"[SubiektService] Ustawiono KodPocztowy: {postcode}");
+                        Info("Ustawiono KodPocztowy: {postcode}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić KodPocztowy: {ex.Message}");
+                        Warning($"Nie udało się ustawić KodPocztowy: {ex.Message}", "SubiektService");
                     }
                 }
                 
@@ -786,13 +887,13 @@ WHERE pa_Nazwa = @CountryName";
                             if (nowyEmail != null)
                             {
                                 nowyEmail.Podstawowy = true;
-                                Console.WriteLine($"[SubiektService] Ustawiono Email: {email}");
+                                Info("Ustawiono Email: {email}", "SubiektService");
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Email: {ex.Message}");
+                        Warning($"Nie udało się ustawić Email: {ex.Message}", "SubiektService");
                     }
                 }
                 
@@ -808,13 +909,13 @@ WHERE pa_Nazwa = @CountryName";
                             if (nowyTelefon != null)
                             {
                                 nowyTelefon.Podstawowy = true;
-                                Console.WriteLine($"[SubiektService] Ustawiono Telefon: {phone}");
+                                Info("Ustawiono Telefon: {phone}", "SubiektService");
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Nie udało się ustawić Telefon: {ex.Message}");
+                        Warning($"Nie udało się ustawić Telefon: {ex.Message}", "SubiektService");
                     }
                 }
                 
@@ -825,7 +926,8 @@ WHERE pa_Nazwa = @CountryName";
                     try
                     {
                         // Najpierw ustaw PodatnikVatUE jeśli kraj jest w UE (ale nie dla Polski)
-                        if (!string.IsNullOrWhiteSpace(isoCode2))
+                        // Ustawiamy tylko jeśli NIP nie jest pusty i nie składa się tylko z prefiksu VIES
+                        if (!string.IsNullOrWhiteSpace(nip) && !string.IsNullOrWhiteSpace(isoCode2))
                         {
                             var isoCodeUpper = isoCode2.ToUpperInvariant();
                             // Pomijamy Polskę - tylko kraje UE poza Polską
@@ -834,21 +936,36 @@ WHERE pa_Nazwa = @CountryName";
                                 var viesMap = LoadViesMap();
                                 if (viesMap.TryGetValue(isoCodeUpper, out var viesCode))
                                 {
-                                    try
+                                    // Sprawdź czy NIP nie składa się tylko z prefiksu VIES (nie ma dodatkowych cyfr)
+                                    // Używamy raw NIP (bez prefiksu) aby sprawdzić czy jest rzeczywiście wypełniony
+                                    bool nipJestPelny = nip.Length > viesCode.Length;
+                                    
+                                    if (nipJestPelny)
                                     {
-                                        kontrahent.PodatnikVatUE = true;
-                                        Console.WriteLine($"[SubiektService] Ustawiono PodatnikVatUE=True (kraj UE: {viesCode})");
+                                        try
+                                        {
+                                            kontrahent.PodatnikVatUE = true;
+                                            Info("Ustawiono PodatnikVatUE=True (kraj UE: {viesCode}, NIP: {nip})", "SubiektService");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Warning($"Nie udało się ustawić PodatnikVatUE: {ex.Message}", "SubiektService");
+                                        }
                                     }
-                                    catch (Exception ex)
+                                    else
                                     {
-                                        Console.WriteLine($"[SubiektService] Nie udało się ustawić PodatnikVatUE: {ex.Message}");
+                                        Info("Pomijam ustawienie PodatnikVatUE - NIP jest pusty lub składa się tylko z prefiksu VIES ({viesCode})", "SubiektService");
                                     }
                                 }
                             }
                             else
                             {
-                                Console.WriteLine($"[SubiektService] Pomijam ustawienie PodatnikVatUE dla Polski (PL)");
+                                Info("Pomijam ustawienie PodatnikVatUE dla Polski (PL)", "SubiektService");
                             }
+                        }
+                        else if (string.IsNullOrWhiteSpace(nip))
+                        {
+                            Info("Pomijam ustawienie PodatnikVatUE - brak NIP", "SubiektService");
                         }
                         
                         // Teraz ustaw Panstwo (to powinno wywołać event w Subiekcie GT)
@@ -856,25 +973,24 @@ WHERE pa_Nazwa = @CountryName";
                         if (countryId.HasValue)
                         {
                             kontrahent.Panstwo = countryId.Value;
-                            Console.WriteLine($"[SubiektService] Ustawiono Panstwo: {country} (ID={countryId.Value})");
+                            Info("Ustawiono Panstwo: {country} (ID={countryId.Value})", "SubiektService");
                         }
                         else
                         {
-                            Console.WriteLine($"[SubiektService] Nie znaleziono kraju '{country}' w słowniku - pomijam ustawienie Panstwo");
+                            Info("Nie znaleziono kraju '{country}' w słowniku - pomijam ustawienie Panstwo", "SubiektService");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] Błąd podczas ustawiania Panstwo: {ex.Message}");
+                        Warning($"Błąd podczas ustawiania Panstwo: {ex.Message}", "SubiektService");
                     }
                 }
                 
-                Console.WriteLine("[SubiektService] Dane kontrahenta zostały wypełnione.");
+                Info("Dane kontrahenta zostały wypełnione.", "SubiektService");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SubiektService] BŁĄD podczas wypełniania danych kontrahenta: {ex.Message}");
-                Console.WriteLine($"[SubiektService] Stack trace: {ex.StackTrace}");
+                Error(ex, "SubiektService", "Błąd podczas wypełniania danych kontrahenta");
             }
         }
         
@@ -885,7 +1001,7 @@ WHERE pa_Nazwa = @CountryName";
         {
             try
             {
-                Console.WriteLine("[SubiektService] Zamykanie instancji Subiekta GT i zwolnienie licencji...");
+                Info("Zamykanie instancji Subiekta GT i zwolnienie licencji...", "SubiektService");
                 
                 if (_cachedSubiekt != null)
                 {
@@ -898,7 +1014,7 @@ WHERE pa_Nazwa = @CountryName";
                             if (aplikacja != null)
                             {
                                 bool zakonczWynik = aplikacja.Zakoncz();
-                                Console.WriteLine($"[SubiektService] Wywołano Zakoncz() na obiekcie Aplikacja. Wynik: {zakonczWynik}");
+                                Info("Wywołano Zakoncz() na obiekcie Aplikacja. Wynik: {zakonczWynik}", "SubiektService");
                                 
                                 // Poczekaj chwilę na zamknięcie procesu
                                 System.Threading.Thread.Sleep(500);
@@ -906,7 +1022,7 @@ WHERE pa_Nazwa = @CountryName";
                         }
                         catch (Exception aplikacjaEx)
                         {
-                            Console.WriteLine($"[SubiektService] Nie udało się zamknąć przez Aplikacja.Zakoncz(): {aplikacjaEx.Message}");
+                            Warning($"Nie udało się zamknąć przez Aplikacja.Zakoncz(): {aplikacjaEx.Message}", "SubiektService");
                             // Próbuj alternatywną metodę - Zakoncz na obiekcie GT
                             try
                             {
@@ -919,13 +1035,13 @@ WHERE pa_Nazwa = @CountryName";
                                         if (aplikacjaGT != null)
                                         {
                                             bool zakonczWynik = aplikacjaGT.Zakoncz();
-                                            Console.WriteLine($"[SubiektService] Wywołano Zakoncz() na obiekcie GT.Aplikacja. Wynik: {zakonczWynik}");
+                                            Info("Wywołano Zakoncz() na obiekcie GT.Aplikacja. Wynik: {zakonczWynik}", "SubiektService");
                                             System.Threading.Thread.Sleep(500);
                                         }
                                     }
                                     catch
                                     {
-                                        Console.WriteLine("[SubiektService] Nie można uzyskać dostępu do GT.Aplikacja");
+                                        Info("Nie można uzyskać dostępu do GT.Aplikacja", "SubiektService");
                                     }
                                 }
                             }
@@ -937,7 +1053,7 @@ WHERE pa_Nazwa = @CountryName";
                     }
                     catch (Exception zamknijEx)
                     {
-                        Console.WriteLine($"[SubiektService] Błąd podczas próby zamknięcia aplikacji: {zamknijEx.Message}");
+                        Warning($"Błąd podczas próby zamknięcia aplikacji: {zamknijEx.Message}", "SubiektService");
                     }
                     
                     // Zwolnij referencje COM obiektów
@@ -946,12 +1062,12 @@ WHERE pa_Nazwa = @CountryName";
                         if (_cachedSubiekt != null)
                         {
                             Marshal.ReleaseComObject(_cachedSubiekt);
-                            Console.WriteLine("[SubiektService] Zwolniono referencję COM dla obiektu Subiekt.");
+                            Info("Zwolniono referencję COM dla obiektu Subiekt.", "SubiektService");
                         }
                     }
                     catch (Exception releaseEx)
                     {
-                        Console.WriteLine($"[SubiektService] Błąd podczas zwalniania obiektu Subiekt: {releaseEx.Message}");
+                        Warning($"Błąd podczas zwalniania obiektu Subiekt: {releaseEx.Message}", "SubiektService");
                     }
                 }
                 
@@ -960,11 +1076,11 @@ WHERE pa_Nazwa = @CountryName";
                     try
                     {
                         Marshal.ReleaseComObject(_cachedGt);
-                        Console.WriteLine("[SubiektService] Zwolniono referencję COM dla obiektu GT.");
+                        Info("Zwolniono referencję COM dla obiektu GT.", "SubiektService");
                     }
                     catch (Exception releaseEx)
                     {
-                        Console.WriteLine($"[SubiektService] Błąd podczas zwalniania obiektu GT: {releaseEx.Message}");
+                        Warning($"Błąd podczas zwalniania obiektu GT: {releaseEx.Message}", "SubiektService");
                     }
                 }
                 
@@ -980,11 +1096,11 @@ WHERE pa_Nazwa = @CountryName";
                 // Powiadom o zmianie statusu
                 PowiadomOZmianieInstancji(false);
                 
-                Console.WriteLine("[SubiektService] Instancja Subiekta GT została zamknięta, licencja zwolniona.");
+                Info("Instancja Subiekta GT została zamknięta, licencja zwolniona.", "SubiektService");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SubiektService] BŁĄD podczas zamykania instancji: {ex.Message}");
+                Error(ex, "SubiektService", "Błąd podczas zamykania instancji");
                 // Mimo błędu wyczyść cache
                 _cachedSubiekt = null;
                 _cachedGt = null;
@@ -1004,7 +1120,7 @@ WHERE pa_Nazwa = @CountryName";
         {
             try
             {
-                Console.WriteLine($"[SubiektService] Próba otwarcia okna ZK{(nip != null ? $" z kontrahentem o NIP: {nip}" : " bez kontrahenta")}{(email != null ? $" (email: {email})" : "")}...");
+                Info($"Próba otwarcia okna ZK{(nip != null ? $" z kontrahentem o NIP: {nip}" : " bez kontrahenta")}{(email != null ? $" (email: {email})" : "")}...", "SubiektService");
 
                 dynamic? gt = null;
                 dynamic? subiekt = null;
@@ -1016,7 +1132,7 @@ WHERE pa_Nazwa = @CountryName";
                 {
                     subiekt = _cachedSubiekt;
                     gt = _cachedGt;
-                    Console.WriteLine("[SubiektService] Używam istniejącej instancji Subiekta GT z cache.");
+                    Info("Używam istniejącej instancji Subiekta GT z cache.", "SubiektService");
                     // Upewnij się, że status jest aktywny (może nie zostać ustawiony przy starcie aplikacji)
                     PowiadomOZmianieInstancji(true);
                 }
@@ -1024,13 +1140,13 @@ WHERE pa_Nazwa = @CountryName";
                 // Jeśli nie ma działającej instancji, utwórz nową
                 if (subiekt == null)
                 {
-                    Console.WriteLine("[SubiektService] Uruchamiam nową instancję Subiekta GT...");
+                    Info("Uruchamiam nową instancję Subiekta GT...", "SubiektService");
 
                     // Utworz obiekt GT (COM)
                     Type? gtType = Type.GetTypeFromProgID("InsERT.gt");
                     if (gtType == null)
                     {
-                        Console.WriteLine("[SubiektService] BŁĄD: Nie można załadować typu COM 'InsERT.gt'. Upewnij się, że Sfera jest zainstalowana.");
+                        Info("BŁĄD: Nie można załadować typu COM 'InsERT.gt'. Upewnij się, że Sfera jest zainstalowana.", "SubiektService");
                         MessageBox.Show(
                             "Nie można połączyć się z Subiektem GT.\n\nUpewnij się, że:\n- Sfera dla Subiekta GT jest zainstalowana\n- Subiekt GT jest zainstalowany",
                             "Błąd połączenia",
@@ -1042,7 +1158,7 @@ WHERE pa_Nazwa = @CountryName";
                     gt = Activator.CreateInstance(gtType);
                     if (gt == null)
                     {
-                        Console.WriteLine("[SubiektService] BŁĄD: Nie można utworzyć instancji obiektu GT.");
+                        Info("BŁĄD: Nie można utworzyć instancji obiektu GT.", "SubiektService");
                         return;
                     }
 
@@ -1056,11 +1172,11 @@ WHERE pa_Nazwa = @CountryName";
                         gt.Operator = subiektConfig.User;
                         gt.OperatorHaslo = subiektConfig.Password;
                         
-                        Console.WriteLine($"[SubiektService] Ustawiono operatora: {subiektConfig.User} - okno logowania zostanie pominięte.");
+                        Info("Ustawiono operatora: {subiektConfig.User} - okno logowania zostanie pominięte.", "SubiektService");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] BŁĄD podczas konfiguracji GT: {ex.Message}");
+                        Error(ex, "SubiektService", "Błąd podczas konfiguracji GT");
                     }
 
                     // Uruchom Subiekta GT w tle (bez interfejsu użytkownika)
@@ -1072,10 +1188,10 @@ WHERE pa_Nazwa = @CountryName";
                         subiekt = gt.Uruchom(2, 4); // Dopasuj operatora + uruchom w tle
                         if (subiekt == null)
                         {
-                            Console.WriteLine("[SubiektService] BŁĄD: Uruchomienie Subiekta GT zwróciło null.");
+                            Info("BŁĄD: Uruchomienie Subiekta GT zwróciło null.", "SubiektService");
                             return;
                         }
-                        Console.WriteLine("[SubiektService] Subiekt GT uruchomiony w tle (bez interfejsu użytkownika).");
+                        Info("Subiekt GT uruchomiony w tle (bez interfejsu użytkownika).", "SubiektService");
                         
 
                         
@@ -1090,16 +1206,16 @@ WHERE pa_Nazwa = @CountryName";
                         try
                         {
                             subiekt.Okno.Widoczne = false;
-                            Console.WriteLine("[SubiektService] Główne okno Subiekta GT ustawione jako niewidoczne.");
+                            Info("Główne okno Subiekta GT ustawione jako niewidoczne.", "SubiektService");
                         }
                         catch (Exception oknoEx)
                         {
-                            Console.WriteLine($"[SubiektService] Uwaga: Nie można ustawić głównego okna jako niewidoczne: {oknoEx.Message}");
+                            Warning($"Nie można ustawić głównego okna jako niewidoczne: {oknoEx.Message}", "SubiektService");
                         }
                     }
                         catch (COMException comEx)
                     {
-                        Console.WriteLine($"[SubiektService] BŁĄD COM: {comEx.Message} (HRESULT: 0x{comEx.ErrorCode:X8})");
+                        Error($"Błąd COM: {comEx.Message} (HRESULT: 0x{comEx.ErrorCode:X8})", "SubiektService");
                         // Wyczyść cache w przypadku błędu COM
                         _cachedSubiekt = null;
                         _cachedGt = null;
@@ -1113,7 +1229,7 @@ WHERE pa_Nazwa = @CountryName";
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektService] BŁĄD: {ex.Message}");
+                        Error(ex, "SubiektService");
                         // Wyczyść cache w przypadku błędu
                         _cachedSubiekt = null;
                         _cachedGt = null;
@@ -1126,11 +1242,83 @@ WHERE pa_Nazwa = @CountryName";
                     }
                 }
 
+                // Sprawdź czy dokument z numerem oryginalnym już istnieje w Subiekcie
+                // Jeśli istnieje, wyświetl ostrzeżenie i zapytaj czy otworzyć istniejący dokument
+                if (!string.IsNullOrWhiteSpace(orderId) && subiekt != null)
+                {
+                    int? dokId = PobierzIdIstniejacegoDokumentu(orderId!); // orderId nie może być null w tym miejscu
+                    if (dokId.HasValue)
+                    {
+                        Info("Dokument z numerem oryginalnym '{orderId}' już istnieje (dok_Id={dokId.Value}).", "SubiektService");
+                        
+                        // Wyświetl ostrzeżenie i zapytaj użytkownika
+                        var result = MessageBox.Show(
+                            $"Dokument z numerem oryginalnym '{orderId}' już istnieje w Subiekcie.\n\n" +
+                            $"Czy chcesz otworzyć istniejący dokument do edycji?",
+                            "Ostrzeżenie - Dokument już istnieje",
+                            System.Windows.MessageBoxButton.YesNo,
+                            System.Windows.MessageBoxImage.Warning);
+                        
+                        if (result == System.Windows.MessageBoxResult.No)
+                        {
+                            Info("Użytkownik anulował otwieranie dokumentu ZK - dokument z numerem '{orderId}' już istnieje.", "SubiektService");
+                            return;
+                        }
+                        
+                        // Użytkownik wybrał "Tak" - otwórz istniejący dokument
+                        Info("Użytkownik zdecydował otworzyć istniejący dokument (dok_Id={dokId.Value}).", "SubiektService");
+                        
+                        try
+                        {
+                            // Wczytaj istniejący dokument po ID
+                            // subiekt nie może być null w tym miejscu (sprawdzony w warunku if)
+                            dynamic dokumenty = subiekt!.Dokumenty;
+                            dynamic istniejacyDokument = dokumenty.Wczytaj(dokId.Value);
+                            
+                            if (istniejacyDokument != null)
+                            {
+                                // Otwórz dokument do edycji (bez uzupełniania danych)
+                                istniejacyDokument.Wyswietl(false);
+                                Info("Otwarto istniejący dokument ZK (dok_Id={dokId.Value}) do edycji.", "SubiektService");
+                                
+                                // Aktywuj okno dokumentu na wierzch
+                                try
+                                {
+                                    subiekt!.Okno.Aktywuj(); // subiekt nie może być null (sprawdzony w warunku if)
+                                    Info("Aktywowano okno dokumentu na wierzch.", "SubiektService");
+                                }
+                                catch (Exception aktywujEx)
+                                {
+                                    Warning($"Aktywacja okna dokumentu nie zadziałała: {aktywujEx.Message}", "SubiektService");
+                                }
+                                
+                                // Zakończ funkcję - nie uzupełniaj żadnych danych
+                                return;
+                            }
+                            else
+                            {
+                                Info("Nie udało się wczytać dokumentu o ID={dokId.Value}. Tworzę nowy dokument.", "SubiektService");
+                            }
+                        }
+                        catch (Exception wczytajEx)
+                        {
+                            Error(wczytajEx, "SubiektService", "Błąd podczas wczytywania istniejącego dokumentu. Tworzę nowy dokument.");
+                            // Kontynuuj normalną ścieżką tworzenia nowego dokumentu
+                        }
+                    }
+                }
+
                 // Dodaj dokument ZK i otwórz jego okno
                 // Używamy zmiennej subiekt, która może pochodzić z cache lub być świeżo utworzona
+                if (subiekt == null)
+                {
+                    Info("BŁĄD: subiekt jest null - nie można utworzyć dokumentu ZK.", "SubiektService");
+                    return;
+                }
+                
                 try
                 {
-                    Console.WriteLine("[SubiektService] Próba dodania dokumentu ZK...");
+                    Info("Próba dodania dokumentu ZK...", "SubiektService");
                     dynamic? zkDokument = null;
 
                     // Spróbuj użyć SuDokumentyManager.DodajZK() - to jest zalecana metoda
@@ -1140,12 +1328,12 @@ WHERE pa_Nazwa = @CountryName";
                         if (dokumentyManager != null)
                         {
                             zkDokument = dokumentyManager.DodajZK();
-                            Console.WriteLine("[SubiektService] Użyto SuDokumentyManager.DodajZK()");
+                            Info("Użyto SuDokumentyManager.DodajZK()", "SubiektService");
                         }
                     }
                     catch (Exception ex1)
                     {
-                        Console.WriteLine($"[SubiektService] SuDokumentyManager.DodajZK() nie zadziałał: {ex1.Message}");
+                        Warning($"SuDokumentyManager.DodajZK() nie zadziałał: {ex1.Message}", "SubiektService");
                     }
 
                     // Fallback: użyj Dokumenty.DodajZK()
@@ -1153,13 +1341,13 @@ WHERE pa_Nazwa = @CountryName";
                     {
                         try
                         {
-                            dynamic dokumenty = subiekt.Dokumenty;
+                            dynamic dokumenty = subiekt!.Dokumenty; // subiekt sprawdzony wyżej
                             zkDokument = dokumenty.DodajZK();
-                            Console.WriteLine("[SubiektService] Użyto Dokumenty.DodajZK()");
+                            Info("Użyto Dokumenty.DodajZK()", "SubiektService");
                         }
                         catch (Exception ex2)
                         {
-                            Console.WriteLine($"[SubiektService] Dokumenty.DodajZK() nie zadziałał: {ex2.Message}");
+                            Warning($"Dokumenty.DodajZK() nie zadziałał: {ex2.Message}", "SubiektService");
                         }
                     }
 
@@ -1168,19 +1356,19 @@ WHERE pa_Nazwa = @CountryName";
                     {
                         try
                         {
-                            dynamic dokumenty = subiekt.Dokumenty;
+                            dynamic dokumenty = subiekt!.Dokumenty; // subiekt sprawdzony wyżej
                             zkDokument = dokumenty.Dodaj(gtaSubiektDokumentZK);
-                            Console.WriteLine("[SubiektService] Użyto Dokumenty.Dodaj(gtaSubiektDokumentZK)");
+                            Info("Użyto Dokumenty.Dodaj(gtaSubiektDokumentZK)", "SubiektService");
                         }
                         catch (Exception ex3)
                         {
-                            Console.WriteLine($"[SubiektService] Dokumenty.Dodaj() nie zadziałał: {ex3.Message}");
+                            Warning($"Dokumenty.Dodaj() nie zadziałał: {ex3.Message}", "SubiektService");
                         }
                     }
 
                     if (zkDokument != null)
                     {
-                        Console.WriteLine("[SubiektService] Dokument ZK został utworzony.");
+                        Info("Dokument ZK został utworzony.", "SubiektService");
                         
                         // Wyszukaj kontrahenta po NIP i ustaw w dokumencie (tylko jeśli NIP został podany)
                         if (!string.IsNullOrWhiteSpace(nip))
@@ -1188,7 +1376,7 @@ WHERE pa_Nazwa = @CountryName";
                             try
                             {
                                 // Pobierz menedżer kontrahentów
-                                dynamic kontrahenciManager = subiekt.KontrahenciManager;
+                                dynamic kontrahenciManager = subiekt!.KontrahenciManager; // subiekt sprawdzony wyżej
                                 
                                 // Wyszukaj kontrahenta po NIP - gtaKontrahentWgNip = 2
                                 dynamic kontrahent = kontrahenciManager.WczytajKontrahentaWg(nip, 2);
@@ -1197,82 +1385,102 @@ WHERE pa_Nazwa = @CountryName";
                                 {
                                     // Ustaw ID kontrahenta w dokumencie
                                     zkDokument.KontrahentId = kontrahent.Identyfikator;
-                                    Console.WriteLine($"[SubiektService] Ustawiono kontrahenta o ID={kontrahent.Identyfikator} (NIP: {nip}) w dokumencie ZK.");
+                                    Info("Ustawiono kontrahenta o ID={kontrahent.Identyfikator} (NIP: {nip}) w dokumencie ZK.", "SubiektService");
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"[SubiektService] Nie znaleziono kontrahenta o NIP: {nip}");
+                                    Info("Nie znaleziono kontrahenta o NIP: {nip}", "SubiektService");
                                     
                                     // Spróbuj wyszukać kontrahenta przez SQL po emailu
-                                    Console.WriteLine($"[SubiektService] Próba wyszukania kontrahenta przez SQL...");
+                                    Info("Próba wyszukania kontrahenta przez SQL...", "SubiektService");
                                     int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
                                     
-                                    if (kontrahentId.HasValue)
+                                    // Sprawdź czy użytkownik anulował (wartość -1 oznacza anulowanie)
+                                    if (kontrahentId.HasValue && kontrahentId.Value == -1)
+                                    {
+                                        Info("Użytkownik anulował wybór kontrahenta - przerywam otwieranie ZK.", "SubiektService");
+                                        return; // Przerwij otwieranie ZK
+                                    }
+                                    
+                                    if (kontrahentId.HasValue && kontrahentId.Value > 0)
                                     {
                                         // Ustaw ID kontrahenta w dokumencie
                                         zkDokument.KontrahentId = kontrahentId.Value;
-                                        Console.WriteLine($"[SubiektService] Ustawiono kontrahenta o ID={kontrahentId.Value} (znaleziony przez SQL) w dokumencie ZK.");
+                                        Info("Ustawiono kontrahenta o ID={kontrahentId.Value} (znaleziony przez SQL) w dokumencie ZK.", "SubiektService");
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"[SubiektService] Nie znaleziono kontrahenta przez SQL.");
+                                        Info("Nie znaleziono kontrahenta przez SQL - ZK zostanie otwarte bez kontrahenta.", "SubiektService");
                                     }
                                 }
                             }
                             catch (Exception kontrEx)
                             {
-                                Console.WriteLine($"[SubiektService] BŁĄD: Nie udało się wyszukać kontrahenta: {kontrEx.Message}");
-                                Console.WriteLine($"[SubiektService] Stack trace: {kontrEx.StackTrace}");
+                                Error(kontrEx, "SubiektService", "Błąd: Nie udało się wyszukać kontrahenta");
                                 
                                 // Próbuj wyszukać przez SQL nawet jeśli wystąpił błąd
                                 try
                                 {
-                                    Console.WriteLine($"[SubiektService] Próba wyszukania kontrahenta przez SQL (po błędzie NIP)...");
+                                    Info("Próba wyszukania kontrahenta przez SQL (po błędzie NIP)...", "SubiektService");
                                     int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
                                     
-                                    if (kontrahentId.HasValue && zkDokument != null)
+                                    // Sprawdź czy użytkownik anulował (wartość -1 oznacza anulowanie)
+                                    if (kontrahentId.HasValue && kontrahentId.Value == -1)
+                                    {
+                                        Info("Użytkownik anulował wybór kontrahenta - przerywam otwieranie ZK.", "SubiektService");
+                                        return; // Przerwij otwieranie ZK
+                                    }
+                                    
+                                    if (kontrahentId.HasValue && kontrahentId.Value > 0 && zkDokument != null)
                                     {
                                         // Ustaw ID kontrahenta w dokumencie
-                                        int id = kontrahentId.GetValueOrDefault();
-                                        zkDokument!.KontrahentId = id;
-                                        Console.WriteLine($"[SubiektService] Ustawiono kontrahenta o ID={id} (znaleziony przez SQL po błędzie) w dokumencie ZK.");
+                                        int id = kontrahentId!.Value; // HasValue jest true, więc Value nie jest null
+                                        zkDokument!.KontrahentId = id; // Sprawdziliśmy != null wyżej
+                                        Info("Ustawiono kontrahenta o ID={id} (znaleziony przez SQL po błędzie) w dokumencie ZK.", "SubiektService");
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"[SubiektService] Nie znaleziono kontrahenta przez SQL po błędzie.");
+                                        Info("Nie znaleziono kontrahenta przez SQL po błędzie - ZK zostanie otwarte bez kontrahenta.", "SubiektService");
                                     }
                                 }
                                 catch (Exception sqlEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania przez SQL po błędzie NIP: {sqlEx.Message}");
+                                    Error(sqlEx, "SubiektService", "Błąd podczas wyszukiwania przez SQL po błędzie NIP");
                                 }
                             }
                         }
                         else
                         {
-                            Console.WriteLine("[SubiektService] Nie podano NIP - próba wyszukania kontrahenta przez SQL...");
+                            Info("Nie podano NIP - próba wyszukania kontrahenta przez SQL...", "SubiektService");
                             
                             // Próbuj wyszukać kontrahenta przez SQL nawet gdy nie ma NIP
                             try
                             {
                                 int? kontrahentId = WyszukajKontrahentaPrzezSQL(null, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
                                 
-                                if (kontrahentId.HasValue && zkDokument != null)
+                                // Sprawdź czy użytkownik anulował (wartość -1 oznacza anulowanie)
+                                if (kontrahentId.HasValue && kontrahentId.Value == -1)
+                                {
+                                    Info("Użytkownik anulował wybór kontrahenta - przerywam otwieranie ZK.", "SubiektService");
+                                    return; // Przerwij otwieranie ZK
+                                }
+                                
+                                if (kontrahentId.HasValue && kontrahentId.Value > 0 && zkDokument != null)
                                 {
                                     // Ustaw ID kontrahenta w dokumencie
-                                    int id = kontrahentId.GetValueOrDefault();
-                                    zkDokument!.KontrahentId = id;
-                                    Console.WriteLine($"[SubiektService] Ustawiono kontrahenta o ID={id} (znaleziony przez SQL bez NIP) w dokumencie ZK.");
+                                    int id = kontrahentId!.Value; // HasValue jest true, więc Value nie jest null
+                                    zkDokument!.KontrahentId = id; // Sprawdziliśmy != null wyżej
+                                    Info("Ustawiono kontrahenta o ID={id} (znaleziony przez SQL bez NIP) w dokumencie ZK.", "SubiektService");
                                 }
                                 else
                                 {
-                                    Console.WriteLine("[SubiektService] Nie znaleziono kontrahenta przez SQL - dokument ZK zostanie otwarty bez kontrahenta.");
+                                    Info("Nie znaleziono kontrahenta przez SQL - dokument ZK zostanie otwarty bez kontrahenta.", "SubiektService");
                                 }
                             }
                             catch (Exception sqlEx)
                             {
-                                Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania przez SQL (bez NIP): {sqlEx.Message}");
-                                Console.WriteLine("[SubiektService] Dokument ZK zostanie otwarty bez kontrahenta.");
+                                Error(sqlEx, "SubiektService", "Błąd podczas wyszukiwania przez SQL (bez NIP)");
+                                Info("Dokument ZK zostanie otwarty bez kontrahenta.", "SubiektService");
                             }
                         }
                         
@@ -1282,11 +1490,11 @@ WHERE pa_Nazwa = @CountryName";
                             try
                             {
                                 zkDokument!.NumerOryginalny = orderId;
-                                Console.WriteLine($"[SubiektService] Ustawiono numer oryginalnego dokumentu: {orderId}");
+                                Info("Ustawiono numer oryginalnego dokumentu: {orderId}", "SubiektService");
                             }
                             catch (Exception numOrigEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się ustawić NumerOryginalny: {numOrigEx.Message}");
+                                Warning($"Nie udało się ustawić NumerOryginalny: {numOrigEx.Message}", "SubiektService");
                             }
                         }
                         
@@ -1297,23 +1505,23 @@ WHERE pa_Nazwa = @CountryName";
                             try
                             {
                                 zkDokument!.WalutaSymbol = currency;
-                                Console.WriteLine($"[SubiektService] Ustawiono walutę dokumentu ZK: {currency}");
+                                Info("Ustawiono walutę dokumentu ZK: {currency}", "SubiektService");
                                 
                                 // Opcjonalnie można pobrać kurs waluty automatycznie po ustawieniu symbolu
                                 try
                                 {
                                     zkDokument!.PobierzKursWaluty();
-                                    Console.WriteLine($"[SubiektService] Pobrano kurs waluty dla {currency}");
+                                    Info("Pobrano kurs waluty dla {currency}", "SubiektService");
                                 }
                                 catch (Exception kursEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Uwaga: Nie udało się pobrać kursu waluty automatycznie: {kursEx.Message}");
+                                    Warning($"Nie udało się pobrać kursu waluty automatycznie: {kursEx.Message}", "SubiektService");
                                     // To nie jest błąd krytyczny, kurs można ustawić ręcznie później
                                 }
                             }
                             catch (Exception walutaEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się ustawić waluty: {walutaEx.Message}");
+                                Warning($"Nie udało się ustawić waluty: {walutaEx.Message}", "SubiektService");
                             }
                         }
                         
@@ -1323,11 +1531,11 @@ WHERE pa_Nazwa = @CountryName";
                             try
                             {
                                 zkDokument!.LiczonyOdCenBrutto = true;
-                                Console.WriteLine("[SubiektService] Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = true)");
+                                Info("Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = true)", "SubiektService");
                             }
                             catch (Exception bruttoEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się ustawić LiczoneOdCenBrutto: {bruttoEx.Message}");
+                                Warning($"Nie udało się ustawić LiczoneOdCenBrutto: {bruttoEx.Message}", "SubiektService");
                             }
                         }
                         
@@ -1361,12 +1569,12 @@ WHERE pa_Nazwa = @CountryName";
                                         // sdoUwagi = 1 (wartość enum SuDokumentOpisEnum)
                                         const int sdoUwagi = 1;
                                         dokumentyManager.ZmienOpisDokumentu(zkDokument, sdoUwagi, fullNote);
-                                        Console.WriteLine($"[SubiektService] Dodano informacje do uwag ZK (ZmienOpisDokumentu): {fullNote}");
+                                        Info("Dodano informacje do uwag ZK (ZmienOpisDokumentu): {fullNote}", "SubiektService");
                                     }
                                 }
                                 catch (Exception methodEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] ZmienOpisDokumentu nie zadziałała: {methodEx.Message}");
+                                    Warning($"ZmienOpisDokumentu nie zadziałała: {methodEx.Message}", "SubiektService");
                                     
                                     // Fallback: spróbuj bezpośrednio ustawić Uwagi
                                     if (zkDokument != null)
@@ -1374,21 +1582,21 @@ WHERE pa_Nazwa = @CountryName";
                                         try
                                         {
                                             zkDokument!.Uwagi = fullNote;
-                                            Console.WriteLine($"[SubiektService] Dodano informacje do uwag ZK (Uwagi): {fullNote}");
+                                            Info("Dodano informacje do uwag ZK (Uwagi): {fullNote}", "SubiektService");
                                         }
                                         catch (Exception directEx)
                                         {
-                                            Console.WriteLine($"[SubiektService] Uwagi nie zadziałały: {directEx.Message}");
+                                            Warning($"Uwagi nie zadziałały: {directEx.Message}", "SubiektService");
                                             
                                             // Ostatni fallback: Opis
                                             try
                                             {
                                                 zkDokument!.Opis = fullNote;
-                                                Console.WriteLine($"[SubiektService] Dodano informacje do uwag ZK (Opis): {fullNote}");
+                                                Info("Dodano informacje do uwag ZK (Opis): {fullNote}", "SubiektService");
                                             }
                                             catch
                                             {
-                                                Console.WriteLine("[SubiektService] Nie udało się ustawić żadnego pola uwag dla dokumentu ZK.");
+                                                Info("Nie udało się ustawić żadnego pola uwag dla dokumentu ZK.", "SubiektService");
                                             }
                                         }
                                     }
@@ -1396,7 +1604,7 @@ WHERE pa_Nazwa = @CountryName";
                             }
                             catch (Exception couponEx)
                             {
-                                Console.WriteLine($"[SubiektService] Błąd dodawania informacji do uwag ZK: {couponEx.Message}");
+                                Warning($"Błąd dodawania informacji do uwag ZK: {couponEx.Message}", "SubiektService");
                             }
                         }
                         // Najpierw oblicz procent kuponu (jeśli jest kupon), aby zastosować go później na pozycjach
@@ -1418,14 +1626,14 @@ WHERE pa_Nazwa = @CountryName";
                             if (totalProductsValue > 0.0)
                             {
                                 couponPercentage = (couponAmount.Value / totalProductsValue) * 100.0;
-                                Console.WriteLine($"[SubiektService] ANALIZA KUPONU:");
-                                Console.WriteLine($"[SubiektService] Wartość kuponu: {couponAmount.Value:F2}");
-                                Console.WriteLine($"[SubiektService] Suma wartości produktów: {totalProductsValue:F2}");
-                                Console.WriteLine($"[SubiektService] Procent kuponu względem produktów: {couponPercentage:F2}%");
+                                Info("ANALIZA KUPONU:", "SubiektService");
+                                Info("Wartość kuponu: {couponAmount.Value:F2}", "SubiektService");
+                                Info("Suma wartości produktów: {totalProductsValue:F2}", "SubiektService");
+                                Info("Procent kuponu względem produktów: {couponPercentage:F2}%", "SubiektService");
                             }
                             else
                             {
-                                Console.WriteLine("[SubiektService] Brak danych o cenach produktów - nie można obliczyć procentu kuponu.");
+                                Info("Brak danych o cenach produktów - nie można obliczyć procentu kuponu.", "SubiektService");
                             }
                         }
                         
@@ -1480,7 +1688,7 @@ WHERE pa_Nazwa = @CountryName";
                                             }
                                             catch (Exception priceEx)
                                             {
-                                                Console.WriteLine($"[SubiektService] Błąd parsowania ceny dla produktu {it.ProductId}: {priceEx.Message}");
+                                                Error(priceEx, "SubiektService", $"Błąd parsowania ceny dla produktu {it.ProductId}");
                                                 apiPriceBrutto = null;
                                             }
                                         }
@@ -1491,30 +1699,30 @@ WHERE pa_Nazwa = @CountryName";
                                             try
                                             {
                                                 pozycja.CenaBruttoPoRabacie = apiPriceBrutto.Value;
-                                                Console.WriteLine($"[SubiektService] Ustawiono CenaBruttoPoRabacie={apiPriceBrutto.Value:F2} dla produktu ID={towarId} (Price={it.Price}, Tax={it.Tax})");
+                                                Info("Ustawiono CenaBruttoPoRabacie={apiPriceBrutto.Value:F2} dla produktu ID={towarId} (Price={it.Price}, Tax={it.Tax})", "SubiektService");
                                             }
                                             catch (Exception cenaEx)
                                             {
-                                                Console.WriteLine($"[SubiektService] Nie udało się ustawić CenaBruttoPoRabacie: {cenaEx.Message}");
+                                                Warning($"Nie udało się ustawić CenaBruttoPoRabacie: {cenaEx.Message}", "SubiektService");
                                             }
                                         }
                                         else
                                         {
-                                            Console.WriteLine($"[SubiektService] Brak ceny brutto z API dla produktu ID={towarId}");
+                                            Info("Brak ceny brutto z API dla produktu ID={towarId}", "SubiektService");
                                         }
                                         
-                                        Console.WriteLine($"[SubiektService] Dodano pozycję towarową o ID={towarId} (qty={it.Quantity}, apiPriceNetto={it.Price}, apiPriceBrutto={apiPriceBrutto?.ToString("F2") ?? "brak"}).");
+                                        Debug($"Dodano pozycję towarową o ID={towarId} (qty={it.Quantity}, apiPriceNetto={it.Price}, apiPriceBrutto={apiPriceBrutto?.ToString("F2") ?? "brak"}).", "SubiektService");
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"[SubiektService] Pominięto pozycję z nieprawidłowym product_id: '{it.ProductId}'");
+                                        Info("Pominięto pozycję z nieprawidłowym product_id: '{it.ProductId}'", "SubiektService");
                                     }
                                     }
                                 }
                             }
                             catch (Exception dodajPozEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się dodać pozycji: {dodajPozEx.Message}");
+                                Error(dodajPozEx, "SubiektService", "Nie udało się dodać pozycji");
                             }
                         }
                         
@@ -1551,26 +1759,26 @@ WHERE pa_Nazwa = @CountryName";
                                         var skladniki = new System.Collections.Generic.List<string>();
                                         if (handlingAmount.HasValue && handlingAmount.Value > 0) skladniki.Add($"handling ({handlingAmount.Value:F2})");
                                         if (glsAmount.HasValue && glsAmount.Value > 0) skladniki.Add($"gls ({glsAmount.Value:F2})");
-                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/1' z ceną {sumaKosztowKOSZTY1:F2} (składniki: {string.Join(" + ", skladniki)}).");
+                                        Info($"Dodano towar 'KOSZTY/1' z ceną {sumaKosztowKOSZTY1:F2} (składniki: {string.Join(" + ", skladniki)}).", "SubiektService");
                                     }
                                     catch
                                     {
-                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/1' na końcu pozycji, ale nie udało się ustawić ceny.");
+                                        Info("Dodano towar 'KOSZTY/1' na końcu pozycji, ale nie udało się ustawić ceny.", "SubiektService");
                                     }
                                 }
                                 else
                                 {
-                                    Console.WriteLine("[SubiektService] Nie znaleziono towaru o symbolu 'KOSZTY/1'.");
+                                    Info("Nie znaleziono towaru o symbolu 'KOSZTY/1'.", "SubiektService");
                                 }
                             }
                             catch (Exception kosztyEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się dodać towaru 'KOSZTY/1': {kosztyEx.Message}");
+                                Warning($"Nie udało się dodać towaru 'KOSZTY/1': {kosztyEx.Message}", "SubiektService");
                             }
                         }
                         else
                         {
-                            Console.WriteLine("[SubiektService] Brak handling i gls w API - pomijam dodawanie 'KOSZTY/1'.");
+                            Info("Brak handling i gls w API - pomijam dodawanie 'KOSZTY/1'.", "SubiektService");
                         }
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
@@ -1591,26 +1799,26 @@ WHERE pa_Nazwa = @CountryName";
                                     try 
                                     { 
                                         shippingPoz.CenaNettoPrzedRabatem = shippingAmount.Value;
-                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/2' z ceną shipping ({shippingAmount.Value:F2}).");
+                                        Info("Dodano towar 'KOSZTY/2' z ceną shipping ({shippingAmount.Value:F2}).", "SubiektService");
                                     }
                                     catch
                                     {
-                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/2' na końcu pozycji, ale nie udało się ustawić ceny.");
+                                        Info("Dodano towar 'KOSZTY/2' na końcu pozycji, ale nie udało się ustawić ceny.", "SubiektService");
                                     }
                                 }
                                 else
                                 {
-                                    Console.WriteLine("[SubiektService] Nie znaleziono towaru o symbolu 'KOSZTY/2'.");
+                                    Info("Nie znaleziono towaru o symbolu 'KOSZTY/2'.", "SubiektService");
                                 }
                             }
                             catch (Exception shippingEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się dodać towaru 'KOSZTY/2': {shippingEx.Message}");
+                                Warning($"Nie udało się dodać towaru 'KOSZTY/2': {shippingEx.Message}", "SubiektService");
                             }
                         }
                         else
                         {
-                            Console.WriteLine("[SubiektService] Brak shipping w API - pomijam dodawanie 'KOSZTY/2'.");
+                            Info("Brak shipping w API - pomijam dodawanie 'KOSZTY/2'.", "SubiektService");
                         }
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
@@ -1631,26 +1839,26 @@ WHERE pa_Nazwa = @CountryName";
                                     try 
                                     { 
                                         codFeePoz.CenaNettoPrzedRabatem = codFeeAmount.Value;
-                                        Console.WriteLine($"[SubiektService] Dodano towar 'KOSZTY/2' z ceną cod_fee ({codFeeAmount.Value:F2}).");
+                                        Info("Dodano towar 'KOSZTY/2' z ceną cod_fee ({codFeeAmount.Value:F2}).", "SubiektService");
                                     }
                                     catch
                                     {
-                                        Console.WriteLine("[SubiektService] Dodano towar 'KOSZTY/2' na końcu pozycji, ale nie udało się ustawić ceny.");
+                                        Info("Dodano towar 'KOSZTY/2' na końcu pozycji, ale nie udało się ustawić ceny.", "SubiektService");
                                     }
                                 }
                                 else
                                 {
-                                    Console.WriteLine("[SubiektService] Nie znaleziono towaru o symbolu 'KOSZTY/2'.");
+                                    Info("Nie znaleziono towaru o symbolu 'KOSZTY/2'.", "SubiektService");
                                 }
                             }
                             catch (Exception codFeeEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się dodać towaru 'KOSZTY/2' dla cod_fee: {codFeeEx.Message}");
+                                Warning($"Nie udało się dodać towaru 'KOSZTY/2' dla cod_fee: {codFeeEx.Message}", "SubiektService");
                             }
                         }
                         else
                         {
-                            Console.WriteLine("[SubiektService] Brak cod_fee w API - pomijam dodawanie 'KOSZTY/2' dla cod_fee.");
+                            Info("Brak cod_fee w API - pomijam dodawanie 'KOSZTY/2' dla cod_fee.", "SubiektService");
                         }
                         
                         // Przelicz dokument przed odczytem wartości (może być wymagane)
@@ -1659,11 +1867,11 @@ WHERE pa_Nazwa = @CountryName";
                             try
                             {
                                 zkDokument!.Przelicz();
-                                Console.WriteLine("[SubiektService] Dokument ZK został przeliczony przed odczytem wartości pozycji.");
+                                Info("Dokument ZK został przeliczony przed odczytem wartości pozycji.", "SubiektService");
                             }
                             catch (Exception przeliczEx)
                             {
-                                Console.WriteLine($"[SubiektService] Uwaga: Nie udało się przeliczyć dokumentu przed odczytem wartości: {przeliczEx.Message}");
+                                Warning($"Nie udało się przeliczyć dokumentu przed odczytem wartości: {przeliczEx.Message}", "SubiektService");
                             }
                         }
                         
@@ -1678,7 +1886,7 @@ WHERE pa_Nazwa = @CountryName";
                             // Przejdź przez wszystkie pozycje i zsumuj ich wartości
                             // W Subiekcie GT indeksy pozycji zaczynają się od 1, nie od 0!
                             int liczbaPozycji = pozycje.Liczba;
-                            Console.WriteLine($"[SubiektService] Liczba pozycji w dokumencie ZK: {liczbaPozycji}");
+                            Info("Liczba pozycji w dokumencie ZK: {liczbaPozycji}", "SubiektService");
                             
                             for (int i = 1; i <= liczbaPozycji; i++)
                             {
@@ -1695,41 +1903,41 @@ WHERE pa_Nazwa = @CountryName";
                                     }
                                     catch (Exception wartoscEx)
                                     {
-                                        Console.WriteLine($"[SubiektService] Błąd odczytu WartoscBruttoPoRabacie dla pozycji {i}: {wartoscEx.Message}");
+                                        Warning($"Błąd odczytu WartoscBruttoPoRabacie dla pozycji {i}: {wartoscEx.Message}", "SubiektService");
                                     }
                                     
                                     sumaWartosci += wartoscPozycji;
-                                    Console.WriteLine($"[SubiektService] Pozycja {i}: Wartość = {wartoscPozycji:F2}");
+                                    Info("Pozycja {i}: Wartość = {wartoscPozycji:F2}", "SubiektService");
                                     
                                     // Dodatkowe logowanie - sprawdź jakie właściwości pozycji są dostępne
                                     try
                                     {
                                         var ilosc = pozycja.IloscJm;
-                                        Console.WriteLine($"[SubiektService]   - Ilość: {ilosc}");
+                                        Info("  - Ilość: {ilosc}", "SubiektService");
                                     }
                                     catch { }
                                     try
                                     {
                                         var cenaBruttoPoRabacie = pozycja.CenaBruttoPoRabacie;
-                                        Console.WriteLine($"[SubiektService]   - CenaBruttoPoRabacie: {cenaBruttoPoRabacie:F2}");
+                                        Info("  - CenaBruttoPoRabacie: {cenaBruttoPoRabacie:F2}", "SubiektService");
                                     }
                                     catch { }
                                     try
                                     {
                                         var cenaNettoPoRabacie = pozycja.CenaNettoPoRabacie;
-                                        Console.WriteLine($"[SubiektService]   - CenaNettoPoRabacie: {cenaNettoPoRabacie:F2}");
+                                        Info("  - CenaNettoPoRabacie: {cenaNettoPoRabacie:F2}", "SubiektService");
                                     }
                                     catch { }
                                 }
                                 catch (Exception pozEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Błąd odczytu pozycji {i}: {pozEx.Message}");
+                                    Warning($"Błąd odczytu pozycji {i}: {pozEx.Message}", "SubiektService");
                                 }
                             }
                             
-                            Console.WriteLine($"[SubiektService] =========================================");
-                            Console.WriteLine($"[SubiektService] SUMA WARTOŚCI WSZYSTKICH POZYCJI: {sumaWartosci:F2}");
-                            Console.WriteLine($"[SubiektService] =========================================");
+                            Info("=========================================", "SubiektService");
+                            Info("SUMA WARTOŚCI WSZYSTKICH POZYCJI: {sumaWartosci:F2}", "SubiektService");
+                            Info("=========================================", "SubiektService");
                             
                             // Porównaj sumę pozycji ZK z wartością zamówienia z API
                             if (!string.IsNullOrWhiteSpace(orderTotal))
@@ -1741,56 +1949,56 @@ WHERE pa_Nazwa = @CountryName";
                                         double roznica = Math.Abs(sumaWartosci - orderTotalValue);
                                         double roznicaProcent = sumaWartosci > 0 ? (roznica / sumaWartosci) * 100.0 : 0.0;
                                         
-                                        Console.WriteLine($"[SubiektService] Wartość zamówienia z API: {orderTotalValue:F2}");
-                                        Console.WriteLine($"[SubiektService] Różnica: {roznica:F2} ({roznicaProcent:F2}%)");
+                                        Info("Wartość zamówienia z API: {orderTotalValue:F2}", "SubiektService");
+                                        Info("Różnica: {roznica:F2} ({roznicaProcent:F2}%)", "SubiektService");
                                         
                                         // Jeśli różnica jest większa niż próg tolerancji (0.001 = 0.01 grosza)
                                         // Używamy progu zamiast > 0.0 aby uniknąć błędów zaokrąglenia zmiennoprzecinkowych
                                         if (roznica > 0.001)
                                         {
                                             // Analiza przyczyn różnicy
-                                            Console.WriteLine($"[SubiektService] =========================================");
-                                            Console.WriteLine($"[SubiektService] ANALIZA RÓŻNICY W WARTOŚCIACH");
-                                            Console.WriteLine($"[SubiektService] =========================================");
+                                            Info("=========================================", "SubiektService");
+                                            Info("ANALIZA RÓŻNICY W WARTOŚCIACH", "SubiektService");
+                                            Info("=========================================", "SubiektService");
                                             
                                             var wnioski = new System.Collections.Generic.List<string>();
                                             
                                             // Porównaj bezpośrednio sumę ZK z wartością z API
                                             // Wartość z API jest już finalną wartością (uwzględnia wszystkie składniki)
-                                            Console.WriteLine($"[SubiektService] Suma pozycji ZK: {sumaWartosci:F2}");
-                                            Console.WriteLine($"[SubiektService] Wartość zamówienia z API (total): {orderTotalValue:F2}");
-                                            Console.WriteLine($"[SubiektService] Różnica: {roznica:F2} ({roznicaProcent:F2}%)");
+                                            Info("Suma pozycji ZK: {sumaWartosci:F2}", "SubiektService");
+                                            Info("Wartość zamówienia z API (total): {orderTotalValue:F2}", "SubiektService");
+                                            Info("Różnica: {roznica:F2} ({roznicaProcent:F2}%)", "SubiektService");
                                             
                                             // Sprawdź komponenty zamówienia z API (dla informacji)
                                             double sumaKosztow = 0.0;
                                             if (handlingAmount.HasValue && handlingAmount.Value > 0.01)
                                             {
                                                 sumaKosztow += handlingAmount.Value;
-                                                Console.WriteLine($"[SubiektService] Handling z API: {handlingAmount.Value:F2}");
+                                                Info("Handling z API: {handlingAmount.Value:F2}", "SubiektService");
                                             }
                                             if (glsAmount.HasValue && glsAmount.Value > 0.01)
                                             {
                                                 sumaKosztow += glsAmount.Value;
-                                                Console.WriteLine($"[SubiektService] Gls z API: {glsAmount.Value:F2}");
+                                                Info("Gls z API: {glsAmount.Value:F2}", "SubiektService");
                                             }
                                             if (shippingAmount.HasValue && shippingAmount.Value > 0.01)
                                             {
                                                 sumaKosztow += shippingAmount.Value;
-                                                Console.WriteLine($"[SubiektService] Shipping z API: {shippingAmount.Value:F2}");
+                                                Info("Shipping z API: {shippingAmount.Value:F2}", "SubiektService");
                                             }
                                             if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01)
                                             {
                                                 sumaKosztow += codFeeAmount.Value;
-                                                Console.WriteLine($"[SubiektService] Cod_fee z API: {codFeeAmount.Value:F2}");
+                                                Info("Cod_fee z API: {codFeeAmount.Value:F2}", "SubiektService");
                                             }
                                             if (sumaKosztow > 0.01)
                                             {
-                                                Console.WriteLine($"[SubiektService] Suma kosztów z API: {sumaKosztow:F2}");
+                                                Info("Suma kosztów z API: {sumaKosztow:F2}", "SubiektService");
                                             }
                                             
                                             if (couponAmount.HasValue && couponAmount.Value > 0.01)
                                             {
-                                                Console.WriteLine($"[SubiektService] Kupon z API: -{couponAmount.Value:F2}");
+                                                Info("Kupon z API: -{couponAmount.Value:F2}", "SubiektService");
                                             }
                                             
                                             // Analiza różnicy między ZK a API
@@ -1849,18 +2057,25 @@ WHERE pa_Nazwa = @CountryName";
                                             }
                                             
                                             // Wyświetl wnioski
-                                            Console.WriteLine($"[SubiektService] =========================================");
-                                            Console.WriteLine($"[SubiektService] WNIOSKI:");
+                                            Info("=========================================", "SubiektService");
+                                            Info("WNIOSKI:", "SubiektService");
                                             foreach (var wniosek in wnioski)
                                             {
-                                                Console.WriteLine($"[SubiektService]   - {wniosek}");
+                                                Info("  - {wniosek}", "SubiektService");
                                             }
-                                            Console.WriteLine($"[SubiektService] =========================================");
+                                            Info("=========================================", "SubiektService");
                                             
                                             string komunikat = $"Suma wartości pozycji w dokumencie ZK: {sumaWartosci:F2} zł\nWartość zamówienia z API: {orderTotalValue:F2} zł\n\nRóżnica: {roznica:F2} zł ({roznicaProcent:F2}%)\n\nKorekta zostanie wykonana w następującej kolejności:\n1. Pozycja KOSZTY/1 (jeśli istnieje)\n2. Pozycja KOSZTY/2 (jeśli istnieje)\n3. Pierwsza pozycja produktowa";
                                             
                                             var dialog = new Gryzak.Views.KorektaWartosciDialog(komunikat);
                                             bool czyKorygowac = dialog.ShowDialog() == true && dialog.CzyKorygowac;
+                                            
+                                            // Sprawdź czy użytkownik anulował - jeśli tak, przerwij otwieranie ZK
+                                            if (dialog.CzyAnulowac)
+                                            {
+                                                Info("Użytkownik anulował w oknie korekty - przerywam otwieranie ZK.", "SubiektService");
+                                                return; // Przerwij otwieranie ZK
+                                            }
                                             
                                             if (czyKorygowac)
                                             {
@@ -1889,7 +2104,7 @@ WHERE pa_Nazwa = @CountryName";
                                                         }
                                                         catch
                                                         {
-                                                            Console.WriteLine("[SubiektService] Nie udało się odczytać identyfikatorów towarów KOSZTY.");
+                                                            Info("Nie udało się odczytać identyfikatorów towarów KOSZTY.", "SubiektService");
                                                         }
                                                         
                                                         double pozostalaRoznica = roznica;
@@ -1949,10 +2164,10 @@ WHERE pa_Nazwa = @CountryName";
                                                                             poz.CenaBruttoPoRabacie = nowaCenaBrutto;
                                                                             zkDokument.Przelicz();
                                                                             
-                                                                            Console.WriteLine($"[SubiektService] Skorygowano pozycję KOSZTY/1 (pozycja {i}):");
-                                                                            Console.WriteLine($"[SubiektService]   Stara wartość: {aktualnaWartosc:F2}");
-                                                                            Console.WriteLine($"[SubiektService]   Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}");
-                                                                            Console.WriteLine($"[SubiektService]   Nowa wartość: {nowaWartosc:F2}");
+                                                                            Info("Skorygowano pozycję KOSZTY/1 (pozycja {i}):", "SubiektService");
+                                                                            Info("  Stara wartość: {aktualnaWartosc:F2}", "SubiektService");
+                                                                            Debug($"  Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}", "SubiektService");
+                                                                            Info("  Nowa wartość: {nowaWartosc:F2}", "SubiektService");
                                                                             
                                                                             // Oblicz ile różnicy zostało skorygowane
                                                                             double skorygowanaRoznica = Math.Abs(aktualnaWartosc - nowaWartosc);
@@ -2020,10 +2235,10 @@ WHERE pa_Nazwa = @CountryName";
                                                                             poz.CenaBruttoPoRabacie = nowaCenaBrutto;
                                                                             zkDokument.Przelicz();
                                                                             
-                                                                            Console.WriteLine($"[SubiektService] Skorygowano pozycję KOSZTY/2 (pozycja {i}):");
-                                                                            Console.WriteLine($"[SubiektService]   Stara wartość: {aktualnaWartosc:F2}");
-                                                                            Console.WriteLine($"[SubiektService]   Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}");
-                                                                            Console.WriteLine($"[SubiektService]   Nowa wartość: {nowaWartosc:F2}");
+                                                                            Info("Skorygowano pozycję KOSZTY/2 (pozycja {i}):", "SubiektService");
+                                                                            Info("  Stara wartość: {aktualnaWartosc:F2}", "SubiektService");
+                                                                            Debug($"  Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}", "SubiektService");
+                                                                            Info("  Nowa wartość: {nowaWartosc:F2}", "SubiektService");
                                                                             
                                                                             // Oblicz ile różnicy zostało skorygowane
                                                                             double skorygowanaRoznica = Math.Abs(aktualnaWartosc - nowaWartosc);
@@ -2108,11 +2323,11 @@ WHERE pa_Nazwa = @CountryName";
                                                                             poz.CenaBruttoPoRabacie = nowaCenaBrutto;
                                                                             zkDokument.Przelicz();
                                                                             
-                                                                            Console.WriteLine($"[SubiektService] Skorygowano pierwszą pozycję produktową (pozycja {i}):");
-                                                                            Console.WriteLine($"[SubiektService]   Stara wartość: {aktualnaWartosc:F2}");
-                                                                            Console.WriteLine($"[SubiektService]   Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}");
-                                                                            Console.WriteLine($"[SubiektService]   Nowa wartość: {nowaWartosc:F2}");
-                                                                            Console.WriteLine($"[SubiektService]   Nowa cena brutto: {nowaCenaBrutto:F2}");
+                                                                            Info("Skorygowano pierwszą pozycję produktową (pozycja {i}):", "SubiektService");
+                                                                            Info("  Stara wartość: {aktualnaWartosc:F2}", "SubiektService");
+                                                                            Debug($"  Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}", "SubiektService");
+                                                                            Info("  Nowa wartość: {nowaWartosc:F2}", "SubiektService");
+                                                                            Info("  Nowa cena brutto: {nowaCenaBrutto:F2}", "SubiektService");
                                                                             
                                                                             pozostalaRoznica = 0.0;
                                                                             break; // Korekta zakończona
@@ -2140,12 +2355,12 @@ WHERE pa_Nazwa = @CountryName";
                                                         }
                                                         
                                                         double roznicaPoKorekcie = Math.Abs(sumaPoKorekcie - orderTotalValue);
-                                                        Console.WriteLine($"[SubiektService] Suma po korekcie: {sumaPoKorekcie:F2}");
-                                                        Console.WriteLine($"[SubiektService] Różnica po korekcie: {roznicaPoKorekcie:F2}");
+                                                        Info("Suma po korekcie: {sumaPoKorekcie:F2}", "SubiektService");
+                                                        Info("Różnica po korekcie: {roznicaPoKorekcie:F2}", "SubiektService");
                                                         
                                                         if (roznicaPoKorekcie <= 0.001)
                                                         {
-                                                            Console.WriteLine($"[SubiektService] Korekta zakończona pomyślnie. Wartości są teraz zgodne.");
+                                                            Info("Korekta zakończona pomyślnie. Wartości są teraz zgodne.", "SubiektService");
                                                         }
                                                         else
                                                         {
@@ -2158,7 +2373,7 @@ WHERE pa_Nazwa = @CountryName";
                                                     }
                                                     else
                                                     {
-                                                        Console.WriteLine("[SubiektService] Błąd: Brak pozycji w dokumencie - nie można wykonać korekty.");
+                                                        Info("Błąd: Brak pozycji w dokumencie - nie można wykonać korekty.", "SubiektService");
                                                         MessageBox.Show(
                                                             "Nie można skorygować - brak pozycji w dokumencie.",
                                                             "Błąd korekty",
@@ -2168,7 +2383,7 @@ WHERE pa_Nazwa = @CountryName";
                                                 }
                                                 catch (Exception cenaEx)
                                                 {
-                                                    Console.WriteLine($"[SubiektService] Błąd podczas korekty ceny: {cenaEx.Message}");
+                                                    Warning($"Błąd podczas korekty ceny: {cenaEx.Message}", "SubiektService");
                                                     MessageBox.Show(
                                                         $"Błąd podczas korekty: {cenaEx.Message}",
                                                         "Błąd korekty",
@@ -2178,23 +2393,23 @@ WHERE pa_Nazwa = @CountryName";
                                             }
                                             else
                                             {
-                                                Console.WriteLine("[SubiektService] Użytkownik wybrał 'Pozostaw' - różnica nie została skorygowana.");
+                                                Info("Użytkownik wybrał 'Pozostaw' - różnica nie została skorygowana.", "SubiektService");
                                             }
                                         }
                                         else
                                         {
-                                            Console.WriteLine($"[SubiektService] Wartości się zgadzają (różnica = 0.00).");
+                                            Info("Wartości się zgadzają (różnica = 0.00).", "SubiektService");
                                         }
                                     }
                                 }
                                 catch (Exception porownanieEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Błąd podczas porównywania wartości: {porownanieEx.Message}");
+                                    Warning($"Błąd podczas porównywania wartości: {porownanieEx.Message}", "SubiektService");
                                 }
                             }
                             else
                             {
-                                Console.WriteLine($"[SubiektService] Brak wartości zamówienia z API do porównania.");
+                                Info("Brak wartości zamówienia z API do porównania.", "SubiektService");
                             }
                             
                             // Spróbuj też odczytać wartość bezpośrednio z dokumentu (jeśli dostępna)
@@ -2203,7 +2418,7 @@ WHERE pa_Nazwa = @CountryName";
                                 try
                                 {
                                     double wartoscDokumentuBrutto = zkDokument.WartoscBrutto;
-                                    Console.WriteLine($"[SubiektService] Wartość brutto dokumentu ZK (z właściwości): {wartoscDokumentuBrutto:F2}");
+                                    Info("Wartość brutto dokumentu ZK (z właściwości): {wartoscDokumentuBrutto:F2}", "SubiektService");
                                 }
                                 catch { }
                             }
@@ -2213,21 +2428,21 @@ WHERE pa_Nazwa = @CountryName";
                                 try
                                 {
                                     double wartoscDokumentuNetto = zkDokument!.WartoscNetto;
-                                    Console.WriteLine($"[SubiektService] Wartość netto dokumentu ZK (z właściwości): {wartoscDokumentuNetto:F2}");
+                                    Info("Wartość netto dokumentu ZK (z właściwości): {wartoscDokumentuNetto:F2}", "SubiektService");
                                 }
                                 catch { }
                                 
                                 try
                                 {
                                     double wartoscDokumentu = zkDokument!.Wartosc;
-                                    Console.WriteLine($"[SubiektService] Wartość dokumentu ZK (z właściwości): {wartoscDokumentu:F2}");
+                                    Info("Wartość dokumentu ZK (z właściwości): {wartoscDokumentu:F2}", "SubiektService");
                                 }
                                 catch { }
                             }
                         }
                         catch (Exception sumaEx)
                         {
-                            Console.WriteLine($"[SubiektService] Błąd podczas odczytu sumy wartości pozycji: {sumaEx.Message}");
+                            Warning($"Błąd podczas odczytu sumy wartości pozycji: {sumaEx.Message}", "SubiektService");
                         }
 
                         // Otwórz okno dokumentu używając metody Wyswietl() - zgodnie z przykładem
@@ -2237,24 +2452,24 @@ WHERE pa_Nazwa = @CountryName";
                             {
                                 // Wyswietl(false) - otwiera okno w trybie edycji
                                 zkDokument!.Wyswietl(false);
-                                Console.WriteLine("[SubiektService] Wywołano Wyswietl(false) na dokumencie ZK.");
+                                Info("Wywołano Wyswietl(false) na dokumencie ZK.", "SubiektService");
 
                                 // Aktywuj okno ZK na wierzch - używamy głównego okna Subiekta
                                 try
                                 {
                                     subiekt.Okno.Aktywuj();
-                                    Console.WriteLine("[SubiektService] Aktywowano główne okno Subiekta GT na wierzch.");
+                                    Info("Aktywowano główne okno Subiekta GT na wierzch.", "SubiektService");
                                 }
                                 catch (Exception aktywujEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Aktywacja głównego okna Subiekta nie zadziałała: {aktywujEx.Message}");
+                                    Warning($"Aktywacja głównego okna Subiekta nie zadziałała: {aktywujEx.Message}", "SubiektService");
                                 }
                                 
-                                Console.WriteLine("[SubiektService] Okno dokumentu ZK zostało otwarte pomyślnie.");
+                                Info("Okno dokumentu ZK zostało otwarte pomyślnie.", "SubiektService");
                             }
                             catch (Exception wyswietlEx)
                             {
-                                Console.WriteLine($"[SubiektService] BŁĄD: Wyswietl() nie zadziałał: {wyswietlEx.Message}");
+                                Error(wyswietlEx, "SubiektService", "BŁĄD: Wyswietl() nie zadziałał");
                                 
                                 // Spróbuj bez parametru
                                 if (zkDokument != null)
@@ -2262,22 +2477,22 @@ WHERE pa_Nazwa = @CountryName";
                                     try
                                     {
                                         zkDokument.Wyswietl();
-                                        Console.WriteLine("[SubiektService] Wyswietl() bez parametru zadziałał.");
+                                        Info("Wyswietl() bez parametru zadziałał.", "SubiektService");
                                         
                                         // Aktywuj główne okno Subiekta na wierzch
                                         try
                                         {
                                             subiekt.Okno.Aktywuj();
-                                            Console.WriteLine("[SubiektService] Aktywowano główne okno Subiekta na wierzch (fallback).");
+                                            Info("Aktywowano główne okno Subiekta na wierzch (fallback).", "SubiektService");
                                         }
                                         catch (Exception aktywujEx2)
                                         {
-                                            Console.WriteLine($"[SubiektService] Aktywacja głównego okna Subiekta (fallback) nie zadziałała: {aktywujEx2.Message}");
+                                            Warning($"Aktywacja głównego okna Subiekta (fallback) nie zadziałała: {aktywujEx2.Message}", "SubiektService");
                                         }
                                     }
                                     catch (Exception wyswietl2Ex)
                                     {
-                                        Console.WriteLine($"[SubiektService] BŁĄD: Wyswietl() bez parametru też nie zadziałał: {wyswietl2Ex.Message}");
+                                        Error(wyswietl2Ex, "SubiektService", "Błąd: Wyswietl() bez parametru też nie zadziałał");
                                         MessageBox.Show(
                                             "Dokument ZK został utworzony w Subiekcie GT, ale nie udało się otworzyć okna edycji.\n\nSprawdź okno główne Subiekta GT.",
                                             "Informacja",
@@ -2291,12 +2506,12 @@ WHERE pa_Nazwa = @CountryName";
                     }
                     else
                     {
-                        Console.WriteLine("[SubiektService] BŁĄD: Utworzenie dokumentu ZK zwróciło null.");
+                        Info("BŁĄD: Utworzenie dokumentu ZK zwróciło null.", "SubiektService");
                     }
                 }
                 catch (COMException comEx)
                 {
-                    Console.WriteLine($"[SubiektService] BŁĄD COM podczas tworzenia dokumentu ZK: {comEx.Message}");
+                    Error($"Błąd COM podczas tworzenia dokumentu ZK: {comEx.Message}", "SubiektService");
                     // Wyczyść cache - instancja może być nieprawidłowa
                     _cachedSubiekt = null;
                     _cachedGt = null;
@@ -2309,8 +2524,7 @@ WHERE pa_Nazwa = @CountryName";
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[SubiektService] BŁĄD podczas tworzenia dokumentu ZK: {ex.Message}");
-                    Console.WriteLine($"[SubiektService] Stack trace: {ex.StackTrace}");
+                    Error(ex, "SubiektService", "Błąd podczas tworzenia dokumentu ZK");
                     MessageBox.Show(
                         $"Dokument ZK został utworzony, ale wystąpił błąd podczas otwierania okna:\n\n{ex.Message}",
                         "Ostrzeżenie",
@@ -2320,8 +2534,7 @@ WHERE pa_Nazwa = @CountryName";
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SubiektService] KRYTYCZNY BŁĄD: {ex.Message}");
-                Console.WriteLine($"[SubiektService] Stack trace: {ex.StackTrace}");
+                Critical(ex, "SubiektService", "Krytyczny błąd podczas otwierania okna ZK");
                 System.Windows.MessageBox.Show(
                     $"Błąd podczas otwierania okna ZK:\n\n{ex.Message}",
                     "Błąd",

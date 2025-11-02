@@ -107,8 +107,8 @@
                         <ComboBoxItem Content="Dostarczone"/>
                         <ComboBoxItem Content="Anulowane"/>
                     </ComboBox>
-                    <Button Content="Dodaj ZK" Command="{Binding DodajZKCommand}" Background="#4CAF50" Margin="5,0,5,0"/>
-                    <Button Content="Odśwież" Command="{Binding RefreshCommand}"/>
+                    <Button Content="Dodaj ZK" Command="{Binding DodajZKCommand}" Background="#4CAF50" Margin="5,0,5,0" Height="35"/>
+                    <Button Content="Odśwież" Command="{Binding RefreshCommand}" Height="35" Margin="5,0,5,0"/>
                 </StackPanel>
             </Grid>
         </Border>

@@ -8,6 +8,7 @@ using System.Windows;
 using Gryzak.Models;
 using Gryzak.ViewModels;
 using Gryzak.Converters;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak.Views
 {
@@ -276,7 +277,7 @@ namespace Gryzak.Views
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[OrderDetailsDialog] Błąd ładowania szczegółów: {ex.Message}");
+                Error(ex, "OrderDetailsDialog", "Błąd ładowania szczegółów");
             }
         }
 
@@ -300,7 +301,7 @@ namespace Gryzak.Views
                         companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
                         _order.Company = companyValue;
                         CustomerCompany = companyValue;
-                        Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano firmę: {CustomerCompany}");
+                        Debug("Zaktualizowano firmę: {CustomerCompany}", "OrderDetailsDialog");
                     }
                 }
 
@@ -345,7 +346,7 @@ namespace Gryzak.Views
                     var fullAddress = string.Join(", ", addressParts.Where(s => !string.IsNullOrWhiteSpace(s)));
                     _order.Address = string.IsNullOrWhiteSpace(fullAddress) ? null : fullAddress;
                     CustomerAddress = _order.Address;
-                    Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano adres: {CustomerAddress}");
+                    Debug("Zaktualizowano adres: {CustomerAddress}", "OrderDetailsDialog");
                 }
 
                 // Aktualizuj NIP (vat)
@@ -353,7 +354,7 @@ namespace Gryzak.Views
                 {
                     _order.Nip = vatProp.GetString();
                     CustomerNip = _order.Nip;
-                    Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano NIP: {CustomerNip}");
+                    Debug("Zaktualizowano NIP: {CustomerNip}", "OrderDetailsDialog");
                 }
 
                 // Aktualizuj kraj - użyj kod ISO 2 aby znaleźć polską nazwę kraju
@@ -384,7 +385,7 @@ namespace Gryzak.Views
                         {
                             _order.Country = polishName;
                             CustomerCountry = _order.CountryWithIso3;
-                            Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (ISO {iso2Value}): {_order.Country}");
+                            Debug("Zaktualizowano kraj (ISO {iso2Value}): {_order.Country}", "OrderDetailsDialog");
                         }
                         else
                         {
@@ -393,7 +394,7 @@ namespace Gryzak.Views
                             {
                                 _order.Country = countryProp.GetString() ?? "";
                                 CustomerCountry = _order.CountryWithIso3;
-                                Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (oryginalna nazwa): {_order.Country}");
+                                Debug("Zaktualizowano kraj (oryginalna nazwa): {_order.Country}", "OrderDetailsDialog");
                             }
                         }
                     }
@@ -404,7 +405,7 @@ namespace Gryzak.Views
                         {
                             _order.Country = countryProp.GetString() ?? "";
                             CustomerCountry = _order.CountryWithIso3;
-                            Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (oryginalna nazwa, brak MainViewModel): {_order.Country}");
+                            Debug("Zaktualizowano kraj (oryginalna nazwa, brak MainViewModel): {_order.Country}", "OrderDetailsDialog");
                         }
                     }
                 }
@@ -415,7 +416,7 @@ namespace Gryzak.Views
                     {
                         _order.Country = countryProp.GetString() ?? "";
                         CustomerCountry = _order.CountryWithIso3;
-                        Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {_order.Country}");
+                        Debug("Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {_order.Country}", "OrderDetailsDialog");
                     }
                 }
                 
@@ -424,7 +425,7 @@ namespace Gryzak.Views
                 {
                     _order.IsoCode3 = iso3Prop.GetString();
                     CustomerCountry = _order.CountryWithIso3;
-                    Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano ISO Code 3: {_order.IsoCode3}");
+                    Debug("Zaktualizowano ISO Code 3: {_order.IsoCode3}", "OrderDetailsDialog");
                 }
 
                 // Aktualizuj walutę
@@ -433,7 +434,7 @@ namespace Gryzak.Views
                     var currencyValue = currencyProp.GetString() ?? "PLN";
                     Currency = currencyValue;
                     _order.Currency = currencyValue;
-                    Console.WriteLine($"[OrderDetailsDialog] Zaktualizowano walutę: {Currency}");
+                    Debug("Zaktualizowano walutę: {Currency}", "OrderDetailsDialog");
                 }
 
                 // Produkty
@@ -498,13 +499,13 @@ namespace Gryzak.Views
                             OnPropertyChanged(nameof(TotalPriceGross));
                             OnPropertyChanged(nameof(TotalSum));
                             OnPropertyChanged(nameof(TotalSumGross));
-                            Console.WriteLine($"[OrderDetailsDialog] Załadowano produkty: {items.Count}");
+                            Debug("Załadowano produkty: {items.Count}", "OrderDetailsDialog");
                         }
                     }
                 }
                 catch (Exception prodEx)
                 {
-                    Console.WriteLine($"[OrderDetailsDialog] Błąd parsowania produktów: {prodEx.Message}");
+                    Error(prodEx, "OrderDetailsDialog", "Błąd parsowania produktów");
                 }
 
                 // Totals - parsuj wszystkie totals z API
@@ -567,7 +568,7 @@ namespace Gryzak.Views
                             totalsList.Add(orderTotal);
                             
                             // Loguj znalezione total
-                            Console.WriteLine($"[OrderDetailsDialog] Znaleziono total: code={orderTotal.Code}, title={orderTotal.Title}, value={orderTotal.Value:F2}, sort={orderTotal.SortOrder}");
+                            Debug("Znaleziono total: code={orderTotal.Code}, title={orderTotal.Title}, value={orderTotal.Value:F2}, sort={orderTotal.SortOrder}", "OrderDetailsDialog");
                             
                             // Ustaw Total jeśli to główny total
                             if (orderTotal.Code == "total")
@@ -582,36 +583,44 @@ namespace Gryzak.Views
                         
                         // Ustaw kolekcję
                         OrderTotals = new ObservableCollection<OrderTotal>(totalsList);
-                        Console.WriteLine($"[OrderDetailsDialog] Załadowano {totalsList.Count} totals");
+                        Debug("Załadowano {totalsList.Count} totals", "OrderDetailsDialog");
                     }
                 }
                 catch (Exception totalsEx)
                 {
-                    Console.WriteLine($"[OrderDetailsDialog] Błąd parsowania totals: {totalsEx.Message}");
+                    Error(totalsEx, "OrderDetailsDialog", "Błąd parsowania totals");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[OrderDetailsDialog] Błąd parsowania szczegółów zamówienia: {ex.Message}");
+                Error(ex, "OrderDetailsDialog", "Błąd parsowania szczegółów zamówienia");
             }
         }
 
         private void OpenZKButton_Click(object sender, RoutedEventArgs e)
         {
-            Console.WriteLine("[OrderDetailsDialog] Przycisk 'Otwórz ZK' został kliknięty");
+            Debug("Przycisk 'Otwórz ZK' został kliknięty", "OrderDetailsDialog");
             
-            if (_order != null && _mainViewModel != null)
-            {
-                // Zaznacz zamówienie i otwórz ZK
-                _mainViewModel.SelectedOrder = _order;
-                Console.WriteLine("[OrderDetailsDialog] Uruchamianie komendy DodajZK");
-                _mainViewModel.DodajZKCommand.Execute(null);
-            }
+            // Zapisz dane lokalnie przed zamknięciem okna
+            var order = _order;
+            var mainViewModel = _mainViewModel;
             
-            // Zamknij okno po otwarciu ZK
-            Console.WriteLine("[OrderDetailsDialog] Zamykanie okna szczegółów zamówienia");
+            // Zamknij okno najpierw, aby nie przeszkadzało w kolejnych dialogach
+            Debug("Zamykanie okna szczegółów zamówienia", "OrderDetailsDialog");
             DialogResult = true;
             Close();
+            
+            // Wykonaj akcję po zamknięciu okna (używamy Dispatcher aplikacji bo okno już zamknięte)
+            if (order != null && mainViewModel != null)
+            {
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(new System.Action(() =>
+                {
+                    Debug("Uruchamianie komendy DodajZK po zamknięciu okna", "OrderDetailsDialog");
+                    // Zaznacz zamówienie i otwórz ZK
+                    mainViewModel.SelectedOrder = order;
+                    mainViewModel.DodajZKCommand.Execute(null);
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

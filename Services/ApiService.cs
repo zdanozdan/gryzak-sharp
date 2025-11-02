@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Gryzak.Models;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak.Services
 {
@@ -83,7 +84,7 @@ namespace Gryzak.Services
                 }
 
                 var url = BuildDetailsUrl(config, orderId);
-                Console.WriteLine($"[ApiService] Wywoływanie URL: {url}");
+                Debug($"Wywoływanie URL: {url}", "ApiService");
                 var response = await _httpClient.GetAsync(url, cancellationToken);
 
                 if (response.IsSuccessStatusCode)
@@ -242,21 +243,21 @@ namespace Gryzak.Services
                 {
                     var totalValue = t.GetDouble();
                     total = totalValue.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                    Console.WriteLine($"[ApiService] Odczytano total jako liczbę: {totalValue} -> {total}");
+                    Debug($"Odczytano total jako liczbę: {totalValue} -> {total}", "ApiService");
                 }
                 else if (t.ValueKind == JsonValueKind.String)
                 {
                     total = t.GetString() ?? "0";
-                    Console.WriteLine($"[ApiService] Odczytano total jako string: {total}");
+                    Debug($"Odczytano total jako string: {total}", "ApiService");
                 }
                 else
                 {
-                    Console.WriteLine($"[ApiService] Total ma nieoczekiwany typ: {t.ValueKind}");
+                    Warning($"Total ma nieoczekiwany typ: {t.ValueKind}", "ApiService");
                 }
             }
             else
             {
-                Console.WriteLine("[ApiService] Pole 'total' nie znalezione w odpowiedzi API");
+                Warning("Pole 'total' nie znalezione w odpowiedzi API", "ApiService");
             }
             
             var currency = orderElement.TryGetProperty("currency_code", out var curr) ? curr.GetString() ?? "PLN" : "PLN";
@@ -290,17 +291,17 @@ namespace Gryzak.Services
                 if (double.TryParse(total, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var totalVal))
                 {
                     formattedTotal = totalVal.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                    Console.WriteLine($"[ApiService] Zamówienie {orderId}: total '{total}' -> sformatowane '{formattedTotal}'");
+                    Debug($"Zamówienie {orderId}: total '{total}' -> sformatowane '{formattedTotal}'", "ApiService");
                 }
                 else
                 {
-                    Console.WriteLine($"[ApiService] BŁĄD: Nie można sparsować total '{total}' dla zamówienia {orderId}");
+                    Error($"Nie można sparsować total '{total}' dla zamówienia {orderId}", "ApiService");
                     formattedTotal = total; // Użyj oryginalnej wartości jako fallback
                 }
             }
             else
             {
-                Console.WriteLine($"[ApiService] Zamówienie {orderId}: total jest pusty lub 0");
+                Warning($"Zamówienie {orderId}: total jest pusty lub 0", "ApiService");
             }
 
             // Dekoduj encje HTML (czasem podwójnie zakodowane)

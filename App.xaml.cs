@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Threading.Tasks;
 using Gryzak.Views;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak
 {
@@ -21,7 +22,7 @@ namespace Gryzak
             _debugWindow.HideWindow(); // Ukryj okno na starcie
             _debugWindow.StartCapturing();
             
-            Console.WriteLine("=== Gryzak - Menedżer Zamówień ===");
+            Info("=== Gryzak - Menedżer Zamówień ===", "App");
 
             // Zarejestruj handlery dla nieobsłużonych wyjątków, aby zwolnić licencję
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
@@ -39,7 +40,7 @@ namespace Gryzak
 
         private void App_DispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
         {
-            Console.WriteLine($"[App] NIEOBSŁUŻONY WYJĄTEK w wątku UI: {e.Exception}");
+            Critical(e.Exception, "App", "Nieobsłużony wyjątek w wątku UI");
             ZwolnijLicencjeSubiekta();
             
             // Można pozwolić aplikacji kontynuować lub zakończyć działanie
@@ -48,7 +49,7 @@ namespace Gryzak
 
         private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
-            Console.WriteLine($"[App] NIEOBSŁUŻONY WYJĄTEK w domenie aplikacji: {e.ExceptionObject}");
+            Critical($"Nieobsłużony wyjątek w domenie aplikacji: {e.ExceptionObject}", "App");
             ZwolnijLicencjeSubiekta();
         }
 
@@ -56,13 +57,13 @@ namespace Gryzak
         {
             try
             {
-                Console.WriteLine("[App] Zwalnianie licencji Subiekta GT z powodu błędu...");
+                Info("Zwalnianie licencji Subiekta GT z powodu błędu...", "App");
                 var subiektService = new Gryzak.Services.SubiektService();
                 subiektService.ZwolnijLicencje();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[App] Błąd podczas zwalniania licencji przy błędzie aplikacji: {ex.Message}");
+                Error(ex, "App", "Błąd podczas zwalniania licencji przy błędzie aplikacji");
             }
         }
 
@@ -75,12 +76,12 @@ namespace Gryzak
             // Zamknij okno debugowania i jego wątek
             try
             {
-                Console.WriteLine("[App] Zamykanie okna debugowania...");
+                Info("Zamykanie okna debugowania...", "App");
                 DebugWindow.CloseWindowAndThread();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[App] Błąd podczas zamykania okna debugowania: {ex.Message}");
+                Error(ex, "App", "Błąd podczas zamykania okna debugowania");
             }
 
             base.OnExit(e);
@@ -88,17 +89,55 @@ namespace Gryzak
 
         private async Task LoadMainWindowAsync()
         {
-            // Symuluj ładowanie
-            await Task.Delay(2000);
-
-            // Utwórz główne okno
-            _mainWindow = new MainWindow();
-            
-            // Zamknij splash screen
-            _splashWindow?.CloseSplash();
-            
-            // Pokaż główne okno
-            _mainWindow.Show();
+            try
+            {
+                // Utwórz główne okno (ale jeszcze nie pokazuj)
+                _mainWindow = new MainWindow();
+                
+                // Pobierz MainViewModel z MainWindow
+                if (_mainWindow.DataContext is ViewModels.MainViewModel mainViewModel && _splashWindow != null)
+                {
+                    // Aktualizuj splash screen podczas ładowania
+                    _splashWindow.UpdateProgress(10, "Inicjalizacja aplikacji...");
+                    
+                    // Przekaż splash screen do MainViewModel aby mógł aktualizować postęp
+                    mainViewModel.SetSplashWindow(_splashWindow);
+                    
+                    // Załaduj zamówienia (to zajmie trochę czasu)
+                    // MainViewModel będzie aktualizował splash screen wewnątrz LoadOrdersAsync
+                    _splashWindow.UpdateProgress(20, "Ładowanie zamówień z API...");
+                    await mainViewModel.LoadOrdersAsync(false);
+                    
+                    // Sprawdź czy zamówienia zostały załadowane
+                    _splashWindow.UpdateProgress(90, "Finalizacja...");
+                    await Task.Delay(300); // Krótkie opóźnienie dla płynności
+                    
+                    _splashWindow.UpdateProgress(100, "Gotowe!");
+                    await Task.Delay(300);
+                }
+                else
+                {
+                    // Fallback - jeśli nie ma MainViewModel, poczekaj chwilę
+                    _splashWindow?.UpdateProgress(50, "Przygotowywanie interfejsu...");
+                    await Task.Delay(1000);
+                    _splashWindow?.UpdateProgress(100, "Gotowe!");
+                    await Task.Delay(300);
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "App", "Błąd podczas ładowania głównego okna");
+                _splashWindow?.UpdateProgress(0, "Błąd ładowania...");
+                await Task.Delay(1000);
+            }
+            finally
+            {
+                // Zamknij splash screen
+                _splashWindow?.CloseSplash();
+                
+                // Pokaż główne okno (które ma już załadowane zamówienia)
+                _mainWindow?.Show();
+            }
         }
     }
 }

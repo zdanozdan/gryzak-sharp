@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Gryzak.Models;
 using Gryzak.ViewModels;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak.Views
 {
@@ -20,14 +21,16 @@ namespace Gryzak.Views
         private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
             // Zwolnij licencję Subiekta GT przed zamknięciem aplikacji
+            // Musimy to zrobić synchronicznie, aby upewnić się że licencja jest zwolniona przed zamknięciem
             try
             {
                 var subiektService = new Gryzak.Services.SubiektService();
                 subiektService.ZwolnijLicencje();
+                Info("Licencja Subiekta GT zwolniona przed zamknięciem okna.", "MainWindow");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[MainWindow] Błąd podczas zwalniania licencji przy zamykaniu: {ex.Message}");
+                Error(ex, "MainWindow", "Błąd podczas zwalniania licencji przy zamykaniu");
             }
         }
 
@@ -132,7 +135,7 @@ namespace Gryzak.Views
                 {
                     if (vm.HasMorePages && !vm.IsLoadingMore && !vm.IsLoading)
                     {
-                        Console.WriteLine($"[Gryzak] Scroll blisko końca, ładuję kolejną stronę");
+                        Debug("Scroll blisko końca, ładuję kolejną stronę", "MainWindow");
                         await vm.LoadNextPageAsync();
                     }
                 }

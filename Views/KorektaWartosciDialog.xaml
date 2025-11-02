@@ -141,6 +141,7 @@
                         FontSize="13"
                         FontWeight="SemiBold"
                         Padding="15,0"
+                        Margin="0,0,12,0"
                         Background="#4CAF50"
                         Foreground="White"
                         BorderThickness="0"
@@ -164,6 +165,49 @@
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter Property="Background" Value="#3D8B40"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                
+                <Button Name="AnulujButton" 
+                        Content="Anuluj" 
+                        Width="120" 
+                        Height="38" 
+                        Margin="0,0,0,0"
+                        Click="AnulujButton_Click"
+                        IsCancel="True"
+                        FontSize="13"
+                        FontWeight="SemiBold"
+                        Padding="15,0"
+                        BorderThickness="1"
+                        BorderBrush="#CCCCCC"
+                        Background="#E0E0E0"
+                        Foreground="#333333"
+                        Cursor="Hand">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="3"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#D0D0D0"/>
+                                    <Setter Property="BorderBrush" Value="#999999"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter Property="Background" Value="#C0C0C0"/>
                                 </Trigger>
                             </Style.Triggers>
                         </Style>

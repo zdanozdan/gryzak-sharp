@@ -9,6 +9,7 @@ namespace Gryzak.Views
     {
         public KontrahentItem? SelectedKontrahent { get; private set; }
         public bool ShouldAddNew { get; private set; } = false;
+        public bool ShouldOpenEmpty { get; private set; } = false;
         
         public SelectKontrahentDialog(ObservableCollection<KontrahentItem> kontrahenci, string? customerName = null, string? email = null, string? phone = null, string? company = null, string? nip = null, string? address = null)
         {
@@ -89,7 +90,16 @@ namespace Gryzak.Views
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
+            // Po prostu zamknij okno bez żadnych dodatkowych akcji
             DialogResult = false;
+            Close();
+        }
+        
+        private void EmptyButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Ustaw flagę, że użytkownik chce otworzyć ZK bez kontrahenta
+            ShouldOpenEmpty = true;
+            DialogResult = true; // true aby wskazać, że wykonujemy akcję (nie anulujemy)
             Close();
         }
 

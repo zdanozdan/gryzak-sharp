@@ -123,19 +123,29 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             
-            <!-- Przycisk "Nowy" po lewej stronie -->
-            <Button Grid.Column="0"
-                    Name="AddButton"
-                    Content="Nowy" 
-                    Click="AddButton_Click" 
-                    Width="100" 
-                    Height="35"
-                    Margin="5,0"
-                    HorizontalAlignment="Left"
-                    Background="#4CAF50"
-                    Foreground="White"
-                    BorderThickness="0"
-                    Cursor="Hand"/>
+            <!-- Przyciski po lewej stronie -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button Name="AddButton"
+                        Content="Nowy" 
+                        Click="AddButton_Click" 
+                        Width="100" 
+                        Height="35"
+                        Margin="5,0"
+                        Background="#4CAF50"
+                        Foreground="White"
+                        BorderThickness="0"
+                        Cursor="Hand"/>
+                <Button Name="EmptyButton"
+                        Content="Pusty" 
+                        Click="EmptyButton_Click" 
+                        Width="100" 
+                        Height="35"
+                        Margin="5,0"
+                        Background="#FF9800"
+                        Foreground="White"
+                        BorderThickness="0"
+                        Cursor="Hand"/>
+            </StackPanel>
             
             <!-- Przyciski po prawej stronie -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">

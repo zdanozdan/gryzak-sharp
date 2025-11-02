@@ -7,6 +7,7 @@ using System.Windows.Input;
 using Gryzak.Models;
 using Gryzak.Services;
 using Microsoft.Data.SqlClient;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak.Views
 {
@@ -128,14 +129,14 @@ namespace Gryzak.Views
                             using (var command = new SqlCommand("SELECT @@VERSION", connection))
                             {
                                 var version = command.ExecuteScalar();
-                                Console.WriteLine($"[SubiektSettings] Połączenie z MSSQL udane. Wersja serwera: {version}");
+                                Info($"Połączenie z MSSQL udane. Wersja serwera: {version}", "SubiektSettings");
                             }
                             return true;
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektSettings] Błąd połączenia z MSSQL: {ex.Message}");
+                        Error(ex, "SubiektSettings", "Błąd połączenia z MSSQL");
                         throw;
                     }
                 });
@@ -239,11 +240,11 @@ SELECT [uz_Id]
   WHERE uz_Status > 0
   ORDER BY [uz_Nazwisko], [uz_Imie]";
 
-                            Console.WriteLine("[SubiektSettings] ========================================");
-                            Console.WriteLine("[SubiektSettings] Pobieranie listy użytkowników z MSSQL...");
-                            Console.WriteLine("[SubiektSettings] Zapytanie SQL:");
-                            Console.WriteLine($"[SubiektSettings] {sqlQuery}");
-                            Console.WriteLine("[SubiektSettings] ========================================");
+                            Debug("========================================", "SubiektSettings");
+                            Debug("Pobieranie listy użytkowników z MSSQL...", "SubiektSettings");
+                            Debug("Zapytanie SQL:", "SubiektSettings");
+                            Debug("{sqlQuery}", "SubiektSettings");
+                            Debug("========================================", "SubiektSettings");
 
                             using (var command = new SqlCommand(sqlQuery, connection))
                             {
@@ -288,25 +289,25 @@ SELECT [uz_Id]
                                         };
                                         users.Add(userItem);
 
-                                        Console.WriteLine($"[SubiektSettings] Użytkownik {rowCount}:");
-                                        Console.WriteLine($"[SubiektSettings]   ID: {uzId}");
-                                        Console.WriteLine($"[SubiektSettings]   Nazwisko: {uzNazwisko}");
-                                        Console.WriteLine($"[SubiektSettings]   Imię: {uzImie}");
-                                        Console.WriteLine($"[SubiektSettings]   Status: {uzStatus}");
-                                        Console.WriteLine($"[SubiektSettings]   Wyświetlana nazwa: {displayName}");
-                                        Console.WriteLine("[SubiektSettings] ---");
+                                        Debug("Użytkownik {rowCount}:", "SubiektSettings");
+                                        Debug("  ID: {uzId}", "SubiektSettings");
+                                        Debug("  Nazwisko: {uzNazwisko}", "SubiektSettings");
+                                        Debug("  Imię: {uzImie}", "SubiektSettings");
+                                        Debug("  Status: {uzStatus}", "SubiektSettings");
+                                        Debug("  Wyświetlana nazwa: {displayName}", "SubiektSettings");
+                                        Debug("---", "SubiektSettings");
                                     }
 
-                                    Console.WriteLine($"[SubiektSettings] ========================================");
-                                    Console.WriteLine($"[SubiektSettings] Znaleziono {rowCount} użytkowników");
-                                    Console.WriteLine("[SubiektSettings] ========================================");
+                                    Debug("========================================", "SubiektSettings");
+                                    Debug("Znaleziono {rowCount} użytkowników", "SubiektSettings");
+                                    Debug("========================================", "SubiektSettings");
                                 }
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[SubiektSettings] Błąd podczas pobierania użytkowników: {ex.Message}");
+                        Error(ex, "SubiektSettings", "Błąd podczas pobierania użytkowników");
                         throw;
                     }
                     
@@ -343,7 +344,7 @@ SELECT [uz_Id]
                 string errorMessage = "Nie udało się pobrać listy użytkowników.\n\n";
                 errorMessage += $"Błąd: {sqlEx.Message}";
                 
-                Console.WriteLine($"[SubiektSettings] Błąd SQL: {sqlEx.Message}");
+                Error(sqlEx, "SubiektSettings", "Błąd SQL");
 
                 MessageBox.Show(errorMessage, "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -355,7 +356,7 @@ SELECT [uz_Id]
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 
-                Console.WriteLine($"[SubiektSettings] Błąd: {ex.Message}");
+                Error(ex, "SubiektSettings");
             }
             finally
             {

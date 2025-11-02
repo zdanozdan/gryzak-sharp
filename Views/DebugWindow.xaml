@@ -45,6 +45,26 @@
                 </StackPanel>
                 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock Text="Poziom logowania:"
+                               VerticalAlignment="Center"
+                               Foreground="White"
+                               FontSize="12"
+                               Margin="0,0,8,0"/>
+                    <ComboBox Name="LogLevelComboBox"
+                               VerticalAlignment="Center"
+                               Width="120"
+                               Margin="0,0,15,0"
+                               SelectionChanged="LogLevelComboBox_SelectionChanged"
+                               Background="White"
+                               Foreground="#2196F3"
+                               BorderThickness="1"
+                               BorderBrush="#E0E0E0">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <CheckBox Name="LogToFileCheckBox"
                               Content="Loguj do pliku"
                               VerticalAlignment="Center"
@@ -78,19 +98,24 @@
         
         <!-- Zawartość logów -->
         <Border Grid.Row="1" Margin="10" Background="#1E1E1E" BorderThickness="1" BorderBrush="#333333">
-            <TextBox Name="LogTextBox" 
-                     IsReadOnly="True"
-                     TextWrapping="NoWrap"
-                     FontFamily="Consolas, Courier New"
-                     FontSize="11"
-                     Background="#1E1E1E"
-                     Foreground="#D4D4D4"
-                     BorderThickness="0"
-                     Padding="10"
-                     AcceptsReturn="True"
-                     AcceptsTab="True"
-                     VerticalScrollBarVisibility="Auto"
-                     HorizontalScrollBarVisibility="Auto"/>
+            <RichTextBox Name="LogTextBox" 
+                        IsReadOnly="True"
+                        FontFamily="Consolas, Courier New"
+                        FontSize="11"
+                        Background="#1E1E1E"
+                        Foreground="#D4D4D4"
+                        BorderThickness="0"
+                        Padding="10"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Auto">
+                <FlowDocument>
+                    <FlowDocument.Resources>
+                        <Style TargetType="Paragraph">
+                            <Setter Property="Margin" Value="0"/>
+                        </Style>
+                    </FlowDocument.Resources>
+                </FlowDocument>
+            </RichTextBox>
         </Border>
         
         <!-- Status bar -->

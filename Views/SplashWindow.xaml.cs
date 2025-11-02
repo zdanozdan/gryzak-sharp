@@ -34,15 +34,14 @@ namespace Gryzak.Views
 
         private void SplashWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            // Start animacji postępu
-            _progressTimer.Start();
+            // Wyłącz automatyczne timery - będziemy kontrolować postęp ręcznie
+            // _progressTimer.Start();
+            // StartLoadingSequence();
+            // _closeTimer.Start();
+            
+            // Ustaw początkowy stan
             ProgressBar.Value = 0;
-
-            // Uruchom sekwencję tekstów ładowania
-            StartLoadingSequence();
-
-            // Zamykaj okno po 4 sekundach
-            _closeTimer.Start();
+            LoadingText.Text = "Inicjalizacja...";
         }
 
         private void ProgressTimer_Tick(object? sender, EventArgs e)
@@ -91,6 +90,24 @@ namespace Gryzak.Views
             _progressTimer?.Stop();
             _closeTimer?.Stop();
             Close();
+        }
+        
+        // Metody do aktualizacji postępu z zewnątrz
+        public void UpdateProgress(double value, string text)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ProgressBar.Value = Math.Min(100, Math.Max(0, value));
+                LoadingText.Text = text;
+            });
+        }
+        
+        public void UpdateText(string text)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                LoadingText.Text = text;
+            });
         }
     }
 }
