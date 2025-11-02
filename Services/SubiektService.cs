@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
+using Gryzak.Views;
+using Microsoft.Data.SqlClient;
 
 namespace Gryzak.Services
 {
@@ -25,6 +28,238 @@ namespace Gryzak.Services
         public bool CzyInstancjaAktywna()
         {
             return _cachedSubiekt != null && _cachedGt != null;
+        }
+        
+        /// <summary>
+        /// Wyszukuje kontrahenta przez zapytanie SQL do bazy MSSQL
+        /// </summary>
+        private int? WyszukajKontrahentaPrzezSQL(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null)
+        {
+            int? selectedId = null;
+            
+            try
+            {
+                // Wczytaj konfigurację serwera MSSQL
+                var subiektConfig = _configService.LoadSubiektConfig();
+                string serverAddress = subiektConfig.ServerAddress ?? "";
+                string username = subiektConfig.ServerUsername ?? "";
+                string password = subiektConfig.ServerPassword ?? "";
+                
+                if (string.IsNullOrWhiteSpace(serverAddress))
+                {
+                    Console.WriteLine("[SubiektService] Brak adresu serwera MSSQL w konfiguracji - pomijam wyszukiwanie przez SQL.");
+                    return null;
+                }
+                
+                // Utwórz connection string
+                var builder = new SqlConnectionStringBuilder
+                {
+                    DataSource = serverAddress,
+                    UserID = username,
+                    Password = password,
+                    ConnectTimeout = 10,
+                    Encrypt = false
+                };
+                
+                // Jeśli nie podano username/password, użyj Windows Authentication
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    builder.IntegratedSecurity = true;
+                }
+                
+                string connectionString = builder.ConnectionString;
+                
+                // Wykonaj zapytanie SQL
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    connection.Open();
+                    
+                    // Jeśli nie ma emaila ani nazwy klienta, nie wykonuj zapytania
+                    if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName))
+                    {
+                        Console.WriteLine("[SubiektService] Brak adresu email i nazwy klienta - pomijam wyszukiwanie przez SQL.");
+                        return null;
+                    }
+                    
+                    // Buduj zapytanie SQL dynamicznie w zależności od dostępnych danych
+                    string sqlQuery = @"
+SELECT TOP(20)
+    A.adr_TypAdresu,
+    A.adr_Adres,
+    A.adr_Nazwa,
+    A.adr_NazwaPelna,
+    A.adr_NIP,
+    A.adr_Ulica,
+    A.adr_Miejscowosc,
+    A.adr_Kod,
+    K.kh_Id,
+    K.kh_Symbol,
+    K.kh_EMail
+FROM
+    dbo.adr__Ewid AS A
+INNER JOIN
+    dbo.kh__Kontrahent AS K ON A.adr_IdObiektu = K.kh_Id
+WHERE A.adr_TypAdresu = 1
+AND (
+";
+                    
+                    // Lista warunków do dodania
+                    var conditions = new List<string>();
+                    
+                    // Warunek dla pełnej nazwy (imię i nazwisko)
+                    if (!string.IsNullOrWhiteSpace(customerName))
+                    {
+                        // Podziel nazwę na słowa (imię i nazwisko)
+                        var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (nameParts.Length > 0)
+                        {
+                            // Dodaj warunek dla każdego słowa z nazwy
+                            var nameConditions = new List<string>();
+                            foreach (var part in nameParts)
+                            {
+                                nameConditions.Add($"A.adr_NazwaPelna LIKE @NamePart{nameConditions.Count}");
+                            }
+                            conditions.Add($"({string.Join(" AND ", nameConditions)})");
+                        }
+                    }
+                    
+                    // Warunek dla adresu email
+                    if (!string.IsNullOrWhiteSpace(email))
+                    {
+                        conditions.Add("K.kh_EMail = @Email");
+                    }
+                    
+                    sqlQuery += string.Join("\n        OR \n        ", conditions);
+                    sqlQuery += "\n    )\n";
+                    
+                    Console.WriteLine($"[SubiektService] Wykonuję zapytanie SQL do wyszukania kontrahenta (email: {email}, customerName: {customerName}):");
+                    
+                    using (var command = new SqlCommand(sqlQuery, connection))
+                    {
+                        // Dodaj parametr email do zapytania SQL (zabezpieczenie przed SQL injection)
+                        if (!string.IsNullOrWhiteSpace(email))
+                        {
+                            command.Parameters.AddWithValue("@Email", email);
+                        }
+                        
+                        // Dodaj parametry dla każdego słowa z nazwy (imię i nazwisko)
+                        if (!string.IsNullOrWhiteSpace(customerName))
+                        {
+                            var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                            for (int i = 0; i < nameParts.Length; i++)
+                            {
+                                command.Parameters.AddWithValue($"@NamePart{i}", $"%{nameParts[i]}%");
+                            }
+                        }
+                        
+                        // Loguj finalne zapytanie z parametrami
+                        string loggedQuery = sqlQuery;
+                        if (!string.IsNullOrWhiteSpace(email))
+                        {
+                            loggedQuery = loggedQuery.Replace("@Email", $"'{email}'");
+                        }
+                        if (!string.IsNullOrWhiteSpace(customerName))
+                        {
+                            var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                            for (int i = 0; i < nameParts.Length; i++)
+                            {
+                                loggedQuery = loggedQuery.Replace($"@NamePart{i}", $"'%{nameParts[i]}%'");
+                            }
+                        }
+                        Console.WriteLine($"[SubiektService] {loggedQuery}");
+                        
+                        
+                        using (var reader = command.ExecuteReader())
+                        {
+                            var kontrahenci = new ObservableCollection<KontrahentItem>();
+                            
+                            while (reader.Read())
+                            {
+                                var kontrahent = new KontrahentItem
+                                {
+                                    Id = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetValue(8)), // kh_Id
+                                    Symbol = reader.IsDBNull(9) ? "" : reader.GetValue(9)?.ToString() ?? "",
+                                    NazwaPelna = reader.IsDBNull(3) ? "" : reader.GetValue(3)?.ToString() ?? "",
+                                    Email = reader.IsDBNull(10) ? "" : reader.GetValue(10)?.ToString() ?? "",
+                                    NIP = reader.IsDBNull(4) ? "" : reader.GetValue(4)?.ToString() ?? "",
+                                    Adres = reader.IsDBNull(1) ? "" : reader.GetValue(1)?.ToString() ?? "",
+                                    Miejscowosc = reader.IsDBNull(6) ? "" : reader.GetValue(6)?.ToString() ?? "",
+                                    Kod = reader.IsDBNull(7) ? "" : reader.GetValue(7)?.ToString() ?? ""
+                                };
+                                
+                                kontrahenci.Add(kontrahent);
+                            }
+                            
+                            // Zawsze pokaż dialog wyboru, nawet jeśli nie znaleziono żadnych kontrahentów
+                            // Użytkownik może zdecydować czy wybrać kontrahenta, dodać nowego, czy kontynuować bez kontrahenta
+                            if (kontrahenci.Count > 0)
+                            {
+                                Console.WriteLine($"[SubiektService] Znaleziono {kontrahenci.Count} kontrahentów przez SQL.");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[SubiektService] Nie znaleziono kontrahentów przez SQL - wyświetlam dialog z pustą listą.");
+                            }
+                            
+                            Console.WriteLine($"[SubiektService] Wyświetlam dialog wyboru kontrahenta ({kontrahenci.Count} wyników)...");
+                            
+                            // Użyj synchronicznego Invoke, aby upewnić się że dialog jest wyświetlony
+                            Application.Current?.Dispatcher.Invoke(() =>
+                            {
+                                try
+                                {
+                                    Console.WriteLine("[SubiektService] Tworzę dialog SelectKontrahentDialog...");
+                                    var dialog = new SelectKontrahentDialog(kontrahenci, customerName, email, phone, company, nip, address);
+                                    
+                                    // Ustaw właściciela dialogu, aby był widoczny
+                                    if (Application.Current?.MainWindow != null)
+                                    {
+                                        dialog.Owner = Application.Current.MainWindow;
+                                        dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                                    }
+                                    else
+                                    {
+                                        dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                                    }
+                                    
+                                    // Ustaw dialog na wierzchu, aby był widoczny
+                                    dialog.Topmost = true;
+                                    
+                                    Console.WriteLine("[SubiektService] Wyświetlam dialog ShowDialog()...");
+                                    bool? result = dialog.ShowDialog();
+                                    
+                                    // Wyłącz Topmost po zamknięciu dialogu
+                                    dialog.Topmost = false;
+                                    Console.WriteLine($"[SubiektService] Dialog ShowDialog() zakończył się z wynikiem: {result}");
+                                    
+                                    if (result == true && dialog.SelectedKontrahent != null)
+                                    {
+                                        selectedId = dialog.SelectedKontrahent.Id;
+                                        Console.WriteLine($"[SubiektService] Użytkownik wybrał kontrahenta: ID={dialog.SelectedKontrahent.Id}, Symbol={dialog.SelectedKontrahent.Symbol}");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("[SubiektService] Użytkownik anulował wybór kontrahenta lub nie wybrał żadnego - ZK zostanie otwarte bez kontrahenta.");
+                                    }
+                                }
+                                catch (Exception dialogEx)
+                                {
+                                    Console.WriteLine($"[SubiektService] Błąd podczas wyświetlania dialogu wyboru kontrahenta: {dialogEx.Message}");
+                                    Console.WriteLine($"[SubiektService] Stack trace: {dialogEx.StackTrace}");
+                                }
+                            }, System.Windows.Threading.DispatcherPriority.Normal);
+                            
+                            Console.WriteLine($"[SubiektService] WyszukajKontrahentaPrzezSQL zwraca: {selectedId?.ToString() ?? "null"}");
+                            return selectedId;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania kontrahenta przez SQL: {ex.Message}");
+                return null;
+            }
         }
         
         /// <summary>
@@ -149,11 +384,11 @@ namespace Gryzak.Services
             InstancjaZmieniona?.Invoke(null, aktywna);
         }
 
-        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null)
+        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null)
         {
             try
             {
-                Console.WriteLine($"[SubiektService] Próba otwarcia okna ZK{(nip != null ? $" z kontrahentem o NIP: {nip}" : " bez kontrahenta")}...");
+                Console.WriteLine($"[SubiektService] Próba otwarcia okna ZK{(nip != null ? $" z kontrahentem o NIP: {nip}" : " bez kontrahenta")}{(email != null ? $" (email: {email})" : "")}...");
 
                 dynamic? gt = null;
                 dynamic? subiekt = null;
@@ -351,24 +586,86 @@ namespace Gryzak.Services
                                 else
                                 {
                                     Console.WriteLine($"[SubiektService] Nie znaleziono kontrahenta o NIP: {nip}");
+                                    
+                                    // Spróbuj wyszukać kontrahenta przez SQL po emailu
+                                    Console.WriteLine($"[SubiektService] Próba wyszukania kontrahenta przez SQL...");
+                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address);
+                                    
+                                    if (kontrahentId.HasValue)
+                                    {
+                                        // Ustaw ID kontrahenta w dokumencie
+                                        zkDokument.KontrahentId = kontrahentId.Value;
+                                        Console.WriteLine($"[SubiektService] Ustawiono kontrahenta o ID={kontrahentId.Value} (znaleziony przez SQL) w dokumencie ZK.");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"[SubiektService] Nie znaleziono kontrahenta przez SQL.");
+                                    }
                                 }
                             }
                             catch (Exception kontrEx)
                             {
-                                Console.WriteLine($"[SubiektService] Nie udało się wyszukać kontrahenta: {kontrEx.Message}");
+                                Console.WriteLine($"[SubiektService] BŁĄD: Nie udało się wyszukać kontrahenta: {kontrEx.Message}");
+                                Console.WriteLine($"[SubiektService] Stack trace: {kontrEx.StackTrace}");
+                                
+                                // Próbuj wyszukać przez SQL nawet jeśli wystąpił błąd
+                                try
+                                {
+                                    Console.WriteLine($"[SubiektService] Próba wyszukania kontrahenta przez SQL (po błędzie NIP)...");
+                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address);
+                                    
+                                    if (kontrahentId.HasValue && zkDokument != null)
+                                    {
+                                        // Ustaw ID kontrahenta w dokumencie
+                                        int id = kontrahentId.GetValueOrDefault();
+                                        zkDokument!.KontrahentId = id;
+                                        Console.WriteLine($"[SubiektService] Ustawiono kontrahenta o ID={id} (znaleziony przez SQL po błędzie) w dokumencie ZK.");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"[SubiektService] Nie znaleziono kontrahenta przez SQL po błędzie.");
+                                    }
+                                }
+                                catch (Exception sqlEx)
+                                {
+                                    Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania przez SQL po błędzie NIP: {sqlEx.Message}");
+                                }
                             }
                         }
                         else
                         {
-                            Console.WriteLine("[SubiektService] Nie podano NIP - dokument ZK zostanie otwarty bez kontrahenta.");
+                            Console.WriteLine("[SubiektService] Nie podano NIP - próba wyszukania kontrahenta przez SQL...");
+                            
+                            // Próbuj wyszukać kontrahenta przez SQL nawet gdy nie ma NIP
+                            try
+                            {
+                                int? kontrahentId = WyszukajKontrahentaPrzezSQL(null, email, customerName, phone, company, address);
+                                
+                                if (kontrahentId.HasValue && zkDokument != null)
+                                {
+                                    // Ustaw ID kontrahenta w dokumencie
+                                    int id = kontrahentId.GetValueOrDefault();
+                                    zkDokument!.KontrahentId = id;
+                                    Console.WriteLine($"[SubiektService] Ustawiono kontrahenta o ID={id} (znaleziony przez SQL bez NIP) w dokumencie ZK.");
+                                }
+                                else
+                                {
+                                    Console.WriteLine("[SubiektService] Nie znaleziono kontrahenta przez SQL - dokument ZK zostanie otwarty bez kontrahenta.");
+                                }
+                            }
+                            catch (Exception sqlEx)
+                            {
+                                Console.WriteLine($"[SubiektService] Błąd podczas wyszukiwania przez SQL (bez NIP): {sqlEx.Message}");
+                                Console.WriteLine("[SubiektService] Dokument ZK zostanie otwarty bez kontrahenta.");
+                            }
                         }
                         
                         // Ustaw numer zamówienia jako numer oryginalnego dokumentu
-                        if (!string.IsNullOrWhiteSpace(orderId))
+                        if (!string.IsNullOrWhiteSpace(orderId) && zkDokument != null)
                         {
                             try
                             {
-                                zkDokument.NumerOryginalny = orderId;
+                                zkDokument!.NumerOryginalny = orderId;
                                 Console.WriteLine($"[SubiektService] Ustawiono numer oryginalnego dokumentu: {orderId}");
                             }
                             catch (Exception numOrigEx)
@@ -379,17 +676,17 @@ namespace Gryzak.Services
                         
                         // Ustaw walutę dokumentu (jeśli została podana)
                         // Używamy atrybutu WalutaSymbol, który przyjmuje symbol waluty jako string (np. "EUR", "USD", "PLN")
-                        if (!string.IsNullOrWhiteSpace(currency))
+                        if (!string.IsNullOrWhiteSpace(currency) && zkDokument != null)
                         {
                             try
                             {
-                                zkDokument.WalutaSymbol = currency;
+                                zkDokument!.WalutaSymbol = currency;
                                 Console.WriteLine($"[SubiektService] Ustawiono walutę dokumentu ZK: {currency}");
                                 
                                 // Opcjonalnie można pobrać kurs waluty automatycznie po ustawieniu symbolu
                                 try
                                 {
-                                    zkDokument.PobierzKursWaluty();
+                                    zkDokument!.PobierzKursWaluty();
                                     Console.WriteLine($"[SubiektService] Pobrano kurs waluty dla {currency}");
                                 }
                                 catch (Exception kursEx)
@@ -405,14 +702,17 @@ namespace Gryzak.Services
                         }
                         
                         // Ustaw przeliczanie dokumentu od cen brutto (ponieważ ustawiamy CenaBruttoPoRabacie dla pozycji)
-                        try
+                        if (zkDokument != null)
                         {
-                            zkDokument.LiczonyOdCenBrutto = true;
-                            Console.WriteLine("[SubiektService] Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = true)");
-                        }
-                        catch (Exception bruttoEx)
-                        {
-                            Console.WriteLine($"[SubiektService] Nie udało się ustawić LiczoneOdCenBrutto: {bruttoEx.Message}");
+                            try
+                            {
+                                zkDokument!.LiczonyOdCenBrutto = true;
+                                Console.WriteLine("[SubiektService] Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = true)");
+                            }
+                            catch (Exception bruttoEx)
+                            {
+                                Console.WriteLine($"[SubiektService] Nie udało się ustawić LiczoneOdCenBrutto: {bruttoEx.Message}");
+                            }
                         }
                         
                         // Dodaj informacje o kuponie i numerze zamówienia do uwag dokumentu (jeśli jest kupon)
@@ -453,24 +753,27 @@ namespace Gryzak.Services
                                     Console.WriteLine($"[SubiektService] ZmienOpisDokumentu nie zadziałała: {methodEx.Message}");
                                     
                                     // Fallback: spróbuj bezpośrednio ustawić Uwagi
-                                    try
+                                    if (zkDokument != null)
                                     {
-                                        zkDokument.Uwagi = fullNote;
-                                        Console.WriteLine($"[SubiektService] Dodano informacje do uwag ZK (Uwagi): {fullNote}");
-                                    }
-                                    catch (Exception directEx)
-                                    {
-                                        Console.WriteLine($"[SubiektService] Uwagi nie zadziałały: {directEx.Message}");
-                                        
-                                        // Ostatni fallback: Opis
                                         try
                                         {
-                                            zkDokument.Opis = fullNote;
-                                            Console.WriteLine($"[SubiektService] Dodano informacje do uwag ZK (Opis): {fullNote}");
+                                            zkDokument!.Uwagi = fullNote;
+                                            Console.WriteLine($"[SubiektService] Dodano informacje do uwag ZK (Uwagi): {fullNote}");
                                         }
-                                        catch
+                                        catch (Exception directEx)
                                         {
-                                            Console.WriteLine("[SubiektService] Nie udało się ustawić żadnego pola uwag dla dokumentu ZK.");
+                                            Console.WriteLine($"[SubiektService] Uwagi nie zadziałały: {directEx.Message}");
+                                            
+                                            // Ostatni fallback: Opis
+                                            try
+                                            {
+                                                zkDokument!.Opis = fullNote;
+                                                Console.WriteLine($"[SubiektService] Dodano informacje do uwag ZK (Opis): {fullNote}");
+                                            }
+                                            catch
+                                            {
+                                                Console.WriteLine("[SubiektService] Nie udało się ustawić żadnego pola uwag dla dokumentu ZK.");
+                                            }
                                         }
                                     }
                                 }
@@ -515,9 +818,11 @@ namespace Gryzak.Services
                         {
                             try
                             {
-                                dynamic pozycje = zkDokument.Pozycje;
-                                foreach (var it in items)
+                                if (zkDokument != null)
                                 {
+                                    dynamic pozycje = zkDokument!.Pozycje;
+                                    foreach (var it in items)
+                                    {
                                     if (int.TryParse(it.ProductId, out var towarId))
                                     {
                                         dynamic pozycja = pozycje.Dodaj(towarId);
@@ -588,6 +893,7 @@ namespace Gryzak.Services
                                     {
                                         Console.WriteLine($"[SubiektService] Pominięto pozycję z nieprawidłowym product_id: '{it.ProductId}'");
                                     }
+                                    }
                                 }
                             }
                             catch (Exception dodajPozEx)
@@ -617,10 +923,10 @@ namespace Gryzak.Services
                                 dynamic towary = subiekt.Towary;
                                 dynamic towarKoszty = towary.Wczytaj("KOSZTY/1");
                                 
-                                if (towarKoszty != null)
+                                if (towarKoszty != null && zkDokument != null)
                                 {
-                                    dynamic pozycje = zkDokument.Pozycje;
-                                    dynamic kosztyPoz = pozycje.Dodaj(towarKoszty.Identyfikator);
+                                    dynamic pozycje = zkDokument!.Pozycje;
+                                    dynamic kosztyPoz = pozycje.Dodaj(towarKoszty!.Identyfikator);
                                     try { kosztyPoz.IloscJm = 1; } catch { }
                                     // Ustaw cenę na sumę handling + gls
                                     try 
@@ -660,10 +966,10 @@ namespace Gryzak.Services
                                 dynamic towary = subiekt.Towary;
                                 dynamic towarShipping = towary.Wczytaj("KOSZTY/2");
                                 
-                                if (towarShipping != null)
+                                if (towarShipping != null && zkDokument != null)
                                 {
-                                    dynamic pozycje = zkDokument.Pozycje;
-                                    dynamic shippingPoz = pozycje.Dodaj(towarShipping.Identyfikator);
+                                    dynamic pozycje = zkDokument!.Pozycje;
+                                    dynamic shippingPoz = pozycje.Dodaj(towarShipping!.Identyfikator);
                                     try { shippingPoz.IloscJm = 1; } catch { }
                                     // Ustaw cenę na wartość shipping z API
                                     try 
@@ -700,10 +1006,10 @@ namespace Gryzak.Services
                                 dynamic towary = subiekt.Towary;
                                 dynamic towarCodFee = towary.Wczytaj("KOSZTY/2");
                                 
-                                if (towarCodFee != null)
+                                if (towarCodFee != null && zkDokument != null)
                                 {
-                                    dynamic pozycje = zkDokument.Pozycje;
-                                    dynamic codFeePoz = pozycje.Dodaj(towarCodFee.Identyfikator);
+                                    dynamic pozycje = zkDokument!.Pozycje;
+                                    dynamic codFeePoz = pozycje.Dodaj(towarCodFee!.Identyfikator);
                                     try { codFeePoz.IloscJm = 1; } catch { }
                                     // Ustaw cenę na wartość cod_fee z API
                                     try 
@@ -732,21 +1038,26 @@ namespace Gryzak.Services
                         }
                         
                         // Przelicz dokument przed odczytem wartości (może być wymagane)
-                        try
+                        if (zkDokument != null)
                         {
-                            zkDokument.Przelicz();
-                            Console.WriteLine("[SubiektService] Dokument ZK został przeliczony przed odczytem wartości pozycji.");
-                        }
-                        catch (Exception przeliczEx)
-                        {
-                            Console.WriteLine($"[SubiektService] Uwaga: Nie udało się przeliczyć dokumentu przed odczytem wartości: {przeliczEx.Message}");
+                            try
+                            {
+                                zkDokument!.Przelicz();
+                                Console.WriteLine("[SubiektService] Dokument ZK został przeliczony przed odczytem wartości pozycji.");
+                            }
+                            catch (Exception przeliczEx)
+                            {
+                                Console.WriteLine($"[SubiektService] Uwaga: Nie udało się przeliczyć dokumentu przed odczytem wartości: {przeliczEx.Message}");
+                            }
                         }
                         
                         // Odczytaj sumę wartości wszystkich pozycji z dokumentu ZK
-                        try
+                        if (zkDokument != null)
                         {
-                            double sumaWartosci = 0.0;
-                            dynamic pozycje = zkDokument.Pozycje;
+                            try
+                            {
+                                double sumaWartosci = 0.0;
+                                dynamic pozycje = zkDokument.Pozycje;
                             
                             // Przejdź przez wszystkie pozycje i zsumuj ich wartości
                             // W Subiekcie GT indeksy pozycji zaczynają się od 1, nie od 0!
@@ -1271,26 +1582,32 @@ namespace Gryzak.Services
                             }
                             
                             // Spróbuj też odczytać wartość bezpośrednio z dokumentu (jeśli dostępna)
-                            try
+                            if (zkDokument != null)
                             {
-                                double wartoscDokumentuBrutto = zkDokument.WartoscBrutto;
-                                Console.WriteLine($"[SubiektService] Wartość brutto dokumentu ZK (z właściwości): {wartoscDokumentuBrutto:F2}");
+                                try
+                                {
+                                    double wartoscDokumentuBrutto = zkDokument.WartoscBrutto;
+                                    Console.WriteLine($"[SubiektService] Wartość brutto dokumentu ZK (z właściwości): {wartoscDokumentuBrutto:F2}");
+                                }
+                                catch { }
                             }
-                            catch { }
                             
-                            try
+                            if (zkDokument != null)
                             {
-                                double wartoscDokumentuNetto = zkDokument.WartoscNetto;
-                                Console.WriteLine($"[SubiektService] Wartość netto dokumentu ZK (z właściwości): {wartoscDokumentuNetto:F2}");
+                                try
+                                {
+                                    double wartoscDokumentuNetto = zkDokument!.WartoscNetto;
+                                    Console.WriteLine($"[SubiektService] Wartość netto dokumentu ZK (z właściwości): {wartoscDokumentuNetto:F2}");
+                                }
+                                catch { }
+                                
+                                try
+                                {
+                                    double wartoscDokumentu = zkDokument!.Wartosc;
+                                    Console.WriteLine($"[SubiektService] Wartość dokumentu ZK (z właściwości): {wartoscDokumentu:F2}");
+                                }
+                                catch { }
                             }
-                            catch { }
-                            
-                            try
-                            {
-                                double wartoscDokumentu = zkDokument.Wartosc;
-                                Console.WriteLine($"[SubiektService] Wartość dokumentu ZK (z właściwości): {wartoscDokumentu:F2}");
-                            }
-                            catch { }
                         }
                         catch (Exception sumaEx)
                         {
@@ -1298,56 +1615,63 @@ namespace Gryzak.Services
                         }
 
                         // Otwórz okno dokumentu używając metody Wyswietl() - zgodnie z przykładem
-                        try
+                        if (zkDokument != null)
                         {
-                            // Wyswietl(false) - otwiera okno w trybie edycji
-                            zkDokument.Wyswietl(false);
-                            Console.WriteLine("[SubiektService] Wywołano Wyswietl(false) na dokumencie ZK.");
+                            try
+                            {
+                                // Wyswietl(false) - otwiera okno w trybie edycji
+                                zkDokument!.Wyswietl(false);
+                                Console.WriteLine("[SubiektService] Wywołano Wyswietl(false) na dokumencie ZK.");
 
-                            // Aktywuj okno ZK na wierzch - używamy głównego okna Subiekta
-                            try
-                            {
-                                subiekt.Okno.Aktywuj();
-                                Console.WriteLine("[SubiektService] Aktywowano główne okno Subiekta GT na wierzch.");
-                            }
-                            catch (Exception aktywujEx)
-                            {
-                                Console.WriteLine($"[SubiektService] Aktywacja głównego okna Subiekta nie zadziałała: {aktywujEx.Message}");
-                            }
-                            
-                            Console.WriteLine("[SubiektService] Okno dokumentu ZK zostało otwarte pomyślnie.");
-                        }
-                        catch (Exception wyswietlEx)
-                        {
-                            Console.WriteLine($"[SubiektService] BŁĄD: Wyswietl() nie zadziałał: {wyswietlEx.Message}");
-                            
-                            // Spróbuj bez parametru
-                            try
-                            {
-                                zkDokument.Wyswietl();
-                                Console.WriteLine("[SubiektService] Wyswietl() bez parametru zadziałał.");
-                                
-                                // Aktywuj główne okno Subiekta na wierzch
+                                // Aktywuj okno ZK na wierzch - używamy głównego okna Subiekta
                                 try
                                 {
                                     subiekt.Okno.Aktywuj();
-                                    Console.WriteLine("[SubiektService] Aktywowano główne okno Subiekta na wierzch (fallback).");
+                                    Console.WriteLine("[SubiektService] Aktywowano główne okno Subiekta GT na wierzch.");
                                 }
-                                catch (Exception aktywujEx2)
+                                catch (Exception aktywujEx)
                                 {
-                                    Console.WriteLine($"[SubiektService] Aktywacja głównego okna Subiekta (fallback) nie zadziałała: {aktywujEx2.Message}");
+                                    Console.WriteLine($"[SubiektService] Aktywacja głównego okna Subiekta nie zadziałała: {aktywujEx.Message}");
                                 }
+                                
+                                Console.WriteLine("[SubiektService] Okno dokumentu ZK zostało otwarte pomyślnie.");
                             }
-                            catch (Exception wyswietl2Ex)
+                            catch (Exception wyswietlEx)
                             {
-                                Console.WriteLine($"[SubiektService] BŁĄD: Wyswietl() bez parametru też nie zadziałał: {wyswietl2Ex.Message}");
-                                MessageBox.Show(
-                                    "Dokument ZK został utworzony w Subiekcie GT, ale nie udało się otworzyć okna edycji.\n\nSprawdź okno główne Subiekta GT.",
-                                    "Informacja",
-                                    System.Windows.MessageBoxButton.OK,
-                                    System.Windows.MessageBoxImage.Information);
+                                Console.WriteLine($"[SubiektService] BŁĄD: Wyswietl() nie zadziałał: {wyswietlEx.Message}");
+                                
+                                // Spróbuj bez parametru
+                                if (zkDokument != null)
+                                {
+                                    try
+                                    {
+                                        zkDokument.Wyswietl();
+                                        Console.WriteLine("[SubiektService] Wyswietl() bez parametru zadziałał.");
+                                        
+                                        // Aktywuj główne okno Subiekta na wierzch
+                                        try
+                                        {
+                                            subiekt.Okno.Aktywuj();
+                                            Console.WriteLine("[SubiektService] Aktywowano główne okno Subiekta na wierzch (fallback).");
+                                        }
+                                        catch (Exception aktywujEx2)
+                                        {
+                                            Console.WriteLine($"[SubiektService] Aktywacja głównego okna Subiekta (fallback) nie zadziałała: {aktywujEx2.Message}");
+                                        }
+                                    }
+                                    catch (Exception wyswietl2Ex)
+                                    {
+                                        Console.WriteLine($"[SubiektService] BŁĄD: Wyswietl() bez parametru też nie zadziałał: {wyswietl2Ex.Message}");
+                                        MessageBox.Show(
+                                            "Dokument ZK został utworzony w Subiekcie GT, ale nie udało się otworzyć okna edycji.\n\nSprawdź okno główne Subiekta GT.",
+                                            "Informacja",
+                                            System.Windows.MessageBoxButton.OK,
+                                            System.Windows.MessageBoxImage.Information);
+                                    }
+                                }
                             }
                         }
+                    }
                     }
                     else
                     {
