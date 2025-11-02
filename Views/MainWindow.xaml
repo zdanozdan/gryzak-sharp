@@ -10,6 +10,7 @@
         Title="Gryzak - Menedżer Zamówień" 
         Height="600" Width="1200"
         WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
         Icon="pack://application:,,,/gryzak_icon.png">
     
     <Window.DataContext>

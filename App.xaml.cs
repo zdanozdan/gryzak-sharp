@@ -136,7 +136,27 @@ namespace Gryzak
                 _splashWindow?.CloseSplash();
                 
                 // Pokaż główne okno (które ma już załadowane zamówienia)
-                _mainWindow?.Show();
+                if (_mainWindow != null)
+                {
+                    // Tymczasowo ustaw Topmost, aby upewnić się że okno będzie na pierwszym planie
+                    _mainWindow.Topmost = true;
+                    _mainWindow.Show();
+                    _mainWindow.Activate();
+                    _mainWindow.Focus();
+                    _mainWindow.WindowState = WindowState.Normal;
+                    _mainWindow.BringIntoView();
+                    
+                    // Po aktywacji wyłącz Topmost (żeby nie było zawsze na wierzchu)
+                    // Użyj Task.Delay aby zrobić to asynchronicznie po zakończeniu renderowania
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(100); // Krótkie opóźnienie aby okno się w pełni wyświetliło
+                        _mainWindow.Dispatcher.Invoke(() =>
+                        {
+                            _mainWindow.Topmost = false;
+                        });
+                    });
+                }
             }
         }
     }

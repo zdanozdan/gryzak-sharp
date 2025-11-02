@@ -22,6 +22,55 @@ Aplikacja desktopowa do zarządzania zamówieniami ze sklepu internetowego, napi
 dotnet build
 ```
 
+## Budowanie instalatora
+
+Aby utworzyć instalator aplikacji:
+
+### Wymagania
+
+- .NET 8.0 SDK
+- Inno Setup Compiler (opcjonalnie, ale zalecane)
+  - Pobierz z: https://innosetup.com/
+  - Domyślna lokalizacja: `C:\Program Files (x86)\Inno Setup 6\`
+
+### Szybki start
+
+Uruchom w PowerShell:
+
+```powershell
+.\create-installer.ps1
+```
+
+Skrypt automatycznie:
+1. Opublikuje aplikację w trybie Release (x64 i x86)
+2. Utworzy instalator używając Inno Setup
+3. Umieści plik instalatora w folderze `installer/`
+
+### Opcje
+
+**Tylko publikacja (bez instalatora):**
+```powershell
+.\create-installer.ps1 -PublishOnly
+```
+lub
+```powershell
+.\publish.ps1
+```
+
+**Jeśli Inno Setup jest w innej lokalizacji:**
+```powershell
+.\create-installer.ps1 -InnoSetupPath "C:\Ścieżka\Do\Inno Setup 6\ISCC.exe"
+```
+
+### Wynik
+
+Po zakończeniu w folderze `installer/` znajdziesz plik:
+- `Gryzak-Setup-1.0.0.exe` - gotowy instalator aplikacji
+
+### Szczegółowa dokumentacja
+
+Zobacz [INSTALLER.md](INSTALLER.md) dla bardziej szczegółowej instrukcji.
+
 ## Uruchomienie
 
 ```bash
