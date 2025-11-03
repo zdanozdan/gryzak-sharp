@@ -59,6 +59,9 @@
                         <TextBlock Text="Adres serwera:" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBox Name="ServerAddressTextBox"/>
                         
+                        <TextBlock Text="Nazwa bazy danych:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="DatabaseNameTextBox"/>
+                        
                         <TextBlock Text="Username:" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBox Name="ServerUsernameTextBox"/>
                         

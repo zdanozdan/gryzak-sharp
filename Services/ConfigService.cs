@@ -37,7 +37,7 @@ namespace Gryzak.Services
                         // Napraw obcięty endpoint jeśli istnieje
                         if (config.OrderDetailsEndpoint != null && config.OrderDetailsEndpoint.Contains("{order_{d}"))
                         {
-                            config.OrderDetailsEndpoint = "/index.php?route=extension/module/orders&token=strefalicencji&order_id={order_id}&format=json";
+                            config.OrderDetailsEndpoint = "/index.php?route=extension/module/orders/details&token=strefalicencji&order_id={order_id}&format=json";
                             SaveConfig(config); // Zapisz naprawioną konfigurację
                         }
                         return config;
@@ -76,11 +76,11 @@ namespace Gryzak.Services
         {
             return new ApiConfig
             {
-                ApiUrl = "",
+                ApiUrl = "https://mikran.pl",
                 ApiToken = "",
                 ApiTimeout = 30,
-                OrderListEndpoint = "/orders",
-                OrderDetailsEndpoint = "/index.php?route=extension/module/orders&token=strefalicencji&order_id={order_id}&format=json"
+                OrderListEndpoint = "/index.php?route=extension/module/orders/list&format=json",
+                OrderDetailsEndpoint = "/index.php?route=extension/module/orders/details&token=strefalicencji&order_id={order_id}&format=json"
             };
         }
 
@@ -124,9 +124,10 @@ namespace Gryzak.Services
         {
             return new SubiektConfig
             {
-                ServerAddress = "",
-                ServerUsername = "",
-                ServerPassword = "",
+                ServerAddress = "192.168.0.140",
+                DatabaseName = "",
+                ServerUsername = "mikran_com",
+                ServerPassword = "mikran_comqwer4321",
                 User = "Szef",
                 Password = "zdanoszef123"
             };

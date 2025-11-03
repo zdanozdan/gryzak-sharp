@@ -36,6 +36,7 @@ namespace Gryzak.Views
         private void LoadConfig()
         {
             ServerAddressTextBox.Text = _currentConfig.ServerAddress ?? "";
+            DatabaseNameTextBox.Text = _currentConfig.DatabaseName ?? "";
             ServerUsernameTextBox.Text = _currentConfig.ServerUsername ?? "";
             ServerPasswordBox.Password = _currentConfig.ServerPassword ?? "";
             
@@ -55,6 +56,7 @@ namespace Gryzak.Views
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
             _currentConfig.ServerAddress = ServerAddressTextBox.Text.Trim();
+            _currentConfig.DatabaseName = DatabaseNameTextBox.Text.Trim();
             _currentConfig.ServerUsername = ServerUsernameTextBox.Text.Trim();
             _currentConfig.ServerPassword = ServerPasswordBox.Password;
             _currentConfig.User = UserComboBox.Text.Trim();

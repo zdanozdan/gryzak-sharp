@@ -434,18 +434,60 @@ AND (
                     // Ustaw parametry połączenia i logowania
                     try
                     {
-                        gt.Produkt = 1; // gtaProduktSubiekt
-                        
-                        // Wczytaj konfigurację i ustaw operatora i hasło
+                        // Wczytaj konfigurację przed ustawieniem parametrów
                         var subiektConfig = _configService.LoadSubiektConfig();
-                        gt.Operator = subiektConfig.User;
-                        gt.OperatorHaslo = subiektConfig.Password;
                         
-                        Info("Ustawiono operatora: {subiektConfig.User}", "SubiektService");
+                        // Sprawdź czy wszystkie wymagane parametry są ustawione
+                        if (string.IsNullOrWhiteSpace(subiektConfig.ServerAddress))
+                        {
+                            Error("Brak adresu serwera w konfiguracji Subiekt GT.", "SubiektService");
+                            MessageBox.Show(
+                                "Brak adresu serwera w konfiguracji Subiekt GT.\n\nProszę skonfigurować połączenie w ustawieniach.",
+                                "Brak konfiguracji",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Warning);
+                            return;
+                        }
+                        
+                        if (string.IsNullOrWhiteSpace(subiektConfig.DatabaseName))
+                        {
+                            Error("Brak nazwy bazy danych w konfiguracji Subiekt GT.", "SubiektService");
+                            MessageBox.Show(
+                                "Brak nazwy bazy danych w konfiguracji Subiekt GT.\n\nProszę skonfigurować połączenie w ustawieniach.",
+                                "Brak konfiguracji",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Warning);
+                            return;
+                        }
+                        
+                        // Ustaw wszystkie wymagane parametry GT
+                        gt.Produkt = 1; // gtaProduktSubiekt = 1
+                        gt.Serwer = subiektConfig.ServerAddress;
+                        gt.Baza = subiektConfig.DatabaseName;
+                        gt.Autentykacja = 2; // gtaAutentykacjaMieszana = 2
+                        
+                        // Ustaw dane użytkownika bazy danych (jeśli podano)
+                        if (!string.IsNullOrWhiteSpace(subiektConfig.ServerUsername))
+                        {
+                            gt.Uzytkownik = subiektConfig.ServerUsername;
+                            gt.UzytkownikHaslo = subiektConfig.ServerPassword ?? "";
+                        }
+                        
+                        // Ustaw operatora Subiekta
+                        gt.Operator = subiektConfig.User ?? "Szef";
+                        gt.OperatorHaslo = subiektConfig.Password ?? "";
+                        
+                        Info($"Ustawiono parametry GT - Serwer: {subiektConfig.ServerAddress}, Baza: {subiektConfig.DatabaseName}, Operator: {subiektConfig.User}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
                         Error(ex, "SubiektService", "Błąd podczas konfiguracji GT");
+                        MessageBox.Show(
+                            $"Błąd podczas konfiguracji parametrów GT:\n\n{ex.Message}\n\nProszę sprawdzić konfigurację.",
+                            "Błąd konfiguracji",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                        return;
                     }
                     
                     // Uruchom Subiekta GT
@@ -1165,18 +1207,60 @@ WHERE dok_NrPelnyOryg = @NumerOryginalny";
                     // Ustaw parametry połączenia i logowania
                     try
                     {
-                        gt.Produkt = 1; // gtaProduktSubiekt
-                        
-                        // Wczytaj konfigurację i ustaw operatora i hasło PRZED uruchomieniem, aby pominąć okno logowania
+                        // Wczytaj konfigurację przed ustawieniem parametrów
                         var subiektConfig = _configService.LoadSubiektConfig();
-                        gt.Operator = subiektConfig.User;
-                        gt.OperatorHaslo = subiektConfig.Password;
                         
-                        Info("Ustawiono operatora: {subiektConfig.User} - okno logowania zostanie pominięte.", "SubiektService");
+                        // Sprawdź czy wszystkie wymagane parametry są ustawione
+                        if (string.IsNullOrWhiteSpace(subiektConfig.ServerAddress))
+                        {
+                            Error("Brak adresu serwera w konfiguracji Subiekt GT.", "SubiektService");
+                            MessageBox.Show(
+                                "Brak adresu serwera w konfiguracji Subiekt GT.\n\nProszę skonfigurować połączenie w ustawieniach.",
+                                "Brak konfiguracji",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Warning);
+                            return;
+                        }
+                        
+                        if (string.IsNullOrWhiteSpace(subiektConfig.DatabaseName))
+                        {
+                            Error("Brak nazwy bazy danych w konfiguracji Subiekt GT.", "SubiektService");
+                            MessageBox.Show(
+                                "Brak nazwy bazy danych w konfiguracji Subiekt GT.\n\nProszę skonfigurować połączenie w ustawieniach.",
+                                "Brak konfiguracji",
+                                System.Windows.MessageBoxButton.OK,
+                                System.Windows.MessageBoxImage.Warning);
+                            return;
+                        }
+                        
+                        // Ustaw wszystkie wymagane parametry GT
+                        gt.Produkt = 1; // gtaProduktSubiekt = 1
+                        gt.Serwer = subiektConfig.ServerAddress;
+                        gt.Baza = subiektConfig.DatabaseName;
+                        gt.Autentykacja = 2; // gtaAutentykacjaMieszana = 2
+                        
+                        // Ustaw dane użytkownika bazy danych (jeśli podano)
+                        if (!string.IsNullOrWhiteSpace(subiektConfig.ServerUsername))
+                        {
+                            gt.Uzytkownik = subiektConfig.ServerUsername;
+                            gt.UzytkownikHaslo = subiektConfig.ServerPassword ?? "";
+                        }
+                        
+                        // Ustaw operatora Subiekta
+                        gt.Operator = subiektConfig.User ?? "Szef";
+                        gt.OperatorHaslo = subiektConfig.Password ?? "";
+                        
+                        Info($"Ustawiono parametry GT - Serwer: {subiektConfig.ServerAddress}, Baza: {subiektConfig.DatabaseName}, Operator: {subiektConfig.User}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
                         Error(ex, "SubiektService", "Błąd podczas konfiguracji GT");
+                        MessageBox.Show(
+                            $"Błąd podczas konfiguracji parametrów GT:\n\n{ex.Message}\n\nProszę sprawdzić konfigurację.",
+                            "Błąd konfiguracji",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                        return;
                     }
 
                     // Uruchom Subiekta GT w tle (bez interfejsu użytkownika)
@@ -1555,7 +1639,8 @@ WHERE dok_NrPelnyOryg = @NumerOryginalny";
                                 // Dodaj kupon
                                 if (!string.IsNullOrWhiteSpace(couponTitle) && couponAmount.HasValue)
                                 {
-                                    notes.Add($"{couponTitle} ({couponAmount.Value:F2} zł)");
+                                    string walutaNotatki = !string.IsNullOrWhiteSpace(currency) ? currency : "PLN";
+                                    notes.Add($"{couponTitle} ({couponAmount.Value:F2} {walutaNotatki})");
                                 }
                                 
                                 var fullNote = string.Join(" | ", notes);
@@ -2065,7 +2150,10 @@ WHERE dok_NrPelnyOryg = @NumerOryginalny";
                                             }
                                             Info("=========================================", "SubiektService");
                                             
-                                            string komunikat = $"Suma wartości pozycji w dokumencie ZK: {sumaWartosci:F2} zł\nWartość zamówienia z API: {orderTotalValue:F2} zł\n\nRóżnica: {roznica:F2} zł ({roznicaProcent:F2}%)\n\nKorekta zostanie wykonana w następującej kolejności:\n1. Pozycja KOSZTY/1 (jeśli istnieje)\n2. Pozycja KOSZTY/2 (jeśli istnieje)\n3. Pierwsza pozycja produktowa";
+                                            // Użyj waluty z API, jeśli jest dostępna, w przeciwnym razie domyślnie PLN
+                                            string walutaDisplay = !string.IsNullOrWhiteSpace(currency) ? currency : "PLN";
+                                            
+                                            string komunikat = $"Suma wartości pozycji w dokumencie ZK: {sumaWartosci:F2} {walutaDisplay}\nWartość zamówienia z API: {orderTotalValue:F2} {walutaDisplay}\n\nRóżnica: {roznica:F2} {walutaDisplay} ({roznicaProcent:F2}%)\n\nKorekta zostanie wykonana w następującej kolejności:\n1. Pozycja KOSZTY/1 (jeśli istnieje)\n2. Pozycja KOSZTY/2 (jeśli istnieje)\n3. Pierwsza pozycja produktowa";
                                             
                                             var dialog = new Gryzak.Views.KorektaWartosciDialog(komunikat);
                                             bool czyKorygowac = dialog.ShowDialog() == true && dialog.CzyKorygowac;
