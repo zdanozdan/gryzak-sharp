@@ -30,6 +30,131 @@ namespace Gryzak.Services
         {
             _configService = new ConfigService();
         }
+
+        /// <summary>
+        /// Uruchamia Subiekta GT normalnie (z oknem) do testów - używa konfiguracji z ustawień
+        /// </summary>
+        public void TestujUruchomienieSubiekta()
+        {
+            try
+            {
+                Info("Testowanie uruchomienia Subiekta GT...", "SubiektService");
+
+                var subiektConfig = _configService.LoadSubiektConfig();
+
+                // Walidacja
+                if (string.IsNullOrWhiteSpace(subiektConfig.ServerAddress))
+                {
+                    MessageBox.Show(
+                        "Brak adresu serwera w konfiguracji Subiekt GT.\n\nProszę skonfigurować połączenie w ustawieniach.",
+                        "Brak konfiguracji",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(subiektConfig.DatabaseName))
+                {
+                    MessageBox.Show(
+                        "Brak nazwy bazy danych w konfiguracji Subiekt GT.\n\nProszę skonfigurować połączenie w ustawieniach.",
+                        "Brak konfiguracji",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Utworz obiekt GT (COM)
+                Type? gtType = Type.GetTypeFromProgID("InsERT.gt");
+                if (gtType == null)
+                {
+                    Info("BŁĄD: Nie można załadować typu COM 'InsERT.gt'.", "SubiektService");
+                    MessageBox.Show(
+                        "Nie można połączyć się z Subiektem GT.\n\nUpewnij się, że:\n- Sfera dla Subiekta GT jest zainstalowana\n- Subiekt GT jest zainstalowany",
+                        "Błąd połączenia",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                    return;
+                }
+
+                dynamic? gt = Activator.CreateInstance(gtType);
+                if (gt == null)
+                {
+                    Info("BŁĄD: Nie można utworzyć instancji obiektu GT.", "SubiektService");
+                    return;
+                }
+
+                // Ustaw wszystkie wymagane parametry GT
+                gt.Produkt = 1; // gtaProduktSubiekt = 1
+                gt.Serwer = subiektConfig.ServerAddress;
+                gt.Baza = subiektConfig.DatabaseName;
+                gt.Autentykacja = 2; // gtaAutentykacjaMieszana = 2
+
+                // Ustaw dane użytkownika bazy danych (jeśli podano)
+                if (!string.IsNullOrWhiteSpace(subiektConfig.ServerUsername))
+                {
+                    gt.Uzytkownik = subiektConfig.ServerUsername;
+                    gt.UzytkownikHaslo = subiektConfig.ServerPassword ?? "";
+                }
+
+                // Ustaw operatora Subiekta
+                gt.Operator = subiektConfig.User ?? "Szef";
+                gt.OperatorHaslo = subiektConfig.Password ?? "";
+
+                Info($"Ustawiono parametry GT - Serwer: {subiektConfig.ServerAddress}, Baza: {subiektConfig.DatabaseName}, Operator: {subiektConfig.User}", "SubiektService");
+
+                // Uruchom Subiekta GT normalnie (z oknem) - nie w tle
+                // gtaUruchomDopasujOperatora = 2, gtaUruchomNormalnie = 0
+                try
+                {
+                    dynamic subiekt = gt.Uruchom(2, 0); // Dopasuj operatora + uruchom normalnie (z oknem)
+                    if (subiekt == null)
+                    {
+                        Info("BŁĄD: Uruchomienie Subiekta GT zwróciło null.", "SubiektService");
+                        MessageBox.Show(
+                            "Uruchomienie Subiekta GT zwróciło null.\n\nSprawdź logi dla szczegółów.",
+                            "Błąd uruchamiania",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Error);
+                        return;
+                    }
+
+                    Info("Subiekt GT uruchomiony normalnie (test).", "SubiektService");
+                    
+                    MessageBox.Show(
+                        "Subiekt GT został uruchomiony pomyślnie.\n\nOkno Subiekta powinno być teraz widoczne.",
+                        "Sukces",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Information);
+                }
+                catch (COMException comEx)
+                {
+                    Error($"Błąd COM: {comEx.Message}", "SubiektService");
+                    MessageBox.Show(
+                        $"Błąd podczas uruchamiania Subiekta GT:\n\n{comEx.Message}\n\nUpewnij się, że Subiekt GT jest zainstalowany i Sfera jest aktywowana.",
+                        "Błąd uruchamiania",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                }
+                catch (Exception ex)
+                {
+                    Error(ex, "SubiektService", "Błąd podczas testowego uruchomienia Subiekta GT");
+                    MessageBox.Show(
+                        $"Błąd podczas uruchamiania Subiekta GT:\n\n{ex.Message}",
+                        "Błąd",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "SubiektService", "Błąd podczas testowego uruchomienia Subiekta GT");
+                MessageBox.Show(
+                    $"Błąd podczas testowego uruchomienia Subiekta GT:\n\n{ex.Message}",
+                    "Błąd",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
+        }
         
         private class CountryInfo
         {
@@ -758,6 +883,173 @@ WHERE dok_NrPelnyOryg = @NumerOryginalny";
                 Error(ex, "SubiektService", "Błąd podczas sprawdzania istnienia dokumentu");
                 // W przypadku błędu zwracamy null, aby nie blokować otwierania ZK
                 return null;
+            }
+        }
+        
+        /// <summary>
+        /// Sprawdza istnienie dokumentów ZK w Subiekcie GT dla listy numerów zamówień
+        /// Zwraca słownik gdzie klucz to numer zamówienia (dok_NrPelnyOryg), a wartość to numer dokumentu ZK (dok_NrPelny)
+        /// </summary>
+        public Dictionary<string, string> SprawdzIstnienieDokumentowZK(List<string> numeryZamowien)
+        {
+            var wynik = new Dictionary<string, string>();
+            
+            if (numeryZamowien == null || numeryZamowien.Count == 0)
+            {
+                Debug("Lista numerów zamówień jest pusta - pomijam sprawdzanie dokumentów ZK", "SubiektService");
+                return wynik;
+            }
+            
+            try
+            {
+                var subiektConfig = _configService.LoadSubiektConfig();
+                string serverAddress = subiektConfig.ServerAddress ?? "";
+                string databaseName = subiektConfig.DatabaseName ?? "";
+                string username = subiektConfig.ServerUsername ?? "";
+                string password = subiektConfig.ServerPassword ?? "";
+                
+                if (string.IsNullOrWhiteSpace(serverAddress))
+                {
+                    Debug("Brak adresu serwera MSSQL - pomijam sprawdzanie dokumentów ZK", "SubiektService");
+                    return wynik;
+                }
+                
+                if (string.IsNullOrWhiteSpace(databaseName))
+                {
+                    Debug("Brak nazwy bazy danych - pomijam sprawdzanie dokumentów ZK", "SubiektService");
+                    return wynik;
+                }
+                
+                // Filtruj puste i null wartości, trim każdego numeru
+                var numeryDoSprawdzenia = numeryZamowien
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => n.Trim())
+                    .Distinct()
+                    .ToList();
+                
+                if (numeryDoSprawdzenia.Count == 0)
+                {
+                    Debug("Brak poprawnych numerów zamówień do sprawdzenia", "SubiektService");
+                    return wynik;
+                }
+                
+                Debug($"=========================================", "SubiektService");
+                Debug($"SPRAWDZANIE ISTNIENIA DOKUMENTÓW ZK", "SubiektService");
+                Debug($"=========================================", "SubiektService");
+                Debug($"Liczba numerów zamówień do sprawdzenia: {numeryDoSprawdzenia.Count}", "SubiektService");
+                
+                var builder = new SqlConnectionStringBuilder
+                {
+                    DataSource = serverAddress,
+                    InitialCatalog = databaseName,
+                    UserID = username,
+                    Password = password,
+                    ConnectTimeout = 10,
+                    Encrypt = false
+                };
+                
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    builder.IntegratedSecurity = true;
+                }
+                
+                string connectionString = builder.ConnectionString;
+                
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    connection.Open();
+                    
+                    // Buduj zapytanie SQL z parametrami
+                    var parameters = new List<string>();
+                    for (int i = 0; i < numeryDoSprawdzenia.Count; i++)
+                    {
+                        parameters.Add($"@Numer{i}");
+                    }
+                    
+                    string sqlQuery = $@"
+SELECT DISTINCT
+    [dok_NrPelny],
+    [dok_NrPelnyOryg]
+FROM [dbo].[dok__Dokument]
+WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
+                    
+                    // Loguj zapytanie SQL z wartościami
+                    var loggedQuery = new System.Text.StringBuilder();
+                    loggedQuery.AppendLine("SELECT DISTINCT");
+                    loggedQuery.AppendLine("    [dok_NrPelny],");
+                    loggedQuery.AppendLine("    [dok_NrPelnyOryg]");
+                    loggedQuery.AppendLine("FROM [dbo].[dok__Dokument]");
+                    loggedQuery.AppendLine("WHERE [dok_NrPelnyOryg] IN (");
+                    for (int i = 0; i < numeryDoSprawdzenia.Count; i++)
+                    {
+                        loggedQuery.Append($"'{numeryDoSprawdzenia[i]}'");
+                        if (i < numeryDoSprawdzenia.Count - 1)
+                        {
+                            loggedQuery.Append(", ");
+                        }
+                    }
+                    loggedQuery.Append(")");
+                    
+                    Debug($"Zapytanie SQL:", "SubiektService");
+                    Debug(loggedQuery.ToString(), "SubiektService");
+                    
+                    using (var command = new SqlCommand(sqlQuery, connection))
+                    {
+                        // Dodaj parametry
+                        for (int i = 0; i < numeryDoSprawdzenia.Count; i++)
+                        {
+                            command.Parameters.AddWithValue($"@Numer{i}", numeryDoSprawdzenia[i]);
+                        }
+                        
+                        var wynikiLista = new List<string>();
+                        
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                string? nrPelny = reader.IsDBNull(0) ? null : reader.GetString(0);
+                                string? numerOryginalny = reader.IsDBNull(1) ? null : reader.GetString(1);
+                                
+                                if (!string.IsNullOrWhiteSpace(numerOryginalny))
+                                {
+                                    string numerOryginalnyTrimmed = numerOryginalny.Trim();
+                                    string nrPelnyValue = !string.IsNullOrWhiteSpace(nrPelny) ? nrPelny.Trim() : "";
+                                    
+                                    if (!wynik.ContainsKey(numerOryginalnyTrimmed))
+                                    {
+                                        wynik[numerOryginalnyTrimmed] = nrPelnyValue;
+                                        wynikiLista.Add($"  '{numerOryginalnyTrimmed}' -> '{nrPelnyValue}'");
+                                        Debug($"Dodano do Dictionary: '{numerOryginalnyTrimmed}' -> '{nrPelnyValue}'", "SubiektService");
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Loguj odpowiedź SQL
+                        Debug($"Odpowiedź SQL ({wynik.Count} wyników):", "SubiektService");
+                        if (wynikiLista.Count > 0)
+                        {
+                            foreach (var wiersz in wynikiLista)
+                            {
+                                Debug(wiersz, "SubiektService");
+                            }
+                        }
+                        else
+                        {
+                            Debug("  Brak wyników", "SubiektService");
+                        }
+                    }
+                }
+                
+                Debug($"Znaleziono {wynik.Count} istniejących dokumentów ZK z {numeryDoSprawdzenia.Count} sprawdzanych.", "SubiektService");
+                Debug($"=========================================", "SubiektService");
+                
+                return wynik;
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "SubiektService", "Błąd podczas sprawdzania istnienia dokumentów ZK");
+                return wynik;
             }
         }
         
@@ -1784,6 +2076,8 @@ WHERE dok_NrPelnyOryg = @NumerOryginalny";
                                             try
                                             {
                                                 pozycja.CenaBruttoPoRabacie = apiPriceBrutto.Value;
+                                                //var priceNetto = double.Parse(it.Price, System.Globalization.CultureInfo.InvariantCulture);
+                                                //pozycja.CenaNettoPoRabacie = priceNetto;
                                                 Info("Ustawiono CenaBruttoPoRabacie={apiPriceBrutto.Value:F2} dla produktu ID={towarId} (Price={it.Price}, Tax={it.Tax})", "SubiektService");
                                             }
                                             catch (Exception cenaEx)

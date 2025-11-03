@@ -368,6 +368,93 @@ SELECT [uz_Id]
                 Mouse.OverrideCursor = null;
             }
         }
+
+        private async void TestSubiektButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Najpierw zapisz aktualne ustawienia
+                _currentConfig.ServerAddress = ServerAddressTextBox.Text.Trim();
+                _currentConfig.DatabaseName = DatabaseNameTextBox.Text.Trim();
+                _currentConfig.ServerUsername = ServerUsernameTextBox.Text.Trim();
+                _currentConfig.ServerPassword = ServerPasswordBox.Password;
+                _currentConfig.User = UserComboBox.Text.Trim();
+                _currentConfig.Password = PasswordBox.Password;
+
+                // Walidacja podstawowa
+                if (string.IsNullOrWhiteSpace(_currentConfig.ServerAddress))
+                {
+                    MessageBox.Show("Proszę podać adres serwera MSSQL.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(_currentConfig.DatabaseName))
+                {
+                    MessageBox.Show("Proszę podać nazwę bazy danych.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Zapisz tymczasowo ustawienia, aby metoda testowa mogła je użyć
+                try
+                {
+                    _configService.SaveSubiektConfig(_currentConfig);
+                }
+                catch (Exception ex)
+                {
+                    Warning($"Nie udało się zapisać ustawień przed testem: {ex.Message}", "SubiektSettings");
+                    // Kontynuuj mimo błędu - spróbuj użyć ustawień z pamięci
+                }
+
+                // Wyłącz przycisk podczas testowania
+                TestSubiektButton.IsEnabled = false;
+                TestSubiektButton.Content = "⏳ Uruchamianie...";
+                Mouse.OverrideCursor = Cursors.Wait;
+
+                // Uruchom test asynchronicznie na wątku UI (STA)
+                // COM wymaga STA, więc używamy Dispatcher.BeginInvoke zamiast Task.Run
+                // Użyjemy Task.Delay z Dispatcher.BeginInvoke aby nie blokować UI podczas uruchamiania
+                await Task.Delay(100); // Krótkie opóźnienie, aby UI zdążył się zaktualizować
+                
+                // BeginInvoke nie zwraca Task, więc używamy _ aby zignorować wynik
+                _ = Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var subiektService = new SubiektService();
+                        subiektService.TestujUruchomienieSubiekta();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(
+                            $"Błąd podczas testowego uruchomienia Subiekta GT:\n\n{ex.Message}",
+                            "Błąd",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        Error(ex, "SubiektSettings", "Błąd podczas testowego uruchomienia");
+                    }
+                    finally
+                    {
+                        TestSubiektButton.IsEnabled = true;
+                        TestSubiektButton.Content = "🚀 Testuj uruchomienie Subiekta GT";
+                        Mouse.OverrideCursor = null;
+                    }
+                }), System.Windows.Threading.DispatcherPriority.Normal);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Błąd:\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                Error(ex, "SubiektSettings");
+                
+                // Przywróć przycisk
+                TestSubiektButton.IsEnabled = true;
+                TestSubiektButton.Content = "🚀 Testuj uruchomienie Subiekta GT";
+                Mouse.OverrideCursor = null;
+            }
+        }
     }
 }
 

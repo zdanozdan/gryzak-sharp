@@ -97,13 +97,13 @@
         </Border>
         
         <!-- Zawartość logów -->
-        <Border Grid.Row="1" Margin="10" Background="#1E1E1E" BorderThickness="1" BorderBrush="#333333">
+        <Border Grid.Row="1" Margin="10" Background="White" BorderThickness="1" BorderBrush="#E0E0E0">
             <RichTextBox Name="LogTextBox" 
                         IsReadOnly="True"
                         FontFamily="Consolas, Courier New"
                         FontSize="11"
-                        Background="#1E1E1E"
-                        Foreground="#D4D4D4"
+                        Background="White"
+                        Foreground="#333333"
                         BorderThickness="0"
                         Padding="10"
                         VerticalScrollBarVisibility="Auto"

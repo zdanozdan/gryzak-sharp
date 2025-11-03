@@ -21,7 +21,16 @@ namespace Gryzak.Models
         private string? _paymentPostcode;
         private string? _paymentCity;
         
-        public string Id { get => _id; set { _id = value; OnPropertyChanged(); } }
+        public string Id 
+        { 
+            get => _id; 
+            set 
+            { 
+                _id = value; 
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DisplayId)); // Powiadom o zmianie DisplayId
+            } 
+        }
         public string Customer { get => _customer; set { _customer = value; OnPropertyChanged(); } }
         public string Email { get => _email; set { _email = value; OnPropertyChanged(); } }
         public string Phone { get => _phone; set { _phone = value; OnPropertyChanged(); } }
@@ -109,6 +118,50 @@ namespace Gryzak.Models
                     _isSelected = value;
                     OnPropertyChanged();
                 }
+            }
+        }
+
+        private bool _isDocumentExists = false;
+        public bool IsDocumentExists
+        {
+            get => _isDocumentExists;
+            set
+            {
+                if (_isDocumentExists != value)
+                {
+                    _isDocumentExists = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        private string _subiektDocumentNumber = "";
+        public string SubiektDocumentNumber
+        {
+            get => _subiektDocumentNumber;
+            set
+            {
+                if (_subiektDocumentNumber != value)
+                {
+                    _subiektDocumentNumber = value ?? "";
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DisplayId)); // Powiadom o zmianie DisplayId
+                }
+            }
+        }
+
+        /// <summary>
+        /// Zwraca ID zamówienia z numerem ZK, jeśli dokument istnieje
+        /// </summary>
+        public string DisplayId
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(SubiektDocumentNumber))
+                {
+                    return $"{Id} ({SubiektDocumentNumber})";
+                }
+                return Id;
             }
         }
 

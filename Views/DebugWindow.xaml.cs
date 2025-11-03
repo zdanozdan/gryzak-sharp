@@ -163,7 +163,7 @@ namespace Gryzak.Views
                 // Parsuj severity z linii (format: [timestamp] [SEVERITY] [source] message)
                 var matches = Regex.Matches(line, @"\[([^\]]+)\]");
                 LogSeverity severity = LogSeverity.Info;
-                Color textColor = Colors.LightGray; // Domyślny kolor
+                Color textColor = Colors.Black; // Domyślny kolor dla jasnego tła
                 
                 // Drugi match to zazwyczaj severity (pierwszy to timestamp)
                 if (matches.Count >= 2)
@@ -188,15 +188,15 @@ namespace Gryzak.Views
                     }
                 }
 
-                // Ustaw kolor na podstawie severity
+                // Ustaw kolor na podstawie severity (kolory dla jasnego tła)
                 textColor = severity switch
                 {
-                    LogSeverity.Debug => Colors.Gray,           // Szary dla debug
-                    LogSeverity.Info => Colors.LightGray,       // Jasnoszary dla info
-                    LogSeverity.Warning => Colors.Orange,      // Pomarańczowy dla warning
-                    LogSeverity.Error => Colors.Red,           // Czerwony dla error
-                    LogSeverity.Critical => Colors.DarkRed,    // Ciemnoczerwony dla critical
-                    _ => Colors.LightGray
+                    LogSeverity.Debug => Color.FromRgb(100, 100, 100),        // Ciemny szary dla debug
+                    LogSeverity.Info => Colors.Black,                          // Czarny dla info
+                    LogSeverity.Warning => Color.FromRgb(255, 140, 0),        // Ciemniejszy pomarańczowy dla warning
+                    LogSeverity.Error => Color.FromRgb(200, 0, 0),             // Ciemniejszy czerwony dla error
+                    LogSeverity.Critical => Color.FromRgb(180, 0, 0),          // Ciemnoczerwony dla critical
+                    _ => Colors.Black
                 };
 
                 // Utwórz Run z odpowiednim kolorem

@@ -325,6 +325,60 @@ namespace Gryzak.ViewModels
                     _currentPage++;
                 }
 
+                // Sprawdź istnienie dokumentów ZK w Subiekcie GT
+                if (AllOrders.Count > 0)
+                {
+                    try
+                    {
+                        if (isFirstPage)
+                        {
+                            UpdateProgress("Sprawdzanie dokumentów ZK w Subiekcie GT...", 70);
+                        }
+                        
+                        var subiektService = new Services.SubiektService();
+                        var numeryZamowien = AllOrders.Select(o => o.Id).Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
+                        
+                        if (numeryZamowien.Count > 0)
+                        {
+                            Debug($"Sprawdzanie istnienia {numeryZamowien.Count} dokumentów ZK w Subiekcie GT...", "MainViewModel");
+                            
+                            var istniejaceDokumenty = await Task.Run(() => subiektService.SprawdzIstnienieDokumentowZK(numeryZamowien));
+                            
+                            // Aktualizuj zamówienia na podstawie wyników SQL
+                            Application.Current?.Dispatcher.Invoke(() =>
+                            {
+                                int zaktualizowane = 0;
+                                foreach (var order in AllOrders)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(order.Id))
+                                    {
+                                        var orderIdTrimmed = order.Id.Trim();
+                                        if (istniejaceDokumenty.TryGetValue(orderIdTrimmed, out var numerDokumentu))
+                                        {
+                                            order.IsDocumentExists = true;
+                                            order.SubiektDocumentNumber = numerDokumentu ?? "";
+                                            zaktualizowane++;
+                                            Debug($"Ustawiono IsDocumentExists=true i SubiektDocumentNumber='{numerDokumentu}' dla zamówienia: {order.Id}", "MainViewModel");
+                                        }
+                                        else
+                                        {
+                                            // Resetuj jeśli dokument nie istnieje
+                                            order.IsDocumentExists = false;
+                                            order.SubiektDocumentNumber = "";
+                                        }
+                                    }
+                                }
+                                Debug($"Zaktualizowano flagę IsDocumentExists dla {zaktualizowane} zamówień z {istniejaceDokumenty.Count} znalezionych dokumentów.", "MainViewModel");
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Error(ex, "MainViewModel", "Błąd podczas sprawdzania istnienia dokumentów ZK");
+                        // Nie blokuj dalszego przetwarzania w przypadku błędu
+                    }
+                }
+
                 FilterOrders();
                 UpdateStatistics();
                 OnPropertyChanged(nameof(HasOrders));
