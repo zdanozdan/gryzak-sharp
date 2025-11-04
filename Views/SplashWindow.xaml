@@ -66,7 +66,7 @@
 
             <!-- Informacja o wersji -->
             <TextBlock Grid.Row="4" 
-                       Text="Wersja 1.0.0" 
+                       Text="Wersja 1.0.1" 
                        FontSize="11" 
                        Foreground="#999"
                        HorizontalAlignment="Center"/>
