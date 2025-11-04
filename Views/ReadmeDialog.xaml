@@ -1,0 +1,84 @@
+<Window x:Class="Gryzak.Views.ReadmeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Dokumentacja - README i INSTALLER"
+        Height="700" Width="900"
+        WindowStartupLocation="CenterOwner"
+        Icon="pack://application:,,,/gryzak_icon.png">
+    
+    <Window.Resources>
+        <Style TargetType="TabItem">
+            <Setter Property="Padding" Value="15,10"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style TargetType="ScrollViewer">
+            <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,5,0,5"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Background" Value="#2196F3"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Zawartość z zakładkami -->
+        <TabControl Grid.Row="0" Margin="10">
+            <TabItem Header="📖 README.md">
+                <ScrollViewer Padding="20">
+                    <TextBlock Name="ReadmeTextBlock" 
+                               FontFamily="Consolas, Courier New"
+                               FontSize="12"
+                               TextWrapping="Wrap"/>
+                </ScrollViewer>
+            </TabItem>
+            
+            <TabItem Header="📦 INSTALLER.md">
+                <ScrollViewer Padding="20">
+                    <TextBlock Name="InstallerTextBlock" 
+                               FontFamily="Consolas, Courier New"
+                               FontSize="12"
+                               TextWrapping="Wrap"/>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <!-- Stopka -->
+        <Border Grid.Row="1" Background="#F5F5F5" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="20,15">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" 
+                           Text="© 2024 Gryzak. Wszystkie prawa zastrzeżone." 
+                           FontSize="11" 
+                           Foreground="#666"
+                           VerticalAlignment="Center"/>
+                <Button Grid.Column="1" 
+                        Content="Zamknij" 
+                        IsDefault="True" 
+                        Click="CloseButton_Click"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
+
