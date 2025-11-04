@@ -137,6 +137,7 @@ namespace Gryzak.ViewModels
         public ICommand OpenSubiektSettingsCommand { get; }
         public ICommand OrderSelectedCommand { get; }
         public ICommand DodajZKCommand { get; }
+        public ICommand NoweZKCommand { get; }
         public ICommand ZwolnijLicencjeCommand { get; }
         public ICommand ClearSearchCommand { get; }
 
@@ -150,6 +151,7 @@ namespace Gryzak.ViewModels
             OpenSubiektSettingsCommand = new RelayCommand(() => OpenSubiektSettingsDialog());
             OrderSelectedCommand = new RelayCommand<Order>(order => OnOrderSelected(order));
             DodajZKCommand = new RelayCommand(() => DodajZK());
+            NoweZKCommand = new RelayCommand(() => DodajNoweZK());
             ZwolnijLicencjeCommand = new RelayCommand(() => ZwolnijLicencje(), () => IsSubiektActive);
             ClearSearchCommand = new RelayCommand(() => { SearchText = ""; });
 
@@ -540,6 +542,23 @@ namespace Gryzak.ViewModels
                 orderEmail = null;
             }
             subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
+            // Status zostanie zaktualizowany przez event InstancjaZmieniona
+        }
+
+        private void DodajNoweZK()
+        {
+            // Pobierz NIP z wybranego zamówienia
+            var nip = SelectedOrder?.Nip;
+            
+            var subiektService = new Services.SubiektService();
+            var orderEmail = SelectedOrder?.Email;
+            // Jeśli email to "Brak email", traktuj jako null
+            if (orderEmail == "Brak email" || string.IsNullOrWhiteSpace(orderEmail))
+            {
+                orderEmail = null;
+            }
+            // Użyj OtworzNoweZK - zawsze tworzy nowy dokument bez sprawdzania istnienia
+            subiektService.OtworzNoweZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
 

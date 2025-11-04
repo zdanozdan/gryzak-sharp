@@ -2090,6 +2090,51 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                             Info("Brak ceny brutto z API dla produktu ID={towarId}", "SubiektService");
                                         }
                                         
+                                        // Dodaj opcje produktu do opisu pozycji (jeśli są dostępne)
+                                        if (it.Options != null && it.Options.Count > 0)
+                                        {
+                                            try
+                                            {
+                                                var opisOpcji = new List<string>();
+                                                foreach (var option in it.Options)
+                                                {
+                                                    if (!string.IsNullOrWhiteSpace(option.Name) && !string.IsNullOrWhiteSpace(option.Value))
+                                                    {
+                                                        opisOpcji.Add($"{option.Name.Trim()}:{option.Value.Trim()}");
+                                                    }
+                                                }
+                                                
+                                                if (opisOpcji.Count > 0)
+                                                {
+                                                    string pelnyOpis = string.Join(", ", opisOpcji);
+                                                    
+                                                    // Spróbuj ustawić opis pozycji - najpierw Opis, potem OpisUzytkownika
+                                                    try
+                                                    {
+                                                        pozycja.Opis = pelnyOpis;
+                                                        Info($"Ustawiono Opis pozycji: {pelnyOpis}", "SubiektService");
+                                                    }
+                                                    catch
+                                                    {
+                                                        // Jeśli Opis nie działa, spróbuj OpisUzytkownika
+                                                        try
+                                                        {
+                                                            pozycja.OpisUzytkownika = pelnyOpis;
+                                                            Info($"Ustawiono OpisUzytkownika pozycji: {pelnyOpis}", "SubiektService");
+                                                        }
+                                                        catch
+                                                        {
+                                                            Warning($"Nie udało się ustawić opisu pozycji (Opis, OpisUzytkownika nie są dostępne).", "SubiektService");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            catch (Exception opcjeEx)
+                                            {
+                                                Warning($"Błąd podczas dodawania opcji do opisu pozycji: {opcjeEx.Message}", "SubiektService");
+                                            }
+                                        }
+                                        
                                         Debug($"Dodano pozycję towarową o ID={towarId} (qty={it.Quantity}, apiPriceNetto={it.Price}, apiPriceBrutto={apiPriceBrutto?.ToString("F2") ?? "brak"}).", "SubiektService");
                                     }
                                     else
@@ -2110,11 +2155,11 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         // Dodaj towar 'KOSZTY/1' na końcu
                         // Suma handling + gls (oba używają KOSZTY/1)
                         double sumaKosztowKOSZTY1 = 0.0;
-                        if (handlingAmount.HasValue)
+                        if (handlingAmount.HasValue && handlingAmount.Value > 0.0)
                         {
                             sumaKosztowKOSZTY1 += handlingAmount.Value;
                         }
-                        if (glsAmount.HasValue)
+                        if (glsAmount.HasValue && glsAmount.Value > 0.0)
                         {
                             sumaKosztowKOSZTY1 += glsAmount.Value;
                         }
@@ -2161,8 +2206,8 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         }
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
-                        // Tylko jeśli w API jest shipping
-                        if (shippingAmount.HasValue)
+                        // Tylko jeśli w API jest shipping i wartość > 0
+                        if (shippingAmount.HasValue && shippingAmount.Value > 0.0)
                         {
                             try
                             {
@@ -2201,8 +2246,8 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         }
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
-                        // Tylko jeśli w API jest cod_fee
-                        if (codFeeAmount.HasValue)
+                        // Tylko jeśli w API jest cod_fee i wartość > 0
+                        if (codFeeAmount.HasValue && codFeeAmount.Value > 0.0)
                         {
                             try
                             {
@@ -2923,6 +2968,19 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Error);
             }
+        }
+
+        /// <summary>
+        /// Otwiera okno ZK bez sprawdzania czy dokument już istnieje - zawsze tworzy nowy dokument
+        /// Używa OtworzOknoZK z orderId = null aby pominąć sprawdzanie istnienia dokumentu
+        /// </summary>
+        public void OtworzNoweZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        {
+            Info("OtworzNoweZK: Pomijam sprawdzanie istnienia dokumentu - zawsze tworzę nowy dokument ZK.", "SubiektService");
+            
+            // Wywołaj OtworzOknoZK z orderId = null aby pominąć sprawdzanie istnienia dokumentu
+            // Sprawdzanie w OtworzOknoZK jest wykonywane tylko jeśli orderId nie jest null i nie jest pusty
+            OtworzOknoZK(nip, items, couponAmount, subTotal, couponTitle, null, handlingAmount, shippingAmount, currency, codFeeAmount, orderTotal, glsAmount, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
         }
     }
 }

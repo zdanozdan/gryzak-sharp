@@ -61,6 +61,11 @@
                 <Separator/>
                 <MenuItem Header="Zamknij" Click="CloseMenuItem_Click" InputGestureText="Ctrl+Q"/>
             </MenuItem>
+            <MenuItem Header="_Akcje">
+                <MenuItem Header="Odśwież" Command="{Binding RefreshCommand}" InputGestureText="F5"/>
+                <MenuItem Header="Dodaj ZK" Command="{Binding DodajZKCommand}"/>
+                <MenuItem Header="Nowe ZK" Command="{Binding NoweZKCommand}"/>
+            </MenuItem>
             <MenuItem Header="_Pomoc">
                 <MenuItem Header="O aplikacji" Click="AboutMenuItem_Click"/>
             </MenuItem>
