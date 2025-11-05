@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows;
+using System.Windows.Threading;
 using System.Text.Json;
 using System.Text.Encodings.Web;
 using System.IO;
@@ -37,9 +38,16 @@ namespace Gryzak.ViewModels
         private double _progressValue = 0;
         private bool _isProgressVisible = false;
         private Views.SplashWindow? _splashWindow;
+        private DispatcherTimer? _autoReleaseLicenseTimer;
+        private DispatcherTimer? _countdownTimer;
+        private DateTime _lastActivityTime = DateTime.Now;
+        private string _timeUntilReleaseText = "";
+        private bool _isReleasingLicense = false; // Flaga zapobiegająca wielokrotnemu zwolnieniu
+        private List<string> _orderHistory = new List<string>();
 
         public ObservableCollection<Order> AllOrders { get; } = new ObservableCollection<Order>();
         public ObservableCollection<Order> FilteredOrders { get; } = new ObservableCollection<Order>();
+        public ObservableCollection<string> RecentOrders { get; } = new ObservableCollection<string>();
 
         public Order? SelectedOrder
         {
@@ -76,9 +84,13 @@ namespace Gryzak.ViewModels
             get => _searchText;
             set
             {
-                _searchText = value;
-                OnPropertyChanged();
-                FilterOrders();
+                if (_searchText != value)
+                {
+                    ResetActivityTimer(); // Resetuj timer przy wpisywaniu
+                    _searchText = value;
+                    OnPropertyChanged();
+                    FilterOrders();
+                }
             }
         }
 
@@ -87,9 +99,13 @@ namespace Gryzak.ViewModels
             get => _statusFilter;
             set
             {
-                _statusFilter = value;
-                OnPropertyChanged();
-                FilterOrders();
+                if (_statusFilter != value)
+                {
+                    ResetActivityTimer(); // Resetuj timer przy zmianie filtra
+                    _statusFilter = value;
+                    OnPropertyChanged();
+                    FilterOrders();
+                }
             }
         }
 
@@ -109,10 +125,56 @@ namespace Gryzak.ViewModels
                 _isSubiektActive = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(SubiektStatusText));
+                
+                // Jeśli Subiekt nie jest aktywny, wyczyść countdown i resetuj flagę
+                if (!value)
+                {
+                    TimeUntilReleaseText = "";
+                    _isReleasingLicense = false;
+                }
+                else
+                {
+                    // Jeśli Subiekt staje się aktywny, upewnij się, że countdown timer działa
+                    if (_countdownTimer != null && !_countdownTimer.IsEnabled)
+                    {
+                        _countdownTimer.Start();
+                    }
+                }
             }
         }
 
-        public string SubiektStatusText => IsSubiektActive ? "Subiekt GT aktywny (1 licencja)" : "";
+        public string TimeUntilReleaseText
+        {
+            get => _timeUntilReleaseText;
+            private set
+            {
+                if (_timeUntilReleaseText != value)
+                {
+                    _timeUntilReleaseText = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(SubiektStatusText));
+                }
+            }
+        }
+        
+        public string SubiektStatusText
+        {
+            get
+            {
+                if (!IsSubiektActive)
+                {
+                    return "";
+                }
+                
+                var subiektConfig = _configService.LoadSubiektConfig();
+                if (subiektConfig.AutoReleaseLicenseTimeoutMinutes > 0 && !string.IsNullOrWhiteSpace(TimeUntilReleaseText))
+                {
+                    return $"Subiekt GT aktywny (1 licencja) - zwolnienie za {TimeUntilReleaseText}";
+                }
+                
+                return "Subiekt GT aktywny (1 licencja)";
+            }
+        }
 
         public string ProgressText
         {
@@ -140,6 +202,7 @@ namespace Gryzak.ViewModels
         public ICommand NoweZKCommand { get; }
         public ICommand ZwolnijLicencjeCommand { get; }
         public ICommand ClearSearchCommand { get; }
+        public ICommand OpenOrderFromHistoryCommand { get; }
 
         public MainViewModel()
         {
@@ -154,13 +217,21 @@ namespace Gryzak.ViewModels
             NoweZKCommand = new RelayCommand(() => DodajNoweZK());
             ZwolnijLicencjeCommand = new RelayCommand(() => ZwolnijLicencje(), () => IsSubiektActive);
             ClearSearchCommand = new RelayCommand(() => { SearchText = ""; });
+            OpenOrderFromHistoryCommand = new RelayCommand<string>(orderId => OpenOrderFromHistory(orderId));
 
             // Zapisz się na event zmiany instancji Subiekta
             Services.SubiektService.InstancjaZmieniona += SubiektService_InstancjaZmieniona;
             
             // Sprawdź początkowy status
+            InitializeAutoReleaseLicenseTimer();
             var subiektService = new Services.SubiektService();
             IsSubiektActive = subiektService.CzyInstancjaAktywna();
+            
+            // Jeśli Subiekt jest już aktywny, zresetuj timer
+            if (IsSubiektActive)
+            {
+                ResetActivityTimer();
+            }
 
             CheckApiConfiguration();
             
@@ -169,8 +240,28 @@ namespace Gryzak.ViewModels
             
             LoadCountryMap();
             
+            // Załaduj historię zamówień
+            LoadOrderHistory();
+            
             // Nie ładuj zamówień automatycznie - będzie to zrobione podczas splash screen
             // _ = LoadOrdersAsync(false);
+        }
+
+        private void LoadOrderHistory()
+        {
+            try
+            {
+                _orderHistory = _configService.LoadOrderHistory();
+                RecentOrders.Clear();
+                foreach (var orderId in _orderHistory)
+                {
+                    RecentOrders.Add(orderId);
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd podczas ładowania historii zamówień");
+            }
         }
         
         public void SetSplashWindow(Views.SplashWindow splashWindow)
@@ -242,6 +333,7 @@ namespace Gryzak.ViewModels
 
         public async Task LoadOrdersAsync(bool reset = false)
         {
+            ResetActivityTimer(); // Resetuj timer przy ładowaniu zamówień
             if (reset)
             {
                 // Odznacz wszystkie zamówienia przed resetem
@@ -530,6 +622,15 @@ namespace Gryzak.ViewModels
 
         private void DodajZK()
         {
+            ResetActivityTimer(); // Resetuj timer przy aktywności
+            
+            // Dodaj zamówienie do historii (na początku metody, przed wywołaniem SubiektService)
+            if (!string.IsNullOrWhiteSpace(SelectedOrder?.Id))
+            {
+                _configService.AddOrderToHistory(SelectedOrder.Id);
+                UpdateRecentOrders();
+            }
+            
             // Pobierz NIP z wybranego zamówienia
             var nip = SelectedOrder?.Nip;
             
@@ -541,12 +642,21 @@ namespace Gryzak.ViewModels
             {
                 orderEmail = null;
             }
-            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
+            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, SelectedOrder?.GlsKgAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
 
         private void DodajNoweZK()
         {
+            ResetActivityTimer(); // Resetuj timer przy aktywności
+            
+            // Dodaj zamówienie do historii (na początku metody, przed wywołaniem SubiektService)
+            if (!string.IsNullOrWhiteSpace(SelectedOrder?.Id))
+            {
+                _configService.AddOrderToHistory(SelectedOrder.Id);
+                UpdateRecentOrders();
+            }
+            
             // Pobierz NIP z wybranego zamówienia
             var nip = SelectedOrder?.Nip;
             
@@ -558,8 +668,167 @@ namespace Gryzak.ViewModels
                 orderEmail = null;
             }
             // Użyj OtworzNoweZK - zawsze tworzy nowy dokument bez sprawdzania istnienia
-            subiektService.OtworzNoweZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
+            subiektService.OtworzNoweZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, SelectedOrder?.GlsKgAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
+        }
+
+        private void UpdateRecentOrders()
+        {
+            try
+            {
+                _orderHistory = _configService.LoadOrderHistory();
+                RecentOrders.Clear();
+                foreach (var orderId in _orderHistory)
+                {
+                    RecentOrders.Add(orderId);
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd podczas aktualizacji listy ostatnich zamówień");
+            }
+        }
+
+        private async void OpenOrderFromHistory(string? orderId)
+        {
+            Debug($"OpenOrderFromHistory wywołana z orderId: {orderId}", "MainViewModel");
+            
+            if (string.IsNullOrWhiteSpace(orderId))
+            {
+                Debug("OpenOrderFromHistory: orderId jest pusty, przerywam", "MainViewModel");
+                return;
+            }
+
+            try
+            {
+                Debug($"OpenOrderFromHistory: Próbuję otworzyć zamówienie {orderId}", "MainViewModel");
+                
+                // Upewnij się, że jesteśmy na wątku UI
+                if (Application.Current.Dispatcher.CheckAccess())
+                {
+                    Debug("OpenOrderFromHistory: Jesteśmy na wątku UI, wywołuję OpenOrderFromHistoryInternal", "MainViewModel");
+                    await OpenOrderFromHistoryInternal(orderId);
+                }
+                else
+                {
+                    Debug("OpenOrderFromHistory: Nie jesteśmy na wątku UI, wywołuję przez Dispatcher", "MainViewModel");
+                    await Application.Current.Dispatcher.InvokeAsync(async () => await OpenOrderFromHistoryInternal(orderId));
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", $"Błąd podczas otwierania zamówienia z historii: {orderId}");
+                MessageBox.Show(
+                    $"Błąd podczas otwierania zamówienia: {ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private async Task OpenOrderFromHistoryInternal(string orderId)
+        {
+            Debug($"OpenOrderFromHistoryInternal: Szukam zamówienia {orderId}", "MainViewModel");
+            
+            // Najpierw spróbuj znaleźć zamówienie w aktualnej liście
+            var order = AllOrders.FirstOrDefault(o => o.Id == orderId);
+            
+            if (order != null)
+            {
+                Debug($"OpenOrderFromHistoryInternal: Znaleziono zamówienie {orderId} w liście, zaznaczam i otwieram okno szczegółów", "MainViewModel");
+                
+                // Zaznacz zamówienie (bez wywoływania OnOrderSelected, żeby nie blokować)
+                SelectedOrder = order;
+                
+                // Otwórz okno szczegółów bezpośrednio (podobnie jak przy podwójnym kliknięciu)
+                // Znajdź MainWindow w otwartych oknach aplikacji
+                Views.MainWindow? mainWindow = null;
+                foreach (Window window in Application.Current.Windows)
+                {
+                    if (window is Views.MainWindow mw)
+                    {
+                        mainWindow = mw;
+                        break;
+                    }
+                }
+                
+                Debug($"OpenOrderFromHistoryInternal: mainWindow = {(mainWindow != null ? "nie null" : "null")}", "MainViewModel");
+                
+                if (mainWindow != null)
+                {
+                    Debug($"OpenOrderFromHistoryInternal: Wywołuję OpenOrderDetailsDialog dla zamówienia {orderId}", "MainViewModel");
+                    mainWindow.OpenOrderDetailsDialog(order, this);
+                    Debug($"OpenOrderFromHistoryInternal: OpenOrderDetailsDialog wywołane", "MainViewModel");
+                }
+                else
+                {
+                    // Fallback: otwórz okno bezpośrednio bez Owner
+                    Debug($"OpenOrderFromHistoryInternal: MainWindow nie znaleziony, otwieram OrderDetailsDialog bezpośrednio", "MainViewModel");
+                    var detailsDialog = new Views.OrderDetailsDialog(order, this);
+                    detailsDialog.ShowDialog();
+                }
+            }
+            else
+            {
+                Debug($"OpenOrderFromHistoryInternal: Nie znaleziono zamówienia {orderId} w liście, pobieram z API", "MainViewModel");
+                
+                // Jeśli nie znaleziono w liście, pobierz zamówienie bezpośrednio z API
+                try
+                {
+                    Debug($"OpenOrderFromHistoryInternal: Pobieram szczegóły zamówienia {orderId} z API", "MainViewModel");
+                    var detailsJson = await _apiService.GetOrderDetailsAsync(orderId);
+                    
+                    Debug($"OpenOrderFromHistoryInternal: Utworzenie obiektu Order z JSON dla zamówienia {orderId}", "MainViewModel");
+                    order = CreateOrderFromDetailsJson(detailsJson);
+                    
+                    if (order != null)
+                    {
+                        Debug($"OpenOrderFromHistoryInternal: Utworzono zamówienie {orderId}, otwieram okno szczegółów", "MainViewModel");
+                        // Zaznacz zamówienie (nie dodajemy do AllOrders - tylko wyświetlamy w oknie szczegółów)
+                        SelectedOrder = order;
+                        
+                        // Znajdź MainWindow w otwartych oknach aplikacji
+                        Views.MainWindow? mainWindow = null;
+                        foreach (Window window in Application.Current.Windows)
+                        {
+                            if (window is Views.MainWindow mw)
+                            {
+                                mainWindow = mw;
+                                break;
+                            }
+                        }
+                        
+                        if (mainWindow != null)
+                        {
+                            mainWindow.OpenOrderDetailsDialog(order, this);
+                        }
+                        else
+                        {
+                            // Fallback: otwórz okno bezpośrednio bez Owner
+                            var detailsDialog = new Views.OrderDetailsDialog(order, this);
+                            detailsDialog.ShowDialog();
+                        }
+                    }
+                    else
+                    {
+                        Error($"Nie udało się utworzyć obiektu Order z JSON dla zamówienia {orderId}", "MainViewModel");
+                        MessageBox.Show(
+                            $"Nie udało się załadować zamówienia o numerze: {orderId}",
+                            "Błąd",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Error(ex, "MainViewModel", $"Błąd podczas pobierania zamówienia {orderId} z API");
+                    MessageBox.Show(
+                        $"Błąd podczas pobierania zamówienia: {ex.Message}",
+                        "Błąd",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+            }
         }
 
         private void SubiektService_InstancjaZmieniona(object? sender, bool aktywna)
@@ -573,7 +842,202 @@ namespace Gryzak.ViewModels
                 {
                     relayCommand.RaiseCanExecuteChanged();
                 }
+                
+                // Jeśli Subiekt jest aktywny, zrestartuj timer automatycznego zwalniania
+                if (aktywna)
+                {
+                    ResetActivityTimer();
+                    _isReleasingLicense = false; // Resetuj flagę gdy Subiekt staje się aktywny
+                    
+                    // Upewnij się, że countdown timer jest uruchomiony
+                    if (_countdownTimer != null && !_countdownTimer.IsEnabled)
+                    {
+                        _countdownTimer.Start();
+                        Debug("Countdown timer został uruchomiony ponownie po aktywacji Subiekta.", "MainViewModel");
+                    }
+                }
+                else
+                {
+                    StopAutoReleaseLicenseTimer();
+                    _isReleasingLicense = false; // Resetuj flagę gdy Subiekt nie jest aktywny
+                }
             });
+        }
+        
+        /// <summary>
+        /// Inicjalizuje timer automatycznego zwalniania licencji
+        /// </summary>
+        private void InitializeAutoReleaseLicenseTimer()
+        {
+            _autoReleaseLicenseTimer = new DispatcherTimer();
+            _autoReleaseLicenseTimer.Tick += AutoReleaseLicenseTimer_Tick;
+            _autoReleaseLicenseTimer.Interval = TimeSpan.FromMinutes(1); // Sprawdzaj co minutę
+            _autoReleaseLicenseTimer.Start();
+            _lastActivityTime = DateTime.Now;
+            
+            // Timer do wyświetlania countdown
+            _countdownTimer = new DispatcherTimer();
+            _countdownTimer.Tick += CountdownTimer_Tick;
+            _countdownTimer.Interval = TimeSpan.FromSeconds(1); // Aktualizuj co sekundę
+            _countdownTimer.Start();
+            
+            Debug("Timer automatycznego zwalniania licencji został uruchomiony.", "MainViewModel");
+        }
+        
+        /// <summary>
+        /// Obsługa zdarzenia Tick timera countdown - aktualizuje wyświetlany czas do zwolnienia
+        /// </summary>
+        private void CountdownTimer_Tick(object? sender, EventArgs e)
+        {
+            // Aktualizuj tylko jeśli Subiekt jest aktywny
+            if (!IsSubiektActive)
+            {
+                TimeUntilReleaseText = "";
+                return;
+            }
+            
+            // Wczytaj konfigurację
+            var subiektConfig = _configService.LoadSubiektConfig();
+            
+            // Jeśli timeout jest 0, wyłączone - nie pokazuj countdown
+            if (subiektConfig.AutoReleaseLicenseTimeoutMinutes <= 0)
+            {
+                TimeUntilReleaseText = "";
+                return;
+            }
+            
+            // Oblicz czas nieaktywności
+            var inactiveTime = DateTime.Now - _lastActivityTime;
+            var inactiveMinutes = inactiveTime.TotalMinutes;
+            
+            // Oblicz pozostały czas
+            var remainingMinutes = subiektConfig.AutoReleaseLicenseTimeoutMinutes - inactiveMinutes;
+            
+            if (remainingMinutes <= 0)
+            {
+                TimeUntilReleaseText = "0:00";
+                
+                // Zwolnij licencję natychmiast gdy czas dobił do 0 (tylko raz)
+                if (!_isReleasingLicense && IsSubiektActive)
+                {
+                    _isReleasingLicense = true;
+                    
+                    Debug($"Czas nieaktywności ({inactiveMinutes:F1} minut) przekroczył limit ({subiektConfig.AutoReleaseLicenseTimeoutMinutes} minut). Zwolnienie licencji...", "MainViewModel");
+                    
+                    try
+                    {
+                        var subiektService = new Services.SubiektService();
+                        subiektService.ZwolnijLicencje();
+                        
+                        // Wyświetl MessageBox
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            MessageBox.Show(
+                                $"Licencja Subiekta GT została automatycznie zwolniona po {subiektConfig.AutoReleaseLicenseTimeoutMinutes} minutach nieaktywności.",
+                                "Licencja zwolniona",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+                        });
+                        
+                        Info($"Licencja Subiekta GT została automatycznie zwolniona po {subiektConfig.AutoReleaseLicenseTimeoutMinutes} minutach nieaktywności.", "MainViewModel");
+                    }
+                    catch (Exception ex)
+                    {
+                        Error(ex, "MainViewModel", "Błąd podczas automatycznego zwalniania licencji");
+                        _isReleasingLicense = false; // Resetuj flagę w przypadku błędu
+                    }
+                }
+            }
+            else
+            {
+                var minutes = (int)remainingMinutes;
+                var seconds = (int)((remainingMinutes - minutes) * 60);
+                TimeUntilReleaseText = $"{minutes}:{seconds:D2}";
+            }
+        }
+        
+        /// <summary>
+        /// Zatrzymuje timer automatycznego zwalniania licencji
+        /// </summary>
+        private void StopAutoReleaseLicenseTimer()
+        {
+            if (_autoReleaseLicenseTimer != null)
+            {
+                _autoReleaseLicenseTimer.Stop();
+                Debug("Timer automatycznego zwalniania licencji został zatrzymany.", "MainViewModel");
+            }
+            
+            if (_countdownTimer != null)
+            {
+                _countdownTimer.Stop();
+            }
+            
+            TimeUntilReleaseText = "";
+        }
+        
+        /// <summary>
+        /// Resetuje timer aktywności - wywoływane przy każdej aktywności użytkownika
+        /// </summary>
+        public void ResetActivityTimer()
+        {
+            _lastActivityTime = DateTime.Now;
+            // Resetuj flagę zwalniania, aby licencja mogła być zwolniona ponownie po następnej aktywności
+            _isReleasingLicense = false;
+            // Nie loguj każdej aktywności, żeby nie spamować logów
+        }
+        
+        /// <summary>
+        /// Obsługa zdarzenia Tick timera - sprawdza czy należy zwolnić licencję
+        /// </summary>
+        private void AutoReleaseLicenseTimer_Tick(object? sender, EventArgs e)
+        {
+            // Sprawdź tylko jeśli Subiekt jest aktywny
+            if (!IsSubiektActive)
+            {
+                return;
+            }
+            
+            // Wczytaj konfigurację
+            var subiektConfig = _configService.LoadSubiektConfig();
+            
+            // Jeśli timeout jest 0, wyłączone
+            if (subiektConfig.AutoReleaseLicenseTimeoutMinutes <= 0)
+            {
+                return;
+            }
+            
+            // Oblicz czas nieaktywności
+            var inactiveTime = DateTime.Now - _lastActivityTime;
+            var inactiveMinutes = inactiveTime.TotalMinutes;
+            
+            // Jeśli czas nieaktywności przekroczył limit
+            if (inactiveMinutes >= subiektConfig.AutoReleaseLicenseTimeoutMinutes)
+            {
+                Debug($"Czas nieaktywności ({inactiveMinutes:F1} minut) przekroczył limit ({subiektConfig.AutoReleaseLicenseTimeoutMinutes} minut). Zwolnienie licencji...", "MainViewModel");
+                
+                // Zwolnij licencję
+                try
+                {
+                    var subiektService = new Services.SubiektService();
+                    subiektService.ZwolnijLicencje();
+                    
+                    // Wyświetl MessageBox
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show(
+                            $"Licencja Subiekta GT została automatycznie zwolniona po {subiektConfig.AutoReleaseLicenseTimeoutMinutes} minutach nieaktywności.",
+                            "Licencja zwolniona",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    });
+                    
+                    Info($"Licencja Subiekta GT została automatycznie zwolniona po {subiektConfig.AutoReleaseLicenseTimeoutMinutes} minutach nieaktywności.", "MainViewModel");
+                }
+                catch (Exception ex)
+                {
+                    Error(ex, "MainViewModel", "Błąd podczas automatycznego zwalniania licencji");
+                }
+            }
         }
 
         private void ZwolnijLicencje()
@@ -590,6 +1054,7 @@ namespace Gryzak.ViewModels
 
         private void OnOrderSelected(Order? order)
         {
+            ResetActivityTimer(); // Resetuj timer przy aktywności
             // Odznacz poprzednio zaznaczone zamówienie
             if (SelectedOrder != null)
             {
@@ -659,6 +1124,156 @@ namespace Gryzak.ViewModels
             catch (Exception ex)
             {
                 Error(ex, "MainViewModel", "Błąd ładowania szczegółów zamówienia");
+            }
+        }
+        
+        private Order? CreateOrderFromDetailsJson(string detailsJson)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(detailsJson);
+                var root = doc.RootElement;
+                
+                // Podstawowe informacje o zamówieniu
+                var orderId = root.TryGetProperty("order_id", out var id) ? id.GetString() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(orderId))
+                {
+                    Error("Nie znaleziono order_id w JSON szczegółów zamówienia", "MainViewModel");
+                    return null;
+                }
+                
+                var firstname = root.TryGetProperty("firstname", out var fn) ? fn.GetString() ?? "" : "";
+                var lastname = root.TryGetProperty("lastname", out var ln) ? ln.GetString() ?? "" : "";
+                var email = root.TryGetProperty("email", out var e) ? e.GetString() ?? "" : "";
+                var telephone = root.TryGetProperty("telephone", out var tel) ? tel.GetString() ?? "" : "";
+                var company = root.TryGetProperty("payment_company", out var comp) ? comp.GetString() : null;
+                var vat = root.TryGetProperty("vat", out var v) ? v.GetString() : null;
+                var address1 = root.TryGetProperty("payment_address_1", out var a1) ? a1.GetString() ?? "" : "";
+                var address2 = root.TryGetProperty("payment_address_2", out var a2) ? a2.GetString() : null;
+                var postcode = root.TryGetProperty("payment_postcode", out var pc) ? pc.GetString() ?? "" : "";
+                var city = root.TryGetProperty("payment_city", out var c) ? c.GetString() ?? "" : "";
+                var country = root.TryGetProperty("payment_country", out var countryProp) ? countryProp.GetString() ?? "" : "";
+                var status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "";
+                var paymentStatus = root.TryGetProperty("payment_status", out var ps) ? ps.GetString() ?? "Nieznany" : "Nieznany";
+                
+                // Obsługa total jako liczby float/double lub stringa
+                string total = "0";
+                if (root.TryGetProperty("total", out var t))
+                {
+                    if (t.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        var totalValue = t.GetDouble();
+                        total = totalValue.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                    else if (t.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        total = t.GetString() ?? "0";
+                    }
+                }
+                
+                var currency = root.TryGetProperty("currency_code", out var curr) ? curr.GetString() ?? "PLN" : "PLN";
+                var dateAdded = root.TryGetProperty("date_added", out var date) ? date.GetString() ?? "" : "";
+                
+                // Parsuj datę
+                DateTime dateParsed = DateTime.Now;
+                if (!string.IsNullOrWhiteSpace(dateAdded))
+                {
+                    if (DateTime.TryParse(dateAdded, out var parsed))
+                    {
+                        dateParsed = parsed;
+                    }
+                }
+                
+                // Buduj adres
+                var addressParts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(address1))
+                {
+                    var addr1 = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(address1));
+                    addressParts.Add(addr1);
+                    if (!string.IsNullOrWhiteSpace(address2))
+                    {
+                        var addr2 = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(address2));
+                        addressParts.Add(addr2);
+                    }
+                    var decodedPostcode = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(postcode));
+                    var decodedCity = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(city));
+                    if (!string.IsNullOrWhiteSpace(decodedPostcode) || !string.IsNullOrWhiteSpace(decodedCity))
+                    {
+                        addressParts.Add($"{decodedPostcode} {decodedCity}".Trim());
+                    }
+                }
+                var address = string.Join(", ", addressParts.Where(s => !string.IsNullOrWhiteSpace(s)));
+                
+                // Dekoduj encje HTML (czasem podwójnie zakodowane)
+                if (!string.IsNullOrWhiteSpace(company))
+                {
+                    company = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(company));
+                }
+                
+                // ISO codes
+                var isoCode2 = root.TryGetProperty("payment_iso_code_2", out var iso2) ? iso2.GetString() : 
+                               (root.TryGetProperty("iso_code_2", out var iso2Fallback) ? iso2Fallback.GetString() : null);
+                var isoCode3 = root.TryGetProperty("iso_code_3", out var iso3) ? iso3.GetString() : null;
+                
+                // Mapuj kraj używając ISO code
+                string mappedCountry = country;
+                if (!string.IsNullOrWhiteSpace(isoCode2))
+                {
+                    var iso2Upper = isoCode2.ToUpperInvariant();
+                    if (_countryMap.TryGetValue(iso2Upper, out var polishName))
+                    {
+                        mappedCountry = polishName;
+                    }
+                }
+                
+                // Sformatuj total
+                string formattedTotal = "0.00";
+                if (!string.IsNullOrWhiteSpace(total) && total != "0")
+                {
+                    if (double.TryParse(total, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var totalVal))
+                    {
+                        formattedTotal = totalVal.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                    else
+                    {
+                        formattedTotal = total;
+                    }
+                }
+                
+                // Utwórz obiekt Order
+                var order = new Order
+                {
+                    Id = orderId,
+                    Customer = $"{firstname} {lastname}".Trim(),
+                    Email = string.IsNullOrWhiteSpace(email) ? "Brak email" : email,
+                    Phone = string.IsNullOrWhiteSpace(telephone) ? "Brak telefonu" : telephone,
+                    Company = company,
+                    Nip = vat,
+                    Address = string.IsNullOrWhiteSpace(address) ? null : address,
+                    PaymentAddress1 = string.IsNullOrWhiteSpace(address1) ? null : System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(address1)),
+                    PaymentAddress2 = string.IsNullOrWhiteSpace(address2) ? null : System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(address2)),
+                    PaymentPostcode = string.IsNullOrWhiteSpace(postcode) ? null : System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(postcode)),
+                    PaymentCity = string.IsNullOrWhiteSpace(city) ? null : System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(city)),
+                    Status = status,
+                    PaymentStatus = paymentStatus,
+                    Total = formattedTotal,
+                    Currency = currency,
+                    Date = dateParsed,
+                    Country = mappedCountry,
+                    IsoCode2 = isoCode2,
+                    IsoCode3 = isoCode3
+                };
+                
+                // Teraz użyj UpdateOrderFromDetails aby zaktualizować produkty i totals (używa tej samej logiki)
+                UpdateOrderFromDetails(order, detailsJson);
+                
+                Debug($"Utworzono zamówienie {orderId} z szczegółów API", "MainViewModel");
+                return order;
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd podczas tworzenia Order z JSON szczegółów");
+                return null;
             }
         }
         
@@ -863,6 +1478,9 @@ namespace Gryzak.ViewModels
                 }
 
                 // Totals - wyszukaj kupon i sub_total (API zwraca już przeliczone wartości)
+                // Resetuj wartości przed parsowaniem, aby uniknąć kumulowania przy wielokrotnym wywołaniu
+                order.GlsKgAmount = null;
+                order.GlsAmount = null;
                 try
                 {
                     if (root.TryGetProperty("totals", out var totalsProp) && totalsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
@@ -916,8 +1534,27 @@ namespace Gryzak.ViewModels
                                     }
                                     else if (code == "gls")
                                     {
-                                        order.GlsAmount = valueParsed.Value;
-                                        Debug("Znaleziono gls: {order.GlsAmount:F2}", "MainViewModel");
+                                        // Sprawdź czy tytuł zawiera "kg" (case-insensitive)
+                                        string? title = null;
+                                        if (totalEl.TryGetProperty("title", out var titleProp) && titleProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                                        {
+                                            title = titleProp.GetString();
+                                        }
+                                        
+                                        bool zawieraKg = !string.IsNullOrWhiteSpace(title) && title.Contains("kg", StringComparison.OrdinalIgnoreCase);
+                                        
+                                        if (zawieraKg)
+                                        {
+                                            // Sumuj pozycje gls z "kg" w tytule
+                                            order.GlsKgAmount = (order.GlsKgAmount ?? 0.0) + valueParsed.Value;
+                                            Debug("Znaleziono gls z 'kg': {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsKgAmount:F2}", "MainViewModel");
+                                        }
+                                        else
+                                        {
+                                            // Zwykły gls - dodaj do GlsAmount (lub sumuj jeśli wiele pozycji)
+                                            order.GlsAmount = (order.GlsAmount ?? 0.0) + valueParsed.Value;
+                                            Debug("Znaleziono gls: {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsAmount:F2}", "MainViewModel");
+                                        }
                                     }
                                     else if (code == "shipping")
                                     {
