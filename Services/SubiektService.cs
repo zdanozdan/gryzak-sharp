@@ -2177,14 +2177,18 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic kosztyPoz = pozycje.Dodaj(towarKoszty!.Identyfikator);
                                     try { kosztyPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę na sumę handling + gls
+                                    // Ustaw cenę brutto na sumę handling + gls (wartości są już brutto po konwersji z netto)
                                     try 
                                     { 
-                                        kosztyPoz.CenaNettoPrzedRabatem = sumaKosztowKOSZTY1;
+                                        Info($"Przed ustawieniem KOSZTY/1: sumaKosztowKOSZTY1={sumaKosztowKOSZTY1:F2}, handlingAmount={handlingAmount?.ToString("F2") ?? "null"}, glsAmount={glsAmount?.ToString("F2") ?? "null"}", "SubiektService");
+                                        kosztyPoz.CenaBruttoPoRabacie = sumaKosztowKOSZTY1;
+                                        // Sprawdź wartość po ustawieniu
+                                        var cenaPoUstawieniu = kosztyPoz.CenaBruttoPoRabacie;
+                                        Info($"Po ustawieniu KOSZTY/1: CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
                                         var skladniki = new System.Collections.Generic.List<string>();
                                         if (handlingAmount.HasValue && handlingAmount.Value > 0) skladniki.Add($"handling ({handlingAmount.Value:F2})");
                                         if (glsAmount.HasValue && glsAmount.Value > 0) skladniki.Add($"gls ({glsAmount.Value:F2})");
-                                        Info($"Dodano towar 'KOSZTY/1' z ceną {sumaKosztowKOSZTY1:F2} (składniki: {string.Join(" + ", skladniki)}).", "SubiektService");
+                                        Info($"Dodano towar 'KOSZTY/1' z ceną brutto {sumaKosztowKOSZTY1:F2} (składniki: {string.Join(" + ", skladniki)}).", "SubiektService");
                                     }
                                     catch
                                     {
@@ -2219,10 +2223,13 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic gipsPoz = pozycje.Dodaj(towarGips!.Identyfikator);
                                     try { gipsPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę brutto na wartość gls z "kg" (wartość z API jest brutto)
+                                    // Ustaw cenę brutto na wartość gls z "kg" (wartość jest już brutto po konwersji z netto)
                                     try 
                                     { 
+                                        Info($"Przed ustawieniem KOSZTY GIPS: glsKgAmount={glsKgAmount.Value:F2}", "SubiektService");
                                         gipsPoz.CenaBruttoPoRabacie = glsKgAmount.Value;
+                                        var cenaPoUstawieniu = gipsPoz.CenaBruttoPoRabacie;
+                                        Info($"Po ustawieniu KOSZTY GIPS: CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
                                         Info($"Dodano towar 'KOSZTY GIPS' z ceną brutto gls z 'kg' ({glsKgAmount.Value:F2}).", "SubiektService");
                                     }
                                     catch
@@ -2259,11 +2266,14 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic shippingPoz = pozycje.Dodaj(towarShipping!.Identyfikator);
                                     try { shippingPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę na wartość shipping z API
+                                    // Ustaw cenę brutto na wartość shipping z API (wartość jest już brutto po konwersji z netto)
                                     try 
                                     { 
-                                        shippingPoz.CenaNettoPrzedRabatem = shippingAmount.Value;
-                                        Info("Dodano towar 'KOSZTY/2' z ceną shipping ({shippingAmount.Value:F2}).", "SubiektService");
+                                        Info($"Przed ustawieniem KOSZTY/2 (shipping): shippingAmount={shippingAmount.Value:F2}", "SubiektService");
+                                        shippingPoz.CenaBruttoPoRabacie = shippingAmount.Value;
+                                        var cenaPoUstawieniu = shippingPoz.CenaBruttoPoRabacie;
+                                        Info($"Po ustawieniu KOSZTY/2 (shipping): CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
+                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto shipping ({shippingAmount.Value:F2}).", "SubiektService");
                                     }
                                     catch
                                     {
@@ -2299,11 +2309,11 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic codFeePoz = pozycje.Dodaj(towarCodFee!.Identyfikator);
                                     try { codFeePoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę na wartość cod_fee z API
+                                    // Ustaw cenę brutto na wartość cod_fee z API (wartość jest już brutto po konwersji z netto)
                                     try 
                                     { 
-                                        codFeePoz.CenaNettoPrzedRabatem = codFeeAmount.Value;
-                                        Info("Dodano towar 'KOSZTY/2' z ceną cod_fee ({codFeeAmount.Value:F2}).", "SubiektService");
+                                        codFeePoz.CenaBruttoPoRabacie = codFeeAmount.Value;
+                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto cod_fee ({codFeeAmount.Value:F2}).", "SubiektService");
                                     }
                                     catch
                                     {
@@ -2336,6 +2346,27 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             catch (Exception przeliczEx)
                             {
                                 Warning($"Nie udało się przeliczyć dokumentu przed odczytem wartości: {przeliczEx.Message}", "SubiektService");
+                            }
+                        }
+                        
+                        // Po dodaniu wszystkich pozycji, wywołaj NadajRabatDoWartosci jeśli dostępna wartość zamówienia
+                        // To powinno zaznaczyć checkbox "wyliczanie rabatu do zadanej wartości dokumentu" w interfejsie Subiekta GT
+                        if (zkDokument != null && !string.IsNullOrWhiteSpace(orderTotal))
+                        {
+                            try
+                            {
+                                if (double.TryParse(orderTotal, System.Globalization.NumberStyles.Float, 
+                                    System.Globalization.CultureInfo.InvariantCulture, out double orderTotalValue))
+                                {
+                                    Info($"Wywołuję NadajRabatDoWartosci({orderTotalValue:F2}) na dokumencie ZK...", "SubiektService");
+                                    zkDokument.NadajRabatDoWartosci(orderTotalValue);
+                                    zkDokument.Przelicz();
+                                    Info("NadajRabatDoWartosci wykonane pomyślnie - sprawdź czy checkbox został zaznaczony.", "SubiektService");
+                                }
+                            }
+                            catch (Exception rabatEx)
+                            {
+                                Warning($"Błąd podczas wywołania NadajRabatDoWartosci: {rabatEx.Message}", "SubiektService");
                             }
                         }
                         

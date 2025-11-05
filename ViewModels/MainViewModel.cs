@@ -631,6 +631,9 @@ namespace Gryzak.ViewModels
                 UpdateRecentOrders();
             }
             
+            // Upewnij się że wartości kosztów są brutto (konwertuj z netto jeśli potrzeba)
+            EnsureCostsAreBrutto(SelectedOrder);
+            
             // Pobierz NIP z wybranego zamówienia
             var nip = SelectedOrder?.Nip;
             
@@ -645,6 +648,16 @@ namespace Gryzak.ViewModels
             subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, SelectedOrder?.GlsKgAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
+        
+        private void EnsureCostsAreBrutto(Order? order)
+        {
+            if (order == null) return;
+            
+            // UWAGA: Wartości kosztów są już konwertowane z netto na brutto w UpdateOrderFromDetails
+            // (linie 1664-1704), więc nie ma potrzeby ponownej konwersji tutaj.
+            // Funkcja pozostaje dla kompatybilności wstecznej, ale nie wykonuje żadnych operacji.
+            // Wartości z totals API są zawsze netto i są konwertowane na brutto (VAT 23%) w UpdateOrderFromDetails.
+        }
 
         private void DodajNoweZK()
         {
@@ -656,6 +669,9 @@ namespace Gryzak.ViewModels
                 _configService.AddOrderToHistory(SelectedOrder.Id);
                 UpdateRecentOrders();
             }
+            
+            // Upewnij się że wartości kosztów są brutto (konwertuj z netto jeśli potrzeba)
+            EnsureCostsAreBrutto(SelectedOrder);
             
             // Pobierz NIP z wybranego zamówienia
             var nip = SelectedOrder?.Nip;
@@ -1477,14 +1493,41 @@ namespace Gryzak.ViewModels
                     Error(prodEx, "MainViewModel", "Błąd parsowania produktów");
                 }
 
-                // Totals - wyszukaj kupon i sub_total (API zwraca już przeliczone wartości)
+                // Totals - wyszukaj kupon i sub_total (API zwraca wartości netto dla kosztów)
                 // Resetuj wartości przed parsowaniem, aby uniknąć kumulowania przy wielokrotnym wywołaniu
                 order.GlsKgAmount = null;
                 order.GlsAmount = null;
+                
+                // Flagi do sprawdzenia czy API zwraca wartości brutto dla konkretnych kosztów
+                bool hasHandlingBrutto = false;
+                bool hasGlsBrutto = false;
+                bool hasGlsKgBrutto = false;
+                bool hasShippingBrutto = false;
+                bool hasCodFeeBrutto = false;
+                
                 try
                 {
                     if (root.TryGetProperty("totals", out var totalsProp) && totalsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
                     {
+                        // Najpierw przejdź przez totals aby sprawdzić czy są pozycje brutto dla konkretnych kosztów
+                        foreach (var totalEl in totalsProp.EnumerateArray())
+                        {
+                            if (totalEl.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                var code = codeProp.GetString();
+                                Debug("Sprawdzam pozycję totals: code={code}", "MainViewModel");
+                                // Sprawdź czy są pozycje brutto dla konkretnych kosztów (np. "handling_brutto", "shipping_brutto")
+                                if (code == "handling_brutto" || code == "handling_bruto") hasHandlingBrutto = true;
+                                if (code == "gls_brutto" || code == "gls_bruto") hasGlsBrutto = true;
+                                if (code == "gls_kg_brutto" || code == "gls_kg_bruto") hasGlsKgBrutto = true;
+                                if (code == "shipping_brutto" || code == "shipping_bruto") hasShippingBrutto = true;
+                                if (code == "cod_fee_brutto" || code == "cod_fee_bruto") hasCodFeeBrutto = true;
+                            }
+                        }
+                        
+                        Info($"Wynik sprawdzenia brutto dla kosztów: handling={hasHandlingBrutto}, gls={hasGlsBrutto}, glsKg={hasGlsKgBrutto}, shipping={hasShippingBrutto}, codFee={hasCodFeeBrutto}", "MainViewModel");
+                        
+                        // Teraz parsuj wartości (wartości z API dla handling, gls, shipping, cod_fee są netto)
                         foreach (var totalEl in totalsProp.EnumerateArray())
                         {
                             if (totalEl.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == System.Text.Json.JsonValueKind.String)
@@ -1529,8 +1572,9 @@ namespace Gryzak.ViewModels
                                     }
                                     else if (code == "handling")
                                     {
+                                        // Jeśli API nie ma brutto, wartości są netto - przechowujemy jako netto, brutto obliczymy później
                                         order.HandlingAmount = valueParsed.Value;
-                                        Debug("Znaleziono handling: {order.HandlingAmount:F2}", "MainViewModel");
+                                        Debug("Znaleziono handling (netto): {order.HandlingAmount:F2}", "MainViewModel");
                                     }
                                     else if (code == "gls")
                                     {
@@ -1545,34 +1589,80 @@ namespace Gryzak.ViewModels
                                         
                                         if (zawieraKg)
                                         {
-                                            // Sumuj pozycje gls z "kg" w tytule
+                                            // Sumuj pozycje gls z "kg" w tytule (wartości netto)
                                             order.GlsKgAmount = (order.GlsKgAmount ?? 0.0) + valueParsed.Value;
-                                            Debug("Znaleziono gls z 'kg': {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsKgAmount:F2}", "MainViewModel");
+                                            Debug("Znaleziono gls z 'kg' (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsKgAmount:F2}", "MainViewModel");
                                         }
                                         else
                                         {
-                                            // Zwykły gls - dodaj do GlsAmount (lub sumuj jeśli wiele pozycji)
+                                            // Zwykły gls - dodaj do GlsAmount (lub sumuj jeśli wiele pozycji) - wartości netto
                                             order.GlsAmount = (order.GlsAmount ?? 0.0) + valueParsed.Value;
-                                            Debug("Znaleziono gls: {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsAmount:F2}", "MainViewModel");
+                                            Debug("Znaleziono gls (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsAmount:F2}", "MainViewModel");
                                         }
                                     }
                                     else if (code == "shipping")
                                     {
+                                        // Wartości netto z API
                                         order.ShippingAmount = valueParsed.Value;
-                                        Debug("Znaleziono shipping: {order.ShippingAmount:F2}", "MainViewModel");
+                                        Debug("Znaleziono shipping (netto): {order.ShippingAmount:F2}", "MainViewModel");
                                     }
                                     else if (code == "cod_fee")
                                     {
+                                        // Wartości netto z API
                                         order.CodFeeAmount = valueParsed.Value;
-                                        Debug("Znaleziono cod_fee: {order.CodFeeAmount:F2}", "MainViewModel");
+                                        Debug("Znaleziono cod_fee (netto): {order.CodFeeAmount:F2}", "MainViewModel");
                                     }
                                     else if (code == "total")
                                     {
                                         order.Total = valueParsed.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
                                         Debug("Znaleziono total: {order.Total}", "MainViewModel");
                                     }
+                                    // Pomijamy pozycje "tax", "vat", "brutto" - są to pozycje dla całego zamówienia
+                                    // Wartości kosztów (handling, gls, shipping, cod_fee) w totals są zawsze netto
                                 }
                             }
+                        }
+                        
+                        // Zawsze konwertuj wartości netto na brutto (VAT 23%)
+                        // Użytkownik potwierdził że wartości z totals są zawsze netto
+                        // Wartości w Order przechowujemy jako brutto dla kosztów (bo używamy CenaBruttoPoRabacie w Subiekt)
+                        Info("Konwertuję wartości kosztów z netto na brutto (VAT 23%) - wartości z totals są zawsze netto", "MainViewModel");
+                        const double vatRate = 1.23; // VAT 23%
+                        
+                        // Konwertuj wartości netto na brutto
+                        if (order.HandlingAmount.HasValue && order.HandlingAmount.Value > 0)
+                        {
+                            var netto = order.HandlingAmount.Value;
+                            order.HandlingAmount = netto * vatRate;
+                            Info($"Konwersja handling: netto {netto:F2} -> brutto {order.HandlingAmount:F2}", "MainViewModel");
+                        }
+                        
+                        if (order.GlsAmount.HasValue && order.GlsAmount.Value > 0)
+                        {
+                            var netto = order.GlsAmount.Value;
+                            order.GlsAmount = netto * vatRate;
+                            Info($"Konwersja gls: netto {netto:F2} -> brutto {order.GlsAmount:F2}", "MainViewModel");
+                        }
+                        
+                        if (order.GlsKgAmount.HasValue && order.GlsKgAmount.Value > 0)
+                        {
+                            var netto = order.GlsKgAmount.Value;
+                            order.GlsKgAmount = netto * vatRate;
+                            Info($"Konwersja gls z 'kg': netto {netto:F2} -> brutto {order.GlsKgAmount:F2}", "MainViewModel");
+                        }
+                        
+                        if (order.ShippingAmount.HasValue && order.ShippingAmount.Value > 0)
+                        {
+                            var netto = order.ShippingAmount.Value;
+                            order.ShippingAmount = netto * vatRate;
+                            Info($"Konwersja shipping: netto {netto:F2} -> brutto {order.ShippingAmount:F2}", "MainViewModel");
+                        }
+                        
+                        if (order.CodFeeAmount.HasValue && order.CodFeeAmount.Value > 0)
+                        {
+                            var netto = order.CodFeeAmount.Value;
+                            order.CodFeeAmount = netto * vatRate;
+                            Info($"Konwersja cod_fee: netto {netto:F2} -> brutto {order.CodFeeAmount:F2}", "MainViewModel");
                         }
                     }
                 }
