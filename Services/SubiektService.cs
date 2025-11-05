@@ -1450,7 +1450,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
             InstancjaZmieniona?.Invoke(null, aktywna);
         }
 
-        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, double? glsKgAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
         {
             try
             {
@@ -2153,7 +2153,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         
 
                         // Dodaj towar 'KOSZTY/1' na końcu
-                        // Suma handling + gls (oba używają KOSZTY/1)
+                        // Suma handling + gls (tylko gls BEZ "kg" w tytule)
                         double sumaKosztowKOSZTY1 = 0.0;
                         if (handlingAmount.HasValue && handlingAmount.Value > 0.0)
                         {
@@ -2163,6 +2163,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         {
                             sumaKosztowKOSZTY1 += glsAmount.Value;
                         }
+                        // glsKgAmount nie jest dodawane do KOSZTY/1 - trafia do osobnego towaru "KOSZTY GIPS"
                         
                         if (sumaKosztowKOSZTY1 > 0.0)
                         {
@@ -2203,6 +2204,45 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         else
                         {
                             Info("Brak handling i gls w API - pomijam dodawanie 'KOSZTY/1'.", "SubiektService");
+                        }
+                        
+                        // Dodaj towar 'KOSZTY GIPS' na końcu (dla gls z "kg" w tytule)
+                        if (glsKgAmount.HasValue && glsKgAmount.Value > 0.0)
+                        {
+                            try
+                            {
+                                dynamic towary = subiekt.Towary;
+                                dynamic towarGips = towary.Wczytaj("KOSZTY GIPS");
+                                
+                                if (towarGips != null && zkDokument != null)
+                                {
+                                    dynamic pozycje = zkDokument!.Pozycje;
+                                    dynamic gipsPoz = pozycje.Dodaj(towarGips!.Identyfikator);
+                                    try { gipsPoz.IloscJm = 1; } catch { }
+                                    // Ustaw cenę brutto na wartość gls z "kg" (wartość z API jest brutto)
+                                    try 
+                                    { 
+                                        gipsPoz.CenaBruttoPoRabacie = glsKgAmount.Value;
+                                        Info($"Dodano towar 'KOSZTY GIPS' z ceną brutto gls z 'kg' ({glsKgAmount.Value:F2}).", "SubiektService");
+                                    }
+                                    catch
+                                    {
+                                        Info("Dodano towar 'KOSZTY GIPS' na końcu pozycji, ale nie udało się ustawić ceny.", "SubiektService");
+                                    }
+                                }
+                                else
+                                {
+                                    Info("Nie znaleziono towaru o symbolu 'KOSZTY GIPS'.", "SubiektService");
+                                }
+                            }
+                            catch (Exception gipsEx)
+                            {
+                                Warning($"Nie udało się dodać towaru 'KOSZTY GIPS': {gipsEx.Message}", "SubiektService");
+                            }
+                        }
+                        else
+                        {
+                            Info("Brak gls z 'kg' w API - pomijam dodawanie 'KOSZTY GIPS'.", "SubiektService");
                         }
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
@@ -2974,13 +3014,13 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
         /// Otwiera okno ZK bez sprawdzania czy dokument już istnieje - zawsze tworzy nowy dokument
         /// Używa OtworzOknoZK z orderId = null aby pominąć sprawdzanie istnienia dokumentu
         /// </summary>
-        public void OtworzNoweZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        public void OtworzNoweZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, double? glsKgAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
         {
             Info("OtworzNoweZK: Pomijam sprawdzanie istnienia dokumentu - zawsze tworzę nowy dokument ZK.", "SubiektService");
             
             // Wywołaj OtworzOknoZK z orderId = null aby pominąć sprawdzanie istnienia dokumentu
             // Sprawdzanie w OtworzOknoZK jest wykonywane tylko jeśli orderId nie jest null i nie jest pusty
-            OtworzOknoZK(nip, items, couponAmount, subTotal, couponTitle, null, handlingAmount, shippingAmount, currency, codFeeAmount, orderTotal, glsAmount, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
+            OtworzOknoZK(nip, items, couponAmount, subTotal, couponTitle, null, handlingAmount, shippingAmount, currency, codFeeAmount, orderTotal, glsAmount, glsKgAmount, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
         }
     }
 }

@@ -38,6 +38,47 @@ namespace Gryzak.Views
         {
             SetupKeyBindings();
             SetupStatusFilter();
+            SetupActivityTracking();
+        }
+        
+        private void SetupActivityTracking()
+        {
+            // Nasłuchuj aktywności na całym oknie
+            this.MouseMove += (s, e) => ResetActivityTimer();
+            this.KeyDown += (s, e) => ResetActivityTimer();
+            this.MouseDown += (s, e) => ResetActivityTimer();
+            
+            // Nasłuchuj aktywności w kontrolkach
+            if (SearchTextBox != null)
+            {
+                SearchTextBox.TextChanged += (s, e) => ResetActivityTimer();
+                SearchTextBox.KeyDown += (s, e) => ResetActivityTimer();
+                SearchTextBox.MouseMove += (s, e) => ResetActivityTimer();
+            }
+            
+            if (StatusFilterComboBox != null)
+            {
+                StatusFilterComboBox.SelectionChanged += (s, e) => ResetActivityTimer();
+                StatusFilterComboBox.MouseMove += (s, e) => ResetActivityTimer();
+            }
+        }
+        
+        private void ResetActivityTimer()
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.ResetActivityTimer();
+            }
+        }
+        
+        private void Window_MouseMove(object sender, MouseEventArgs e)
+        {
+            ResetActivityTimer();
+        }
+        
+        private void Window_KeyDown(object sender, KeyEventArgs e)
+        {
+            ResetActivityTimer();
         }
 
         private void SetupStatusFilter()
@@ -106,13 +147,22 @@ namespace Gryzak.Views
             }
         }
 
-        private void OpenOrderDetailsDialog(Order order, MainViewModel vm)
+        public void OpenOrderDetailsDialog(Order order, MainViewModel vm)
         {
+            if (order == null)
+            {
+                System.Diagnostics.Debug.WriteLine("OpenOrderDetailsDialog: order jest null, przerywam");
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"OpenOrderDetailsDialog wywołana dla zamówienia: {order.Id}");
             var detailsDialog = new OrderDetailsDialog(order, vm)
             {
                 Owner = this
             };
+            System.Diagnostics.Debug.WriteLine("Tworzenie OrderDetailsDialog zakończone, wywołuję ShowDialog");
             detailsDialog.ShowDialog();
+            System.Diagnostics.Debug.WriteLine("ShowDialog zakończone");
         }
 
         private async void OrdersScrollViewer_ScrollChanged(object sender, System.Windows.Controls.ScrollChangedEventArgs e)
@@ -173,6 +223,36 @@ namespace Gryzak.Views
                 Owner = this
             };
             aboutDialog.ShowDialog();
+        }
+
+        private void ReadmeMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var readmeDialog = new ReadmeDialog
+            {
+                Owner = this
+            };
+            readmeDialog.ShowDialog();
+        }
+
+        private void HistoryOrderItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuItem menuItem && menuItem.DataContext is string orderId)
+            {
+                System.Diagnostics.Debug.WriteLine($"HistoryOrderItem_Click: Kliknięto zamówienie {orderId}");
+                if (DataContext is MainViewModel vm)
+                {
+                    System.Diagnostics.Debug.WriteLine($"HistoryOrderItem_Click: Wywołuję OpenOrderFromHistory dla {orderId}");
+                    vm.OpenOrderFromHistoryCommand.Execute(orderId);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("HistoryOrderItem_Click: DataContext nie jest MainViewModel");
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"HistoryOrderItem_Click: sender nie jest MenuItem lub DataContext nie jest string. sender={sender?.GetType().Name}, DataContext={((sender as MenuItem)?.DataContext)?.GetType().Name}");
+            }
         }
 
         private void LogoImage_MouseDown(object sender, MouseButtonEventArgs e)

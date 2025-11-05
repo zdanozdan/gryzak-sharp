@@ -11,7 +11,9 @@
         Height="600" Width="1200"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="True"
-        Icon="pack://application:,,,/gryzak_icon.png">
+        Icon="pack://application:,,,/gryzak_icon.png"
+        MouseMove="Window_MouseMove"
+        KeyDown="Window_KeyDown">
     
     <Window.DataContext>
         <vm:MainViewModel />
@@ -66,8 +68,30 @@
                 <MenuItem Header="Dodaj ZK" Command="{Binding DodajZKCommand}"/>
                 <MenuItem Header="Nowe ZK" Command="{Binding NoweZKCommand}"/>
             </MenuItem>
+            <MenuItem Header="_Historia">
+                <MenuItem Header="Ostatnio otwarte zamówienia" ItemsSource="{Binding RecentOrders}">
+                    <MenuItem.ItemContainerStyle>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Header" Value="{Binding}"/>
+                            <EventSetter Event="Click" Handler="HistoryOrderItem_Click"/>
+                        </Style>
+                    </MenuItem.ItemContainerStyle>
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Header" Value="Ostatnio otwarte zamówienia"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RecentOrders.Count}" Value="0">
+                                    <Setter Property="IsEnabled" Value="False"/>
+                                    <Setter Property="Header" Value="Brak historii"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
+            </MenuItem>
             <MenuItem Header="_Pomoc">
                 <MenuItem Header="O aplikacji" Click="AboutMenuItem_Click"/>
+                <MenuItem Header="Readme" Click="ReadmeMenuItem_Click"/>
             </MenuItem>
         </Menu>
 

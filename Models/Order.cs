@@ -107,6 +107,7 @@ namespace Gryzak.Models
         public double? ShippingAmount { get; set; }
         public double? CodFeeAmount { get; set; }
         public double? GlsAmount { get; set; }
+        public double? GlsKgAmount { get; set; }
 
         public bool IsSelected
         {

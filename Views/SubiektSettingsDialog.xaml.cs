@@ -51,6 +51,7 @@ namespace Gryzak.Views
             }
             
             PasswordBox.Password = _currentConfig.Password;
+            AutoReleaseLicenseTimeoutTextBox.Text = _currentConfig.AutoReleaseLicenseTimeoutMinutes.ToString();
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -61,6 +62,22 @@ namespace Gryzak.Views
             _currentConfig.ServerPassword = ServerPasswordBox.Password;
             _currentConfig.User = UserComboBox.Text.Trim();
             _currentConfig.Password = PasswordBox.Password;
+            
+            // Parsuj timeout automatycznego zwalniania licencji
+            if (int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out int timeoutMinutes))
+            {
+                if (timeoutMinutes < 0)
+                {
+                    MessageBox.Show("Czas nieaktywności nie może być ujemny. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    timeoutMinutes = 0;
+                }
+                _currentConfig.AutoReleaseLicenseTimeoutMinutes = timeoutMinutes;
+            }
+            else
+            {
+                MessageBox.Show("Nieprawidłowa wartość czasu nieaktywności. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
+            }
 
             try
             {
@@ -73,6 +90,12 @@ namespace Gryzak.Views
             {
                 MessageBox.Show($"Nie udało się zapisać ustawień:\n\n{ex.Message}", "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        
+        private void NumberValidationTextBox(object sender, TextCompositionEventArgs e)
+        {
+            // Pozwól tylko na cyfry
+            e.Handled = !char.IsDigit(e.Text, e.Text.Length - 1);
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)

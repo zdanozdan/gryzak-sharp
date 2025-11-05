@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using Gryzak.Models;
 
@@ -9,6 +11,7 @@ namespace Gryzak.Services
     {
         private readonly string _configPath;
         private readonly string _subiektConfigPath;
+        private readonly string _historyPath;
 
         public ConfigService()
         {
@@ -22,6 +25,7 @@ namespace Gryzak.Services
             
             _configPath = Path.Combine(gryzakPath, "config.json");
             _subiektConfigPath = Path.Combine(gryzakPath, "subiekt_config.json");
+            _historyPath = Path.Combine(gryzakPath, "order_history.json");
         }
 
         public ApiConfig LoadConfig()
@@ -129,8 +133,85 @@ namespace Gryzak.Services
                 ServerUsername = "mikran_com",
                 ServerPassword = "mikran_comqwer4321",
                 User = "Szef",
-                Password = "zdanoszef123"
+                Password = "zdanoszef123",
+                AutoReleaseLicenseTimeoutMinutes = 0
             };
+        }
+
+        public List<string> LoadOrderHistory()
+        {
+            try
+            {
+                if (File.Exists(_historyPath))
+                {
+                    var json = File.ReadAllText(_historyPath);
+                    var historyData = JsonSerializer.Deserialize<OrderHistoryData>(json);
+                    if (historyData?.OrderIds != null && historyData.OrderIds.Count > 0)
+                    {
+                        // Zwróć maksymalnie 10 pozycji
+                        return historyData.OrderIds.Take(10).ToList();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd ładowania historii zamówień: {ex.Message}");
+            }
+
+            return new List<string>();
+        }
+
+        public void SaveOrderHistory(List<string> history)
+        {
+            try
+            {
+                var historyData = new OrderHistoryData
+                {
+                    OrderIds = history.Take(10).ToList() // Ogranicz do 10
+                };
+                var json = JsonSerializer.Serialize(historyData, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_historyPath, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd zapisywania historii zamówień: {ex.Message}");
+            }
+        }
+
+        public void AddOrderToHistory(string orderId)
+        {
+            if (string.IsNullOrWhiteSpace(orderId))
+            {
+                return;
+            }
+
+            try
+            {
+                var history = LoadOrderHistory();
+                
+                // Usuń duplikat jeśli istnieje
+                history.RemoveAll(id => id == orderId);
+                
+                // Dodaj na początek
+                history.Insert(0, orderId);
+                
+                // Ogranicz do 10 pozycji
+                if (history.Count > 10)
+                {
+                    history = history.Take(10).ToList();
+                }
+                
+                SaveOrderHistory(history);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd dodawania zamówienia do historii: {ex.Message}");
+            }
+        }
+
+        private class OrderHistoryData
+        {
+            public List<string> OrderIds { get; set; } = new List<string>();
         }
     }
 }
