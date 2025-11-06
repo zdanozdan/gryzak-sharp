@@ -7,7 +7,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>Gryzak</AssemblyName>
     <Product>Gryzak - Menedżer Zamówień</Product>
-    <Version>1.0.1</Version>
+    <Version>1.5.0</Version>
     <Authors>Your Company</Authors>
     <Company>Your Company</Company>
     <Description>Aplikacja do zarządzania zamówieniami ze sklepu internetowego</Description>
