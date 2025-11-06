@@ -63,6 +63,35 @@
                                LineHeight="20"
                                Foreground="#333333"/>
                     
+                    <!-- Informacja o kuponie rabatowym -->
+                    <Border Name="CouponInfoPanel" 
+                            Visibility="Collapsed"
+                            Background="#E3F2FD" 
+                            BorderBrush="#2196F3" 
+                            BorderThickness="1" 
+                            CornerRadius="4" 
+                            Padding="15,12" 
+                            Margin="0,20,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" 
+                                       Text="🎟️ " 
+                                       FontSize="16" 
+                                       VerticalAlignment="Center" 
+                                       Margin="0,0,10,0"/>
+                            <TextBlock Name="CouponInfoText" 
+                                       Grid.Column="1" 
+                                       TextWrapping="Wrap" 
+                                       FontSize="13" 
+                                       FontWeight="SemiBold"
+                                       Foreground="#1976D2"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    
                     <!-- Separator -->
                     <Border Height="1" Background="#E0E0E0" Margin="0,20,0,15"/>
                     
@@ -81,7 +110,7 @@
                                    TextWrapping="Wrap" 
                                    FontSize="12" 
                                    Foreground="#666666">
-                            <Run Text="Korekta automatycznie dostosuje wartości w dokumencie zgodnie z kolejnością: najpierw koszty (KOSZTY/1, potem KOSZTY/2), a następnie pierwszą pozycję produktową. Wszystkie zmiany zostaną automatycznie przeliczone."/>
+                            <Run Text="Korekta automatycznie dostosuje wartości w dokumencie poprzez nadanie rabatu od wartości. Wszystkie zmiany zostaną automatycznie przeliczone."/>
                         </TextBlock>
                     </Grid>
                 </StackPanel>

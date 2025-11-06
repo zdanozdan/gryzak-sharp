@@ -46,6 +46,7 @@ namespace Gryzak.Models
         public string PaymentStatus { get; set; } = "Nieznany";
         public string Total { get; set; } = "0.00";
         public string Currency { get; set; } = "PLN";
+        public double? CurrencyValue { get; set; }
         public DateTime Date { get; set; }
         
         private string _country = "";
@@ -103,11 +104,12 @@ namespace Gryzak.Models
         public double? CouponAmount { get; set; }
         public double? SubTotal { get; set; }
         public string? CouponTitle { get; set; }
-        public double? HandlingAmount { get; set; }
-        public double? ShippingAmount { get; set; }
-        public double? CodFeeAmount { get; set; }
-        public double? GlsAmount { get; set; }
-        public double? GlsKgAmount { get; set; }
+        public double? HandlingAmountNetto { get; set; }
+        public double? ShippingAmountNetto { get; set; }
+        public double? CodFeeAmountNetto { get; set; }
+        public double? GlsAmountNetto { get; set; }
+        public double? GlsKgAmountNetto { get; set; }
+        public bool UseEuVatRate { get; set; } = false;
 
         public bool IsSelected
         {

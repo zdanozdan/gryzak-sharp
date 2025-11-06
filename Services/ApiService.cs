@@ -262,6 +262,24 @@ namespace Gryzak.Services
             
             var currency = orderElement.TryGetProperty("currency_code", out var curr) ? curr.GetString() ?? "PLN" : "PLN";
             
+            // Parsuj currency_value z API
+            double? currencyValue = null;
+            if (orderElement.TryGetProperty("currency_value", out var currValue))
+            {
+                if (currValue.ValueKind == JsonValueKind.Number)
+                {
+                    currencyValue = currValue.GetDouble();
+                }
+                else if (currValue.ValueKind == JsonValueKind.String)
+                {
+                    var currValueStr = currValue.GetString();
+                    if (!string.IsNullOrWhiteSpace(currValueStr) && double.TryParse(currValueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsedValue))
+                    {
+                        currencyValue = parsedValue;
+                    }
+                }
+            }
+            
             var dateAdded = orderElement.TryGetProperty("date_added", out var date) ? date.GetString() ?? "" : "";
 
             var address = "";
@@ -331,6 +349,7 @@ namespace Gryzak.Services
                 PaymentStatus = paymentStatus,
                 Total = formattedTotal,
                 Currency = currency,
+                CurrencyValue = currencyValue,
                 Date = dateParsed,
                 Country = country,
                 IsoCode2 = isoCode2,

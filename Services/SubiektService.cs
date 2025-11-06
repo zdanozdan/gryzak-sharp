@@ -24,6 +24,10 @@ namespace Gryzak.Services
         // Cache dla mapy kodów VIES - aby nie wczytywać od nowa za każdym razem
         private static Dictionary<string, string>? _viesMapCache = null;
 
+        // Cache dla słownika stawek VAT - klucz: vat_Symbol, wartość: VatRate
+        private static Dictionary<string, Models.VatRate>? _vatRatesCache = null;
+        private static readonly object _vatRatesCacheLock = new object();
+
         private readonly ConfigService _configService;
 
         public SubiektService()
@@ -808,6 +812,125 @@ WHERE pa_Nazwa = @CountryName";
         }
         
         /// <summary>
+        /// Pobiera słownik stawek VAT z bazy danych i przechowuje w cache
+        /// </summary>
+        private void WczytajSlownikStawekVAT()
+        {
+            // Sprawdź czy cache już istnieje
+            lock (_vatRatesCacheLock)
+            {
+                if (_vatRatesCache != null)
+                {
+                    return; // Cache już załadowany
+                }
+
+                try
+                {
+                    var subiektConfig = _configService.LoadSubiektConfig();
+                    string serverAddress = subiektConfig.ServerAddress ?? "";
+                    string username = subiektConfig.ServerUsername ?? "";
+                    string password = subiektConfig.ServerPassword ?? "";
+
+                    if (string.IsNullOrWhiteSpace(serverAddress))
+                    {
+                        Debug("Brak adresu serwera MSSQL - pomijam wczytywanie słownika stawek VAT.", "SubiektService");
+                        _vatRatesCache = new Dictionary<string, Models.VatRate>(); // Pusty słownik
+                        return;
+                    }
+
+                    var builder = new SqlConnectionStringBuilder
+                    {
+                        DataSource = serverAddress,
+                        UserID = username,
+                        Password = password,
+                        ConnectTimeout = 10,
+                        Encrypt = false
+                    };
+
+                    if (string.IsNullOrWhiteSpace(username))
+                    {
+                        builder.IntegratedSecurity = true;
+                    }
+
+                    string connectionString = builder.ConnectionString;
+
+                    // Wykonaj zapytanie SQL
+                    using (var connection = new SqlConnection(connectionString))
+                    {
+                        connection.Open();
+
+                        string sqlQuery = @"
+SELECT vat_id, vat_Symbol, vat_Stawka
+FROM [dbo].[sl_StawkaVAT];";
+
+                        using (var command = new SqlCommand(sqlQuery, connection))
+                        {
+                            using (var reader = command.ExecuteReader())
+                            {
+                                var vatRates = new Dictionary<string, Models.VatRate>(StringComparer.OrdinalIgnoreCase);
+
+                                while (reader.Read())
+                                {
+                                    var vatRate = new Models.VatRate
+                                    {
+                                        VatId = reader.GetInt32(0),
+                                        VatSymbol = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                                        VatStawka = reader.IsDBNull(2) ? 0 : reader.GetDecimal(2)
+                                    };
+
+                                    // Dodaj do słownika używając vat_Symbol jako klucza
+                                    if (!string.IsNullOrWhiteSpace(vatRate.VatSymbol))
+                                    {
+                                        vatRates[vatRate.VatSymbol] = vatRate;
+                                    }
+                                }
+
+                                _vatRatesCache = vatRates;
+                                Info($"Załadowano {vatRates.Count} stawek VAT do cache.", "SubiektService");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Error(ex, "SubiektService", "Błąd podczas wczytywania słownika stawek VAT");
+                    _vatRatesCache = new Dictionary<string, Models.VatRate>(); // Pusty słownik w przypadku błędu
+                }
+            }
+        }
+
+        /// <summary>
+        /// Wyszukuje stawkę VAT po symbolu (vat_Symbol)
+        /// Zwraca VatRate jeśli znaleziono, null w przeciwnym razie
+        /// </summary>
+        public Models.VatRate? WyszukajStawkeVAT(string vatSymbol)
+        {
+            if (string.IsNullOrWhiteSpace(vatSymbol))
+            {
+                return null;
+            }
+
+            // Upewnij się że cache jest załadowany
+            WczytajSlownikStawekVAT();
+
+            lock (_vatRatesCacheLock)
+            {
+                if (_vatRatesCache == null || _vatRatesCache.Count == 0)
+                {
+                    return null;
+                }
+
+                // Wyszukaj po kluczu (case-insensitive)
+                if (_vatRatesCache.TryGetValue(vatSymbol, out var vatRate))
+                {
+                    return vatRate;
+                }
+
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Sprawdza czy dokument z podanym numerem oryginalnym już istnieje w Subiekcie
         /// Zwraca dok_Id dokumentu jeśli istnieje, null w przeciwnym razie
         /// </summary>
@@ -1450,7 +1573,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
             InstancjaZmieniona?.Invoke(null, aktywna);
         }
 
-        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, double? glsKgAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        public void OtworzOknoZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmountNetto = null, double? shippingAmountNetto = null, string? currency = null, double? currencyValue = null, double? codFeeAmountNetto = null, string? orderTotal = null, double? glsAmountNetto = null, double? glsKgAmountNetto = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool useEuVatRate = false)
         {
             try
             {
@@ -1874,6 +1997,29 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             }
                         }
                         
+                        // Oblicz kurs waluty do przeliczania wartości z API (wartości z API są w walucie zamówienia, trzeba je przeliczyć na PLN)
+                        // currency_value z API oznacza ile PLN jest warte 1 jednostka waluty obcej (np. 1 EUR = 4.5 PLN)
+                        double currencyRate = 1.0; // Kurs do mnożenia wartości z API (przeliczanie na PLN)
+                        double subiektKurs = 1.0; // Kurs do ustawienia w Subiekcie (odwrotność currency_value)
+                        
+                        if (currencyValue.HasValue && currencyValue.Value > 0)
+                        {
+                            currencyRate = currencyValue.Value; // Do mnożenia wartości z API (przeliczanie na PLN)
+                            subiektKurs = 1.0 / currencyValue.Value; // Kurs w Subiekcie to odwrotność (ile jednostek waluty obcej na 1 PLN)
+                        }
+                        else if (!string.IsNullOrWhiteSpace(currency) && !currency.Equals("PLN", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Jeśli waluta nie jest PLN, ale brak kursu, loguj ostrzeżenie
+                            if (currencyValue.HasValue)
+                            {
+                                Warning($"currency_value z API ma nieprawidłową wartość: {currencyValue.Value:F4} (<= 0), używam kursu 1.0 dla waluty {currency}", "SubiektService");
+                            }
+                            else
+                            {
+                                Warning($"currency_value nie zostało odczytane z API (null), używam kursu 1.0 dla waluty {currency}", "SubiektService");
+                            }
+                        }
+                        
                         // Ustaw walutę dokumentu (jeśli została podana)
                         // Używamy atrybutu WalutaSymbol, który przyjmuje symbol waluty jako string (np. "EUR", "USD", "PLN")
                         if (!string.IsNullOrWhiteSpace(currency) && zkDokument != null)
@@ -1881,19 +2027,21 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             try
                             {
                                 zkDokument!.WalutaSymbol = currency;
-                                Info("Ustawiono walutę dokumentu ZK: {currency}", "SubiektService");
+                                zkDokument!.WalutaKurs = subiektKurs; // Kurs w Subiekcie to odwrotność currency_value
+                                zkDokument!.Przelicz();
+                                Info($"Ustawiono walutę dokumentu ZK: {currency}, kurs do przeliczenia wartości (currencyRate): {currencyRate:F4}, kurs w Subiekcie (subiektKurs): {subiektKurs:F4}", "SubiektService");
                                 
                                 // Opcjonalnie można pobrać kurs waluty automatycznie po ustawieniu symbolu
-                                try
-                                {
-                                    zkDokument!.PobierzKursWaluty();
-                                    Info("Pobrano kurs waluty dla {currency}", "SubiektService");
-                                }
-                                catch (Exception kursEx)
-                                {
-                                    Warning($"Nie udało się pobrać kursu waluty automatycznie: {kursEx.Message}", "SubiektService");
-                                    // To nie jest błąd krytyczny, kurs można ustawić ręcznie później
-                                }
+                                //try
+                                //{
+                                 //   zkDokument!.PobierzKursWaluty();
+                                   // Info("Pobrano kurs waluty dla {currency}", "SubiektService");
+                                //}
+                                //catch (Exception kursEx)
+                                //{
+                                //    Warning($"Nie udało się pobrać kursu waluty automatycznie: {kursEx.Message}", "SubiektService");
+                                //    // To nie jest błąd krytyczny, kurs można ustawić ręcznie później
+                                //}
                             }
                             catch (Exception walutaEx)
                             {
@@ -1907,7 +2055,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             try
                             {
                                 zkDokument!.LiczonyOdCenBrutto = true;
-                                Info("Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = true)", "SubiektService");
+                                Info("Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = false)", "SubiektService");
                             }
                             catch (Exception bruttoEx)
                             {
@@ -2014,6 +2162,9 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             }
                         }
                         
+                        // ID stawki VAT dla pozycji. Przydatne do ustawienia VatId dla pozycji kosztów i shipping
+                        int? vatIdKoszty = null;
+
                         // Dodaj pozycje z listy produktów (product_id)
                         if (items != null)
                         {
@@ -2036,6 +2187,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
 
                                         // Oblicz cenę brutto z API (Price + Tax)
                                         double? apiPriceBrutto = null;
+                                        double? apiPriceNetto = null;
                                         if (!string.IsNullOrWhiteSpace(it.Price))
                                         {
                                             try
@@ -2054,31 +2206,101 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                                 
                                                 // Oblicz cenę brutto
                                                 var priceBrutto = priceNetto + tax;
-                                                
-                                                // Odejmij procent kuponu od ceny brutto (jeśli kupon istnieje)
-                                                if (couponPercentage.HasValue)
-                                                {
-                                                    priceBrutto = priceBrutto * (1.0 - couponPercentage.Value / 100.0);
-                                                }
+                                            
                                                 
                                                 apiPriceBrutto = priceBrutto;
+                                                apiPriceNetto = priceNetto;
+
+                                                Info($"apiPriceBrutto={apiPriceBrutto.Value:F2}, apiPriceNetto={apiPriceNetto.Value:F2}", "SubiektService");
+                                                
                                             }
                                             catch (Exception priceEx)
                                             {
                                                 Error(priceEx, "SubiektService", $"Błąd parsowania ceny dla produktu {it.ProductId}");
                                                 apiPriceBrutto = null;
+                                                apiPriceNetto = null;
                                             }
                                         }
 
                                         // Ustaw cenę brutto po rabacie z API
-                                        if (apiPriceBrutto.HasValue)
+                                        if (apiPriceBrutto.HasValue && apiPriceNetto.HasValue)
                                         {
                                             try
                                             {
-                                                pozycja.CenaBruttoPoRabacie = apiPriceBrutto.Value;
-                                                //var priceNetto = double.Parse(it.Price, System.Globalization.CultureInfo.InvariantCulture);
-                                                //pozycja.CenaNettoPoRabacie = priceNetto;
-                                                Info("Ustawiono CenaBruttoPoRabacie={apiPriceBrutto.Value:F2} dla produktu ID={towarId} (Price={it.Price}, Tax={it.Tax})", "SubiektService");
+                                                //pozycja.CenaNettoPrzedRabatem = cenaNettoWPLN;
+                                                //pozycja.RabatProcent = 0;
+                                                pozycja.CenaNettoPoRabacie = apiPriceNetto.Value;
+                                                Info($"Ustawiono CenaNettoPoRabacie={apiPriceNetto.Value:F2} dla produktu ID={towarId} (apiPriceNetto={apiPriceNetto.Value:F2}, subiektKurs={subiektKurs:F4}, Price={it.Price}, Tax={it.Tax})", "SubiektService");
+                                                Info($"ISO Code 2 kraju: {isoCode2 ?? "brak"}", "SubiektService");
+                                                Info($"TaxRate dla pozycji ID={towarId}: {it.TaxRate ?? "brak"}", "SubiektService");
+                                                
+                                                // Sprawdź czy należy użyć stawki VAT UE (jeśli w totals pojawiła się pozycja "VAT EU Export")
+                                                if (useEuVatRate)
+                                                {
+                                                    try
+                                                    {
+                                                        // Wyszukaj stawkę VAT po symbolu "ue"
+                                                        var vatRate = WyszukajStawkeVAT("ue");
+                                                        
+                                                        if (vatRate != null)
+                                                        {
+                                                            pozycja.VatId = vatRate.VatId;
+                                                            vatIdKoszty = vatRate.VatId;
+                                                            Info($"Ustawiono VatId={vatRate.VatId} dla pozycji ID={towarId} (użyto stawki UE, VatStawka={vatRate.VatStawka}%)", "SubiektService");
+                                                        }
+                                                        else
+                                                        {
+                                                            Warning($"Nie udało się pobrać stawki VAT dla symbolu 'ue' dla pozycji ID={towarId}. Sprawdź czy stawka UE istnieje w słowniku stawek VAT.", "SubiektService");
+                                                        }
+                                                    }
+                                                    catch (Exception vatEx)
+                                                    {
+                                                        Warning($"Błąd podczas wyszukiwania i ustawiania stawki VAT UE dla pozycji ID={towarId}: {vatEx.Message}", "SubiektService");
+                                                    }
+                                                }
+                                                // Sprawdź czy TaxRate zaczyna się od prefiksu innego niż "PL" (np. CZ, SK)
+                                                // Jeśli tak, wyszukaj stawkę VAT w słowniku i ustaw VatId
+                                                else if (!string.IsNullOrWhiteSpace(it.TaxRate) && !it.TaxRate.StartsWith("PL", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    try
+                                                    {
+                                                        // Wyszukaj stawkę VAT po symbolu (np. "CZ-21", "SK-20", "23", itp.)
+                                                        var vatRate = WyszukajStawkeVAT(it.TaxRate);
+                                                        
+                                                        if (vatRate != null)
+                                                        {
+                                                            pozycja.VatId = vatRate.VatId;
+                                                            vatIdKoszty = vatRate.VatId;
+                                                            Info($"Ustawiono VatId={vatRate.VatId} dla pozycji ID={towarId} (TaxRate={it.TaxRate}, VatStawka={vatRate.VatStawka}%)", "SubiektService");
+                                                        }
+                                                        else
+                                                        {
+                                                            Warning($"Nie znaleziono stawki VAT dla symbolu '{it.TaxRate}' dla pozycji ID={towarId}. Sprawdź czy stawka istnieje w słowniku stawek VAT.", "SubiektService");
+                                                        }
+                                                    }
+                                                    catch (Exception vatEx)
+                                                    {
+                                                        Warning($"Błąd podczas wyszukiwania i ustawiania stawki VAT dla pozycji ID={towarId} (TaxRate={it.TaxRate}): {vatEx.Message}", "SubiektService");
+                                                    }
+                                                }
+                                                else if (!string.IsNullOrWhiteSpace(it.TaxRate))
+                                                {
+                                                    // Dla stawek VAT zaczynających się od "PL" również spróbuj wyszukać
+                                                    try
+                                                    {
+                                                        var vatRate = WyszukajStawkeVAT(it.TaxRate);
+                                                        
+                                                        if (vatRate != null)
+                                                        {
+                                                            pozycja.VatId = vatRate.VatId;
+                                                            Info($"Ustawiono VatId={vatRate.VatId} dla pozycji ID={towarId} (TaxRate={it.TaxRate}, VatStawka={vatRate.VatStawka}%)", "SubiektService");
+                                                        }
+                                                    }
+                                                    catch (Exception vatEx)
+                                                    {
+                                                        Debug($"Błąd podczas wyszukiwania stawki VAT dla pozycji ID={towarId} (TaxRate={it.TaxRate}): {vatEx.Message}", "SubiektService");
+                                                    }
+                                                }
                                             }
                                             catch (Exception cenaEx)
                                             {
@@ -2155,15 +2377,15 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         // Dodaj towar 'KOSZTY/1' na końcu
                         // Suma handling + gls (tylko gls BEZ "kg" w tytule)
                         double sumaKosztowKOSZTY1 = 0.0;
-                        if (handlingAmount.HasValue && handlingAmount.Value > 0.0)
+                        if (handlingAmountNetto.HasValue && handlingAmountNetto.Value > 0.0)
                         {
-                            sumaKosztowKOSZTY1 += handlingAmount.Value;
+                            sumaKosztowKOSZTY1 += handlingAmountNetto.Value;
                         }
-                        if (glsAmount.HasValue && glsAmount.Value > 0.0)
+                        if (glsAmountNetto.HasValue && glsAmountNetto.Value > 0.0)
                         {
-                            sumaKosztowKOSZTY1 += glsAmount.Value;
+                            sumaKosztowKOSZTY1 += glsAmountNetto.Value;
                         }
-                        // glsKgAmount nie jest dodawane do KOSZTY/1 - trafia do osobnego towaru "KOSZTY GIPS"
+                        // glsKgAmountNetto nie jest dodawane do KOSZTY/1 - trafia do osobnego towaru "KOSZTY GIPS"
                         
                         if (sumaKosztowKOSZTY1 > 0.0)
                         {
@@ -2177,17 +2399,20 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic kosztyPoz = pozycje.Dodaj(towarKoszty!.Identyfikator);
                                     try { kosztyPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę brutto na sumę handling + gls (wartości są już brutto po konwersji z netto)
+                                    // Ustaw cenę brutto na sumę handling + gls (wartości są netto)
                                     try 
                                     { 
-                                        Info($"Przed ustawieniem KOSZTY/1: sumaKosztowKOSZTY1={sumaKosztowKOSZTY1:F2}, handlingAmount={handlingAmount?.ToString("F2") ?? "null"}, glsAmount={glsAmount?.ToString("F2") ?? "null"}", "SubiektService");
-                                        kosztyPoz.CenaBruttoPoRabacie = sumaKosztowKOSZTY1;
+                                        Info($"Przed ustawieniem KOSZTY/1: sumaKosztowKOSZTY1={sumaKosztowKOSZTY1:F2}, subiektKurs={subiektKurs:F4}, handlingAmountNetto={handlingAmountNetto?.ToString("F2") ?? "null"}, glsAmountNetto={glsAmountNetto?.ToString("F2") ?? "null"}", "SubiektService");
+                                        //kosztyPoz.CenaNettoPrzedRabatem = sumaKosztowKOSZTY1;
+                                        //kosztyPoz.RabatProcent = 0;
+                                        kosztyPoz.CenaNettoPrzedRabatem = sumaKosztowKOSZTY1;
+                                        if (vatIdKoszty.HasValue) kosztyPoz.VatId = vatIdKoszty.Value;
                                         // Sprawdź wartość po ustawieniu
                                         var cenaPoUstawieniu = kosztyPoz.CenaBruttoPoRabacie;
                                         Info($"Po ustawieniu KOSZTY/1: CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
                                         var skladniki = new System.Collections.Generic.List<string>();
-                                        if (handlingAmount.HasValue && handlingAmount.Value > 0) skladniki.Add($"handling ({handlingAmount.Value:F2})");
-                                        if (glsAmount.HasValue && glsAmount.Value > 0) skladniki.Add($"gls ({glsAmount.Value:F2})");
+                                        if (handlingAmountNetto.HasValue && handlingAmountNetto.Value > 0) skladniki.Add($"handling ({handlingAmountNetto.Value:F2})");
+                                        if (glsAmountNetto.HasValue && glsAmountNetto.Value > 0) skladniki.Add($"gls ({glsAmountNetto.Value:F2})");
                                         Info($"Dodano towar 'KOSZTY/1' z ceną brutto {sumaKosztowKOSZTY1:F2} (składniki: {string.Join(" + ", skladniki)}).", "SubiektService");
                                     }
                                     catch
@@ -2211,7 +2436,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         }
                         
                         // Dodaj towar 'KOSZTY GIPS' na końcu (dla gls z "kg" w tytule)
-                        if (glsKgAmount.HasValue && glsKgAmount.Value > 0.0)
+                        if (glsKgAmountNetto.HasValue && glsKgAmountNetto.Value > 0.0)
                         {
                             try
                             {
@@ -2223,14 +2448,17 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic gipsPoz = pozycje.Dodaj(towarGips!.Identyfikator);
                                     try { gipsPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę brutto na wartość gls z "kg" (wartość jest już brutto po konwersji z netto)
+                                    // Ustaw cenę netto na wartość gls z "kg" (wartość jest netto)
                                     try 
                                     { 
-                                        Info($"Przed ustawieniem KOSZTY GIPS: glsKgAmount={glsKgAmount.Value:F2}", "SubiektService");
-                                        gipsPoz.CenaBruttoPoRabacie = glsKgAmount.Value;
+                                        Info($"Przed ustawieniem KOSZTY GIPS: glsKgAmountNetto={glsKgAmountNetto.Value:F2}, subiektKurs={subiektKurs:F4}", "SubiektService");
+                                        //gipsPoz.CenaNettoPrzedRabatem = glsKgAmountNetto.Value;
+                                        //gipsPoz.RabatProcent = 0;
+                                        gipsPoz.CenaNettoPrzedRabatem = glsKgAmountNetto.Value;
+                                        if (vatIdKoszty.HasValue) gipsPoz.VatId = vatIdKoszty.Value;
                                         var cenaPoUstawieniu = gipsPoz.CenaBruttoPoRabacie;
                                         Info($"Po ustawieniu KOSZTY GIPS: CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
-                                        Info($"Dodano towar 'KOSZTY GIPS' z ceną brutto gls z 'kg' ({glsKgAmount.Value:F2}).", "SubiektService");
+                                        Info($"Dodano towar 'KOSZTY GIPS' z ceną netto gls z 'kg' ({glsKgAmountNetto.Value:F2}).", "SubiektService");
                                     }
                                     catch
                                     {
@@ -2254,7 +2482,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
                         // Tylko jeśli w API jest shipping i wartość > 0
-                        if (shippingAmount.HasValue && shippingAmount.Value > 0.0)
+                        if (shippingAmountNetto.HasValue && shippingAmountNetto.Value > 0.0)
                         {
                             try
                             {
@@ -2266,14 +2494,15 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic shippingPoz = pozycje.Dodaj(towarShipping!.Identyfikator);
                                     try { shippingPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę brutto na wartość shipping z API (wartość jest już brutto po konwersji z netto)
+                                    // Ustaw cenę brutto na wartość shipping z API (wartość jest netto)
                                     try 
                                     { 
-                                        Info($"Przed ustawieniem KOSZTY/2 (shipping): shippingAmount={shippingAmount.Value:F2}", "SubiektService");
-                                        shippingPoz.CenaBruttoPoRabacie = shippingAmount.Value;
+                                        Info($"Przed ustawieniem KOSZTY/2 (shipping): shippingAmountNetto={shippingAmountNetto.Value:F2}, subiektKurs={subiektKurs:F4}", "SubiektService");
+                                        shippingPoz.CenaNettoPrzedRabatem = shippingAmountNetto.Value;
+                                        if (vatIdKoszty.HasValue) shippingPoz.VatId = vatIdKoszty.Value;
                                         var cenaPoUstawieniu = shippingPoz.CenaBruttoPoRabacie;
                                         Info($"Po ustawieniu KOSZTY/2 (shipping): CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
-                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto shipping ({shippingAmount.Value:F2}).", "SubiektService");
+                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto shipping ({shippingAmountNetto.Value:F2}).", "SubiektService");
                                     }
                                     catch
                                     {
@@ -2297,7 +2526,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
                         // Tylko jeśli w API jest cod_fee i wartość > 0
-                        if (codFeeAmount.HasValue && codFeeAmount.Value > 0.0)
+                        if (codFeeAmountNetto.HasValue && codFeeAmountNetto.Value > 0.0)
                         {
                             try
                             {
@@ -2309,11 +2538,15 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     dynamic pozycje = zkDokument!.Pozycje;
                                     dynamic codFeePoz = pozycje.Dodaj(towarCodFee!.Identyfikator);
                                     try { codFeePoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę brutto na wartość cod_fee z API (wartość jest już brutto po konwersji z netto)
+                                    // Ustaw cenę brutto na wartość cod_fee z API (wartość jest netto)
                                     try 
                                     { 
-                                        codFeePoz.CenaBruttoPoRabacie = codFeeAmount.Value;
-                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto cod_fee ({codFeeAmount.Value:F2}).", "SubiektService");
+                                        Info($"Przed ustawieniem KOSZTY/2 (cod_fee): codFeeAmountNetto={codFeeAmountNetto.Value:F2}, subiektKurs={subiektKurs:F4}", "SubiektService");
+                                        //codFeePoz.CenaNettoPrzedRabatem = codFeeAmountNetto.Value;
+                                        //codFeePoz.RabatProcent = 0;
+                                        codFeePoz.CenaNettoPrzedRabatem = codFeeAmountNetto.Value;
+                                        if (vatIdKoszty.HasValue) codFeePoz.VatId = vatIdKoszty.Value;
+                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto cod_fee ({codFeeAmountNetto.Value:F2}).", "SubiektService");
                                     }
                                     catch
                                     {
@@ -2334,6 +2567,8 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         {
                             Info("Brak cod_fee w API - pomijam dodawanie 'KOSZTY/2' dla cod_fee.", "SubiektService");
                         }
+
+                        //todo wstaw przeliczanie kursu waluty tutaj
                         
                         // Przelicz dokument przed odczytem wartości (może być wymagane)
                         if (zkDokument != null)
@@ -2358,9 +2593,9 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 if (double.TryParse(orderTotal, System.Globalization.NumberStyles.Float, 
                                     System.Globalization.CultureInfo.InvariantCulture, out double orderTotalValue))
                                 {
-                                    Info($"Wywołuję NadajRabatDoWartosci({orderTotalValue:F2}) na dokumencie ZK...", "SubiektService");
-                                    zkDokument.NadajRabatDoWartosci(orderTotalValue);
-                                    zkDokument.Przelicz();
+                                    Info($"Wywołuję NadajRabatDoWartosci({orderTotalValue:F2}) na dokumencie ZK (orderTotal={orderTotalValue:F2}, subiektKurs={subiektKurs:F4})...", "SubiektService");
+                                    //zkDokument!.NadajRabatDoWartosci(orderTotalValueWPLN);
+                                    zkDokument!.Przelicz();
                                     Info("NadajRabatDoWartosci wykonane pomyślnie - sprawdź czy checkbox został zaznaczony.", "SubiektService");
                                 }
                             }
@@ -2466,25 +2701,25 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                             
                                             // Sprawdź komponenty zamówienia z API (dla informacji)
                                             double sumaKosztow = 0.0;
-                                            if (handlingAmount.HasValue && handlingAmount.Value > 0.01)
+                                            if (handlingAmountNetto.HasValue && handlingAmountNetto.Value > 0.01)
                                             {
-                                                sumaKosztow += handlingAmount.Value;
-                                                Info("Handling z API: {handlingAmount.Value:F2}", "SubiektService");
+                                                sumaKosztow += handlingAmountNetto.Value;
+                                                Info("Handling z API: {handlingAmountNetto.Value:F2}", "SubiektService");
                                             }
-                                            if (glsAmount.HasValue && glsAmount.Value > 0.01)
+                                            if (glsAmountNetto.HasValue && glsAmountNetto.Value > 0.01)
                                             {
-                                                sumaKosztow += glsAmount.Value;
-                                                Info("Gls z API: {glsAmount.Value:F2}", "SubiektService");
+                                                sumaKosztow += glsAmountNetto.Value;
+                                                Info("Gls z API: {glsAmountNetto.Value:F2}", "SubiektService");
                                             }
-                                            if (shippingAmount.HasValue && shippingAmount.Value > 0.01)
+                                            if (shippingAmountNetto.HasValue && shippingAmountNetto.Value > 0.01)
                                             {
-                                                sumaKosztow += shippingAmount.Value;
-                                                Info("Shipping z API: {shippingAmount.Value:F2}", "SubiektService");
+                                                sumaKosztow += shippingAmountNetto.Value;
+                                                Info("Shipping z API: {shippingAmountNetto.Value:F2}", "SubiektService");
                                             }
-                                            if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01)
+                                            if (codFeeAmountNetto.HasValue && codFeeAmountNetto.Value > 0.01)
                                             {
-                                                sumaKosztow += codFeeAmount.Value;
-                                                Info("Cod_fee z API: {codFeeAmount.Value:F2}", "SubiektService");
+                                                sumaKosztow += codFeeAmountNetto.Value;
+                                                Info("Cod_fee z API: {codFeeAmountNetto.Value:F2}", "SubiektService");
                                             }
                                             if (sumaKosztow > 0.01)
                                             {
@@ -2506,18 +2741,18 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                                     wnioski.Add($"Suma ZK jest mniejsza o {brakujacaKwota:F2} - prawdopodobnie brakuje pozycji kosztów.");
                                                     
                                                     // Sprawdź które koszty mogą brakować
-                                                    if ((handlingAmount.HasValue && handlingAmount.Value > 0.01) || (glsAmount.HasValue && glsAmount.Value > 0.01))
+                                                    if ((handlingAmountNetto.HasValue && handlingAmountNetto.Value > 0.01) || (glsAmountNetto.HasValue && glsAmountNetto.Value > 0.01))
                                                     {
-                                                        double sumaKosztowKOSZTY1Wnioski = (handlingAmount ?? 0) + (glsAmount ?? 0);
-                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/1' (handling: {handlingAmount ?? 0:F2} + gls: {glsAmount ?? 0:F2} = {sumaKosztowKOSZTY1Wnioski:F2}).");
+                                                        double sumaKosztowKOSZTY1Wnioski = (handlingAmountNetto ?? 0) + (glsAmountNetto ?? 0);
+                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/1' (handling: {handlingAmountNetto ?? 0:F2} + gls: {glsAmountNetto ?? 0:F2} = {sumaKosztowKOSZTY1Wnioski:F2}).");
                                                     }
-                                                    if (shippingAmount.HasValue && shippingAmount.Value > 0.01)
+                                                    if (shippingAmountNetto.HasValue && shippingAmountNetto.Value > 0.01)
                                                     {
-                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/2' dla shipping ({shippingAmount.Value:F2}).");
+                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/2' dla shipping ({shippingAmountNetto.Value:F2}).");
                                                     }
-                                                    if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01)
+                                                    if (codFeeAmountNetto.HasValue && codFeeAmountNetto.Value > 0.01)
                                                     {
-                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/2' dla cod_fee ({codFeeAmount.Value:F2}).");
+                                                        wnioski.Add($"  Sprawdź czy dodano pozycję 'KOSZTY/2' dla cod_fee ({codFeeAmountNetto.Value:F2}).");
                                                     }
                                                 }
                                                 // Sprawdź czy ZK ma więcej niż API (może być różnica w cenach lub dodatkowe pozycje)
@@ -2532,9 +2767,9 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                                         int liczbaPozycjiZK = pozycje.Liczba;
                                                         int liczbaProduktow = items.Count();
                                                         int liczbaKosztow = 0;
-                                                        if ((handlingAmount.HasValue && handlingAmount.Value > 0.01) || (glsAmount.HasValue && glsAmount.Value > 0.01)) liczbaKosztow++; // KOSZTY/1 dla handling+gls
-                                                        if (shippingAmount.HasValue && shippingAmount.Value > 0.01) liczbaKosztow++; // KOSZTY/2 dla shipping
-                                                        if (codFeeAmount.HasValue && codFeeAmount.Value > 0.01) liczbaKosztow++; // KOSZTY/2 dla cod_fee
+                                                        if ((handlingAmountNetto.HasValue && handlingAmountNetto.Value > 0.01) || (glsAmountNetto.HasValue && glsAmountNetto.Value > 0.01)) liczbaKosztow++; // KOSZTY/1 dla handling+gls
+                                                        if (shippingAmountNetto.HasValue && shippingAmountNetto.Value > 0.01) liczbaKosztow++; // KOSZTY/2 dla shipping
+                                                        if (codFeeAmountNetto.HasValue && codFeeAmountNetto.Value > 0.01) liczbaKosztow++; // KOSZTY/2 dla cod_fee
                                                         
                                                         int oczekiwanaLiczbaPozycji = liczbaProduktow + liczbaKosztow;
                                                         if (liczbaPozycjiZK != oczekiwanaLiczbaPozycji)
@@ -2563,9 +2798,12 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                             // Użyj waluty z API, jeśli jest dostępna, w przeciwnym razie domyślnie PLN
                                             string walutaDisplay = !string.IsNullOrWhiteSpace(currency) ? currency : "PLN";
                                             
-                                            string komunikat = $"Suma wartości pozycji w dokumencie ZK: {sumaWartosci:F2} {walutaDisplay}\nWartość zamówienia z API: {orderTotalValue:F2} {walutaDisplay}\n\nRóżnica: {roznica:F2} {walutaDisplay} ({roznicaProcent:F2}%)\n\nKorekta zostanie wykonana w następującej kolejności:\n1. Pozycja KOSZTY/1 (jeśli istnieje)\n2. Pozycja KOSZTY/2 (jeśli istnieje)\n3. Pierwsza pozycja produktowa";
+                                            string komunikat = $"Suma wartości pozycji w dokumencie ZK: {sumaWartosci:F2} {walutaDisplay}\nWartość zamówienia z API: {orderTotalValue:F2} {walutaDisplay}\n\nRóżnica: {roznica:F2} {walutaDisplay} ({roznicaProcent:F2}%)\n\nKorekta zostanie wykonana poprzez nadanie rabatu od wartości dokumentu.";
                                             
-                                            var dialog = new Gryzak.Views.KorektaWartosciDialog(komunikat);
+                                            // Sprawdź czy jest kupon rabatowy
+                                            bool hasCoupon = couponAmount.HasValue && couponAmount.Value > 0.01;
+                                            
+                                            var dialog = new Gryzak.Views.KorektaWartosciDialog(komunikat, hasCoupon, couponTitle, couponAmount, walutaDisplay);
                                             bool czyKorygowac = dialog.ShowDialog() == true && dialog.CzyKorygowac;
                                             
                                             // Sprawdź czy użytkownik anulował - jeśli tak, przerwij otwieranie ZK
@@ -2575,318 +2813,74 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                                 return; // Przerwij otwieranie ZK
                                             }
                                             
+                                            //korygowanie wartosc przy uzyciu wbudowanej funkcji w subiekcie
                                             if (czyKorygowac)
                                             {
-                                                // Koryguj różnicę w kolejności: KOSZTY/1 -> KOSZTY/2 -> pierwsza pozycja produktowa
-                                                try
+                                                 try
                                                 {
-                                                    if (pozycje.Liczba > 0)
+                                                    if (double.TryParse(orderTotal, System.Globalization.NumberStyles.Float, 
+                                                    System.Globalization.CultureInfo.InvariantCulture, out double orderTotalValueKorygowanie))
                                                     {
-                                                        // Pobierz identyfikatory towarów KOSZTY/1 i KOSZTY/2
-                                                        int? towarKOSZTY1Id = null;
-                                                        int? towarKOSZTY2Id = null;
+                                                        Info($"Wywołuję NadajRabatDoWartosci({orderTotalValueKorygowanie:F2}) na dokumencie ZK (orderTotal={orderTotalValueKorygowanie:F2}, subiektKurs={subiektKurs:F4})...", "SubiektService");
+                                                        zkDokument!.NadajRabatDoWartosci(orderTotalValueKorygowanie);
+                                                        zkDokument!.Przelicz();
+                                                        Info("NadajRabatDoWartosci wykonane pomyślnie - sprawdź czy checkbox został zaznaczony.", "SubiektService");
                                                         
+                                                        // Ponownie sprawdź czy wartości się zgadzają po korekcie
                                                         try
                                                         {
-                                                            dynamic towary = subiekt.Towary;
-                                                            dynamic towarKOSZTY1 = towary.Wczytaj("KOSZTY/1");
-                                                            if (towarKOSZTY1 != null)
-                                                            {
-                                                                towarKOSZTY1Id = towarKOSZTY1.Identyfikator;
-                                                            }
-                                                            dynamic towarKOSZTY2 = towary.Wczytaj("KOSZTY/2");
-                                                            if (towarKOSZTY2 != null)
-                                                            {
-                                                                towarKOSZTY2Id = towarKOSZTY2.Identyfikator;
-                                                            }
-                                                        }
-                                                        catch
-                                                        {
-                                                            Info("Nie udało się odczytać identyfikatorów towarów KOSZTY.", "SubiektService");
-                                                        }
-                                                        
-                                                        double pozostalaRoznica = roznica;
-                                                        bool czyZKwieksze = sumaWartosci > orderTotalValue;
-                                                        
-                                                        // Krok 1: Spróbuj skorygować KOSZTY/1 jeśli istnieje
-                                                        if (towarKOSZTY1Id.HasValue && pozostalaRoznica > 0.001)
-                                                        {
-                                                            for (int i = 1; i <= pozycje.Liczba; i++)
+                                                            double sumaWartosciPoKorekcie = 0.0;
+                                                            dynamic pozycjePoKorekcie = zkDokument.Pozycje;
+                                                            int liczbaPozycjiPoKorekcie = pozycjePoKorekcie.Liczba;
+                                                            
+                                                            for (int i = 1; i <= liczbaPozycjiPoKorekcie; i++)
                                                             {
                                                                 try
                                                                 {
-                                                                    dynamic poz = pozycje.Element(i);
-                                                                    int? towarId = null;
+                                                                    dynamic pozycja = pozycjePoKorekcie.Element(i);
+                                                                    double wartoscPozycji = 0.0;
                                                                     try
                                                                     {
-                                                                        dynamic towar = poz.Towar;
-                                                                        if (towar != null)
-                                                                        {
-                                                                            towarId = towar.Identyfikator;
-                                                                        }
+                                                                        var wartosc = pozycja.WartoscBruttoPoRabacie;
+                                                                        wartoscPozycji = Convert.ToDouble(wartosc);
                                                                     }
-                                                                    catch
+                                                                    catch (Exception wartoscEx)
                                                                     {
-                                                                        try
-                                                                        {
-                                                                            towarId = poz.IdentyfikatorTowaru;
-                                                                        }
-                                                                        catch { }
+                                                                        Warning($"Błąd odczytu WartoscBruttoPoRabacie dla pozycji {i} po korekcie: {wartoscEx.Message}", "SubiektService");
                                                                     }
                                                                     
-                                                                    if (towarId.HasValue && towarId.Value == towarKOSZTY1Id.Value)
-                                                                    {
-                                                                        // To jest pozycja KOSZTY/1 - skoryguj ją
-                                                                        double aktualnaWartosc = 0.0;
-                                                                        try
-                                                                        {
-                                                                            var wartosc = poz.WartoscBruttoPoRabacie;
-                                                                            aktualnaWartosc = Convert.ToDouble(wartosc);
-                                                                        }
-                                                                        catch { }
-                                                                        
-                                                                        double ilosc = 1.0;
-                                                                        try
-                                                                        {
-                                                                            ilosc = Convert.ToDouble(poz.IloscJm);
-                                                                        }
-                                                                        catch { }
-                                                                        
-                                                                        if (ilosc > 0)
-                                                                        {
-                                                                            double nowaWartosc = czyZKwieksze
-                                                                                ? Math.Max(0, aktualnaWartosc - pozostalaRoznica)
-                                                                                : aktualnaWartosc + pozostalaRoznica;
-                                                                            double nowaCenaBrutto = nowaWartosc / ilosc;
-                                                                            
-                                                                            poz.CenaBruttoPoRabacie = nowaCenaBrutto;
-                                                                            zkDokument.Przelicz();
-                                                                            
-                                                                            Info("Skorygowano pozycję KOSZTY/1 (pozycja {i}):", "SubiektService");
-                                                                            Info("  Stara wartość: {aktualnaWartosc:F2}", "SubiektService");
-                                                                            Debug($"  Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}", "SubiektService");
-                                                                            Info("  Nowa wartość: {nowaWartosc:F2}", "SubiektService");
-                                                                            
-                                                                            // Oblicz ile różnicy zostało skorygowane
-                                                                            double skorygowanaRoznica = Math.Abs(aktualnaWartosc - nowaWartosc);
-                                                                            pozostalaRoznica -= skorygowanaRoznica;
-                                                                            
-                                                                            if (pozostalaRoznica <= 0.001) break;
-                                                                        }
-                                                                    }
+                                                                    sumaWartosciPoKorekcie += wartoscPozycji;
                                                                 }
-                                                                catch { }
-                                                            }
-                                                        }
-                                                        
-                                                        // Krok 2: Spróbuj skorygować KOSZTY/2 jeśli istnieje i różnica nadal jest
-                                                        if (towarKOSZTY2Id.HasValue && pozostalaRoznica > 0.001)
-                                                        {
-                                                            for (int i = 1; i <= pozycje.Liczba; i++)
-                                                            {
-                                                                try
+                                                                catch (Exception pozycjaEx)
                                                                 {
-                                                                    dynamic poz = pozycje.Element(i);
-                                                                    int? towarId = null;
-                                                                    try
-                                                                    {
-                                                                        dynamic towar = poz.Towar;
-                                                                        if (towar != null)
-                                                                        {
-                                                                            towarId = towar.Identyfikator;
-                                                                        }
-                                                                    }
-                                                                    catch
-                                                                    {
-                                                                        try
-                                                                        {
-                                                                            towarId = poz.IdentyfikatorTowaru;
-                                                                        }
-                                                                        catch { }
-                                                                    }
-                                                                    
-                                                                    if (towarId.HasValue && towarId.Value == towarKOSZTY2Id.Value)
-                                                                    {
-                                                                        // To jest pozycja KOSZTY/2 - skoryguj ją
-                                                                        double aktualnaWartosc = 0.0;
-                                                                        try
-                                                                        {
-                                                                            var wartosc = poz.WartoscBruttoPoRabacie;
-                                                                            aktualnaWartosc = Convert.ToDouble(wartosc);
-                                                                        }
-                                                                        catch { }
-                                                                        
-                                                                        double ilosc = 1.0;
-                                                                        try
-                                                                        {
-                                                                            ilosc = Convert.ToDouble(poz.IloscJm);
-                                                                        }
-                                                                        catch { }
-                                                                        
-                                                                        if (ilosc > 0)
-                                                                        {
-                                                                            double nowaWartosc = czyZKwieksze
-                                                                                ? Math.Max(0, aktualnaWartosc - pozostalaRoznica)
-                                                                                : aktualnaWartosc + pozostalaRoznica;
-                                                                            double nowaCenaBrutto = nowaWartosc / ilosc;
-                                                                            
-                                                                            poz.CenaBruttoPoRabacie = nowaCenaBrutto;
-                                                                            zkDokument.Przelicz();
-                                                                            
-                                                                            Info("Skorygowano pozycję KOSZTY/2 (pozycja {i}):", "SubiektService");
-                                                                            Info("  Stara wartość: {aktualnaWartosc:F2}", "SubiektService");
-                                                                            Debug($"  Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}", "SubiektService");
-                                                                            Info("  Nowa wartość: {nowaWartosc:F2}", "SubiektService");
-                                                                            
-                                                                            // Oblicz ile różnicy zostało skorygowane
-                                                                            double skorygowanaRoznica = Math.Abs(aktualnaWartosc - nowaWartosc);
-                                                                            pozostalaRoznica -= skorygowanaRoznica;
-                                                                            
-                                                                            if (pozostalaRoznica <= 0.001) break;
-                                                                        }
-                                                                    }
+                                                                    Warning($"Błąd odczytu pozycji {i} po korekcie: {pozycjaEx.Message}", "SubiektService");
                                                                 }
-                                                                catch { }
                                                             }
-                                                        }
-                                                        
-                                                        // Krok 3: Jeśli nadal jest różnica, skoryguj pierwszą pozycję produktową (pierwsza nie-KOSZTY)
-                                                        if (pozostalaRoznica > 0.001)
-                                                        {
-                                                            for (int i = 1; i <= pozycje.Liczba; i++)
+                                                            
+                                                            double roznicaPoKorekcie = Math.Abs(sumaWartosciPoKorekcie - orderTotalValueKorygowanie);
+                                                            Info($"Po korekcie - Suma wartości ZK: {sumaWartosciPoKorekcie:F2}, Wartość z API: {orderTotalValueKorygowanie:F2}, Różnica: {roznicaPoKorekcie:F2}", "SubiektService");
+                                                            
+                                                            if (roznicaPoKorekcie > 0.001)
                                                             {
-                                                                try
-                                                                {
-                                                                    dynamic poz = pozycje.Element(i);
-                                                                    int? towarId = null;
-                                                                    bool jestKoszty = false;
-                                                                    try
-                                                                    {
-                                                                        dynamic towar = poz.Towar;
-                                                                        if (towar != null)
-                                                                        {
-                                                                            towarId = towar.Identyfikator;
-                                                                            if (towarId.HasValue && towarKOSZTY1Id.HasValue && towarId.Value == towarKOSZTY1Id.Value)
-                                                                            {
-                                                                                jestKoszty = true;
-                                                                            }
-                                                                            if (towarId.HasValue && towarKOSZTY2Id.HasValue && towarId.Value == towarKOSZTY2Id.Value)
-                                                                            {
-                                                                                jestKoszty = true;
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                    catch
-                                                                    {
-                                                                        try
-                                                                        {
-                                                                            towarId = poz.IdentyfikatorTowaru;
-                                                                            if (towarId.HasValue && towarKOSZTY1Id.HasValue && towarId.Value == towarKOSZTY1Id.Value)
-                                                                            {
-                                                                                jestKoszty = true;
-                                                                            }
-                                                                            if (towarId.HasValue && towarKOSZTY2Id.HasValue && towarId.Value == towarKOSZTY2Id.Value)
-                                                                            {
-                                                                                jestKoszty = true;
-                                                                            }
-                                                                        }
-                                                                        catch { }
-                                                                    }
-                                                                    
-                                                                    if (!jestKoszty)
-                                                                    {
-                                                                        // To jest pozycja produktowa - skoryguj ją
-                                                                        double aktualnaWartosc = 0.0;
-                                                                        try
-                                                                        {
-                                                                            var wartosc = poz.WartoscBruttoPoRabacie;
-                                                                            aktualnaWartosc = Convert.ToDouble(wartosc);
-                                                                        }
-                                                                        catch { }
-                                                                        
-                                                                        double ilosc = 0.0;
-                                                                        try
-                                                                        {
-                                                                            ilosc = Convert.ToDouble(poz.IloscJm);
-                                                                        }
-                                                                        catch { }
-                                                                        
-                                                                        if (ilosc > 0)
-                                                                        {
-                                                                            double nowaWartosc = czyZKwieksze
-                                                                                ? aktualnaWartosc - pozostalaRoznica
-                                                                                : aktualnaWartosc + pozostalaRoznica;
-                                                                            double nowaCenaBrutto = nowaWartosc / ilosc;
-                                                                            
-                                                                            poz.CenaBruttoPoRabacie = nowaCenaBrutto;
-                                                                            zkDokument.Przelicz();
-                                                                            
-                                                                            Info("Skorygowano pierwszą pozycję produktową (pozycja {i}):", "SubiektService");
-                                                                            Info("  Stara wartość: {aktualnaWartosc:F2}", "SubiektService");
-                                                                            Debug($"  Różnica: {(czyZKwieksze ? "-" : "+")}{pozostalaRoznica:F2}", "SubiektService");
-                                                                            Info("  Nowa wartość: {nowaWartosc:F2}", "SubiektService");
-                                                                            Info("  Nowa cena brutto: {nowaCenaBrutto:F2}", "SubiektService");
-                                                                            
-                                                                            pozostalaRoznica = 0.0;
-                                                                            break; // Korekta zakończona
-                                                                        }
-                                                                    }
-                                                                }
-                                                                catch { }
+                                                                string walutaDisplayPoKorekcie = !string.IsNullOrWhiteSpace(currency) ? currency : "PLN";
+                                                                string komunikatBlad = $"Korekta nie powiodła się.\n\nSuma wartości pozycji w dokumencie ZK: {sumaWartosciPoKorekcie:F2} {walutaDisplayPoKorekcie}\nWartość zamówienia z API: {orderTotalValueKorygowanie:F2} {walutaDisplayPoKorekcie}\n\nNadal występuje różnica: {roznicaPoKorekcie:F2} {walutaDisplayPoKorekcie}";
+                                                                System.Windows.MessageBox.Show(komunikatBlad, "Korekta nie powiodła się", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                                                                Warning($"Korekta nie powiodła się - nadal występuje różnica: {roznicaPoKorekcie:F2} {walutaDisplayPoKorekcie}", "SubiektService");
                                                             }
-                                                        }
-                                                        
-                                                        // Przelicz dokument po wszystkich zmianach
-                                                        zkDokument.Przelicz();
-                                                        
-                                                        // Odczytaj sumę ponownie po korekcie
-                                                        double sumaPoKorekcie = 0.0;
-                                                        for (int j = 1; j <= pozycje.Liczba; j++)
-                                                        {
-                                                            try
+                                                            else
                                                             {
-                                                                dynamic poz = pozycje.Element(j);
-                                                                var wart = poz.WartoscBruttoPoRabacie;
-                                                                sumaPoKorekcie += Convert.ToDouble(wart);
+                                                                Info("Korekta zakończona pomyślnie - wartości się zgadzają.", "SubiektService");
                                                             }
-                                                            catch { }
                                                         }
-                                                        
-                                                        double roznicaPoKorekcie = Math.Abs(sumaPoKorekcie - orderTotalValue);
-                                                        Info("Suma po korekcie: {sumaPoKorekcie:F2}", "SubiektService");
-                                                        Info("Różnica po korekcie: {roznicaPoKorekcie:F2}", "SubiektService");
-                                                        
-                                                        if (roznicaPoKorekcie <= 0.001)
+                                                        catch (Exception sprawdzenieEx)
                                                         {
-                                                            Info("Korekta zakończona pomyślnie. Wartości są teraz zgodne.", "SubiektService");
+                                                            Warning($"Błąd podczas ponownego sprawdzania wartości po korekcie: {sprawdzenieEx.Message}", "SubiektService");
                                                         }
-                                                        else
-                                                        {
-                                                            MessageBox.Show(
-                                                                $"Korekta wykonana, ale różnica nadal wynosi {roznicaPoKorekcie:F2}.\n\nMożliwe przyczyny: zaokrąglenia lub różnice w VAT.",
-                                                                "Błąd korekty",
-                                                                System.Windows.MessageBoxButton.OK,
-                                                                System.Windows.MessageBoxImage.Warning);
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        Info("Błąd: Brak pozycji w dokumencie - nie można wykonać korekty.", "SubiektService");
-                                                        MessageBox.Show(
-                                                            "Nie można skorygować - brak pozycji w dokumencie.",
-                                                            "Błąd korekty",
-                                                            System.Windows.MessageBoxButton.OK,
-                                                            System.Windows.MessageBoxImage.Error);
                                                     }
                                                 }
-                                                catch (Exception cenaEx)
+                                                catch (Exception korygowanieEx)
                                                 {
-                                                    Warning($"Błąd podczas korekty ceny: {cenaEx.Message}", "SubiektService");
-                                                    MessageBox.Show(
-                                                        $"Błąd podczas korekty: {cenaEx.Message}",
-                                                        "Błąd korekty",
-                                                        System.Windows.MessageBoxButton.OK,
-                                                        System.Windows.MessageBoxImage.Error);
+                                                    Warning($"Błąd podczas korygowania wartości: {korygowanieEx.Message}", "SubiektService");
                                                 }
                                             }
                                             else
@@ -3045,13 +3039,13 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
         /// Otwiera okno ZK bez sprawdzania czy dokument już istnieje - zawsze tworzy nowy dokument
         /// Używa OtworzOknoZK z orderId = null aby pominąć sprawdzanie istnienia dokumentu
         /// </summary>
-        public void OtworzNoweZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmount = null, double? shippingAmount = null, string? currency = null, double? codFeeAmount = null, string? orderTotal = null, double? glsAmount = null, double? glsKgAmount = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        public void OtworzNoweZK(string? nip = null, System.Collections.Generic.IEnumerable<Gryzak.Models.Product>? items = null, double? couponAmount = null, double? subTotal = null, string? couponTitle = null, string? orderId = null, double? handlingAmountNetto = null, double? shippingAmountNetto = null, string? currency = null, double? currencyValue = null, double? codFeeAmountNetto = null, string? orderTotal = null, double? glsAmountNetto = null, double? glsKgAmountNetto = null, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool useEuVatRate = false)
         {
             Info("OtworzNoweZK: Pomijam sprawdzanie istnienia dokumentu - zawsze tworzę nowy dokument ZK.", "SubiektService");
             
             // Wywołaj OtworzOknoZK z orderId = null aby pominąć sprawdzanie istnienia dokumentu
             // Sprawdzanie w OtworzOknoZK jest wykonywane tylko jeśli orderId nie jest null i nie jest pusty
-            OtworzOknoZK(nip, items, couponAmount, subTotal, couponTitle, null, handlingAmount, shippingAmount, currency, codFeeAmount, orderTotal, glsAmount, glsKgAmount, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
+            OtworzOknoZK(nip, items, couponAmount, subTotal, couponTitle, null, handlingAmountNetto, shippingAmountNetto, currency, currencyValue, codFeeAmountNetto, orderTotal, glsAmountNetto, glsKgAmountNetto, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
         }
     }
 }

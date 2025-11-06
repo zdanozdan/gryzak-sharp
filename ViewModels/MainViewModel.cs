@@ -645,7 +645,7 @@ namespace Gryzak.ViewModels
             {
                 orderEmail = null;
             }
-            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, SelectedOrder?.GlsKgAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
+            subiektService.OtworzOknoZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmountNetto, SelectedOrder?.ShippingAmountNetto, SelectedOrder?.Currency, SelectedOrder?.CurrencyValue, SelectedOrder?.CodFeeAmountNetto, SelectedOrder?.Total, SelectedOrder?.GlsAmountNetto, SelectedOrder?.GlsKgAmountNetto, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2, SelectedOrder?.UseEuVatRate ?? false);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
         
@@ -684,7 +684,7 @@ namespace Gryzak.ViewModels
                 orderEmail = null;
             }
             // Użyj OtworzNoweZK - zawsze tworzy nowy dokument bez sprawdzania istnienia
-            subiektService.OtworzNoweZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmount, SelectedOrder?.ShippingAmount, SelectedOrder?.Currency, SelectedOrder?.CodFeeAmount, SelectedOrder?.Total, SelectedOrder?.GlsAmount, SelectedOrder?.GlsKgAmount, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2);
+            subiektService.OtworzNoweZK(nip, SelectedOrder?.Items, SelectedOrder?.CouponAmount, SelectedOrder?.SubTotal, SelectedOrder?.CouponTitle, SelectedOrder?.Id, SelectedOrder?.HandlingAmountNetto, SelectedOrder?.ShippingAmountNetto, SelectedOrder?.Currency, SelectedOrder?.CurrencyValue, SelectedOrder?.CodFeeAmountNetto, SelectedOrder?.Total, SelectedOrder?.GlsAmountNetto, SelectedOrder?.GlsKgAmountNetto, orderEmail, SelectedOrder?.Customer, SelectedOrder?.Phone, SelectedOrder?.Company, SelectedOrder?.Address, SelectedOrder?.PaymentAddress1, SelectedOrder?.PaymentAddress2, SelectedOrder?.PaymentPostcode, SelectedOrder?.PaymentCity, SelectedOrder?.Country, SelectedOrder?.IsoCode2, SelectedOrder?.UseEuVatRate ?? false);
             // Status zostanie zaktualizowany przez event InstancjaZmieniona
         }
 
@@ -1188,6 +1188,22 @@ namespace Gryzak.ViewModels
                 }
                 
                 var currency = root.TryGetProperty("currency_code", out var curr) ? curr.GetString() ?? "PLN" : "PLN";
+                double? currencyValue = null;
+                if (root.TryGetProperty("currency_value", out var currValue))
+                {
+                    if (currValue.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        currencyValue = currValue.GetDouble();
+                    }
+                    else if (currValue.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var currValueStr = currValue.GetString();
+                        if (double.TryParse(currValueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsedValue))
+                        {
+                            currencyValue = parsedValue;
+                        }
+                    }
+                }
                 var dateAdded = root.TryGetProperty("date_added", out var date) ? date.GetString() ?? "" : "";
                 
                 // Parsuj datę
@@ -1274,6 +1290,7 @@ namespace Gryzak.ViewModels
                     PaymentStatus = paymentStatus,
                     Total = formattedTotal,
                     Currency = currency,
+                    CurrencyValue = currencyValue,
                     Date = dateParsed,
                     Country = mappedCountry,
                     IsoCode2 = isoCode2,
@@ -1430,6 +1447,30 @@ namespace Gryzak.ViewModels
                     Debug("Zaktualizowano ISO Code 3: {order.IsoCode3}", "MainViewModel");
                 }
 
+                // Aktualizuj currency_value z API
+                if (root.TryGetProperty("currency_value", out var currValueProp))
+                {
+                    double? currencyValue = null;
+                    if (currValueProp.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        currencyValue = currValueProp.GetDouble();
+                    }
+                    else if (currValueProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var currValueStr = currValueProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(currValueStr) && double.TryParse(currValueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsedValue))
+                        {
+                            currencyValue = parsedValue;
+                        }
+                    }
+                    
+                    if (currencyValue.HasValue)
+                    {
+                        order.CurrencyValue = currencyValue;
+                        Debug("Zaktualizowano currency_value: {currencyValue.Value:F4}", "MainViewModel");
+                    }
+                }
+
                 // Produkty
                 try
                 {
@@ -1495,8 +1536,8 @@ namespace Gryzak.ViewModels
 
                 // Totals - wyszukaj kupon i sub_total (API zwraca wartości netto dla kosztów)
                 // Resetuj wartości przed parsowaniem, aby uniknąć kumulowania przy wielokrotnym wywołaniu
-                order.GlsKgAmount = null;
-                order.GlsAmount = null;
+                order.GlsKgAmountNetto = null;
+                order.GlsAmountNetto = null;
                 
                 // Flagi do sprawdzenia czy API zwraca wartości brutto dla konkretnych kosztów
                 bool hasHandlingBrutto = false;
@@ -1572,9 +1613,9 @@ namespace Gryzak.ViewModels
                                     }
                                     else if (code == "handling")
                                     {
-                                        // Jeśli API nie ma brutto, wartości są netto - przechowujemy jako netto, brutto obliczymy później
-                                        order.HandlingAmount = valueParsed.Value;
-                                        Debug("Znaleziono handling (netto): {order.HandlingAmount:F2}", "MainViewModel");
+                                        // Wartości z API są netto
+                                        order.HandlingAmountNetto = valueParsed.Value;
+                                        Debug("Znaleziono handling (netto): {order.HandlingAmountNetto:F2}", "MainViewModel");
                                     }
                                     else if (code == "gls")
                                     {
@@ -1590,79 +1631,52 @@ namespace Gryzak.ViewModels
                                         if (zawieraKg)
                                         {
                                             // Sumuj pozycje gls z "kg" w tytule (wartości netto)
-                                            order.GlsKgAmount = (order.GlsKgAmount ?? 0.0) + valueParsed.Value;
-                                            Debug("Znaleziono gls z 'kg' (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsKgAmount:F2}", "MainViewModel");
+                                            order.GlsKgAmountNetto = (order.GlsKgAmountNetto ?? 0.0) + valueParsed.Value;
+                                            Debug("Znaleziono gls z 'kg' (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsKgAmountNetto:F2}", "MainViewModel");
                                         }
                                         else
                                         {
-                                            // Zwykły gls - dodaj do GlsAmount (lub sumuj jeśli wiele pozycji) - wartości netto
-                                            order.GlsAmount = (order.GlsAmount ?? 0.0) + valueParsed.Value;
-                                            Debug("Znaleziono gls (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsAmount:F2}", "MainViewModel");
+                                            // Zwykły gls - dodaj do GlsAmountNetto (lub sumuj jeśli wiele pozycji) - wartości netto
+                                            order.GlsAmountNetto = (order.GlsAmountNetto ?? 0.0) + valueParsed.Value;
+                                            Debug("Znaleziono gls (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsAmountNetto:F2}", "MainViewModel");
                                         }
                                     }
                                     else if (code == "shipping")
                                     {
                                         // Wartości netto z API
-                                        order.ShippingAmount = valueParsed.Value;
-                                        Debug("Znaleziono shipping (netto): {order.ShippingAmount:F2}", "MainViewModel");
+                                        order.ShippingAmountNetto = valueParsed.Value;
+                                        Debug("Znaleziono shipping (netto): {order.ShippingAmountNetto:F2}", "MainViewModel");
                                     }
                                     else if (code == "cod_fee")
                                     {
                                         // Wartości netto z API
-                                        order.CodFeeAmount = valueParsed.Value;
-                                        Debug("Znaleziono cod_fee (netto): {order.CodFeeAmount:F2}", "MainViewModel");
+                                        order.CodFeeAmountNetto = valueParsed.Value;
+                                        Debug("Znaleziono cod_fee (netto): {order.CodFeeAmountNetto:F2}", "MainViewModel");
                                     }
                                     else if (code == "total")
                                     {
                                         order.Total = valueParsed.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
                                         Debug("Znaleziono total: {order.Total}", "MainViewModel");
                                     }
-                                    // Pomijamy pozycje "tax", "vat", "brutto" - są to pozycje dla całego zamówienia
+                                    else if (code == "tax")
+                                    {
+                                        // Sprawdź czy tytuł zaczyna się od "VAT EU Export"
+                                        string? title = null;
+                                        if (totalEl.TryGetProperty("title", out var titleProp) && titleProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                                        {
+                                            title = titleProp.GetString();
+                                        }
+                                        
+                                        if (!string.IsNullOrWhiteSpace(title) && title.StartsWith("VAT EU Export", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            order.UseEuVatRate = true;
+                                            Debug("Znaleziono VAT EU Export w totals - ustawiono UseEuVatRate=true (tytuł: {title})", "MainViewModel");
+                                        }
+                                    }
+                                    // Pomijamy pozycje "vat", "brutto" - są to pozycje dla całego zamówienia
                                     // Wartości kosztów (handling, gls, shipping, cod_fee) w totals są zawsze netto
                                 }
                             }
-                        }
-                        
-                        // Zawsze konwertuj wartości netto na brutto (VAT 23%)
-                        // Użytkownik potwierdził że wartości z totals są zawsze netto
-                        // Wartości w Order przechowujemy jako brutto dla kosztów (bo używamy CenaBruttoPoRabacie w Subiekt)
-                        Info("Konwertuję wartości kosztów z netto na brutto (VAT 23%) - wartości z totals są zawsze netto", "MainViewModel");
-                        const double vatRate = 1.23; // VAT 23%
-                        
-                        // Konwertuj wartości netto na brutto
-                        if (order.HandlingAmount.HasValue && order.HandlingAmount.Value > 0)
-                        {
-                            var netto = order.HandlingAmount.Value;
-                            order.HandlingAmount = netto * vatRate;
-                            Info($"Konwersja handling: netto {netto:F2} -> brutto {order.HandlingAmount:F2}", "MainViewModel");
-                        }
-                        
-                        if (order.GlsAmount.HasValue && order.GlsAmount.Value > 0)
-                        {
-                            var netto = order.GlsAmount.Value;
-                            order.GlsAmount = netto * vatRate;
-                            Info($"Konwersja gls: netto {netto:F2} -> brutto {order.GlsAmount:F2}", "MainViewModel");
-                        }
-                        
-                        if (order.GlsKgAmount.HasValue && order.GlsKgAmount.Value > 0)
-                        {
-                            var netto = order.GlsKgAmount.Value;
-                            order.GlsKgAmount = netto * vatRate;
-                            Info($"Konwersja gls z 'kg': netto {netto:F2} -> brutto {order.GlsKgAmount:F2}", "MainViewModel");
-                        }
-                        
-                        if (order.ShippingAmount.HasValue && order.ShippingAmount.Value > 0)
-                        {
-                            var netto = order.ShippingAmount.Value;
-                            order.ShippingAmount = netto * vatRate;
-                            Info($"Konwersja shipping: netto {netto:F2} -> brutto {order.ShippingAmount:F2}", "MainViewModel");
-                        }
-                        
-                        if (order.CodFeeAmount.HasValue && order.CodFeeAmount.Value > 0)
-                        {
-                            var netto = order.CodFeeAmount.Value;
-                            order.CodFeeAmount = netto * vatRate;
-                            Info($"Konwersja cod_fee: netto {netto:F2} -> brutto {order.CodFeeAmount:F2}", "MainViewModel");
                         }
                     }
                 }
