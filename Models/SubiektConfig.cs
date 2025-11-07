@@ -11,6 +11,7 @@ namespace Gryzak.Models
         public string User { get; set; } = "Szef";
         public string Password { get; set; } = "zdanoszef123";
         public int AutoReleaseLicenseTimeoutMinutes { get; set; } = 0; // 0 = wyłączone, inna wartość = minuty nieaktywności
+        public string DiscountCalculationMode { get; set; } = "percent"; // "percent" lub "amount"
     }
 }
 

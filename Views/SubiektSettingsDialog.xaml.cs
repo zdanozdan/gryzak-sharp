@@ -52,6 +52,12 @@ namespace Gryzak.Views
             
             PasswordBox.Password = _currentConfig.Password;
             AutoReleaseLicenseTimeoutTextBox.Text = _currentConfig.AutoReleaseLicenseTimeoutMinutes.ToString();
+
+            if (string.IsNullOrWhiteSpace(_currentConfig.DiscountCalculationMode))
+            {
+                _currentConfig.DiscountCalculationMode = "percent";
+            }
+            DiscountModeComboBox.SelectedValue = _currentConfig.DiscountCalculationMode;
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -62,6 +68,8 @@ namespace Gryzak.Views
             _currentConfig.ServerPassword = ServerPasswordBox.Password;
             _currentConfig.User = UserComboBox.Text.Trim();
             _currentConfig.Password = PasswordBox.Password;
+            var selectedDiscountMode = DiscountModeComboBox.SelectedValue as string;
+            _currentConfig.DiscountCalculationMode = string.IsNullOrWhiteSpace(selectedDiscountMode) ? "percent" : selectedDiscountMode;
             
             // Parsuj timeout automatycznego zwalniania licencji
             if (int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out int timeoutMinutes))

@@ -133,6 +133,23 @@
                                    TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
+
+                <!-- Sekcja: Obliczanie rabatu -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Obliczanie rabatu" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+
+                        <TextBlock Text="Sposób obliczania rabatu:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox Name="DiscountModeComboBox" SelectedValuePath="Tag" Margin="0,0,0,5">
+                            <ComboBoxItem Content="Procent" Tag="percent"/>
+                            <ComboBoxItem Content="Kwota" Tag="amount"/>
+                        </ComboBox>
+                        <TextBlock Text="Wybierz, czy rabat ma być interpretowany jako procent ceny netto czy jako kwota brutto." 
+                                   FontSize="11" 
+                                   Foreground="Gray" 
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
 

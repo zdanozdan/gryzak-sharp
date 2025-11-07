@@ -98,6 +98,10 @@ namespace Gryzak.Services
                     var config = JsonSerializer.Deserialize<SubiektConfig>(json);
                     if (config != null)
                     {
+                        if (string.IsNullOrWhiteSpace(config.DiscountCalculationMode))
+                        {
+                            config.DiscountCalculationMode = "percent";
+                        }
                         return config;
                     }
                 }
@@ -134,7 +138,8 @@ namespace Gryzak.Services
                 ServerPassword = "mikran_comqwer4321",
                 User = "Szef",
                 Password = "zdanoszef123",
-                AutoReleaseLicenseTimeoutMinutes = 0
+                AutoReleaseLicenseTimeoutMinutes = 0,
+                DiscountCalculationMode = "percent"
             };
         }
 

@@ -2162,6 +2162,13 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             }
                         }
                         
+                        var subiektConfig = _configService.LoadSubiektConfig();
+                        var discountMode = (subiektConfig.DiscountCalculationMode ?? "percent").Trim().ToLowerInvariant();
+                        if (discountMode != "amount")
+                        {
+                            discountMode = "percent";
+                        }
+
                         // ID stawki VAT dla pozycji. Przydatne do ustawienia VatId dla pozycji kosztów i shipping
                         int? vatIdKoszty = null;
 
@@ -2227,10 +2234,69 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                         {
                                             try
                                             {
-                                                //pozycja.CenaNettoPrzedRabatem = cenaNettoWPLN;
-                                                //pozycja.RabatProcent = 0;
-                                                pozycja.CenaNettoPoRabacie = apiPriceNetto.Value;
-                                                Info($"Ustawiono CenaNettoPoRabacie={apiPriceNetto.Value:F2} dla produktu ID={towarId} (apiPriceNetto={apiPriceNetto.Value:F2}, subiektKurs={subiektKurs:F4}, Price={it.Price}, Tax={it.Tax})", "SubiektService");
+                                                if (discountMode == "amount")
+                                                {
+                                                    pozycja.RabatProcent = 0.0;
+                                                    try
+                                                    {
+                                                        pozycja.CenaNettoPoRabacie = apiPriceNetto.Value;
+                                                    }
+                                                    catch (Exception setEx)
+                                                    {
+                                                        Warning($"Nie udało się ustawić CenaNettoPoRabacie (tryb kwoty) dla produktu ID={towarId}: {setEx.Message}", "SubiektService");
+                                                    }
+                                                    Info($"Ustawiono cenę netto po rabacie na wartość z API (tryb kwoty) = {apiPriceNetto.Value:F2} dla produktu ID={towarId}", "SubiektService");
+                                                }
+                                                else
+                                                {
+                                                    // Pobierz cenę netto przed rabatem z Subiekta (cena z cennika)
+                                                    double cenaNettoPrzedRabatem = 0.0;
+                                                    try
+                                                    {
+                                                        cenaNettoPrzedRabatem = Convert.ToDouble(pozycja.CenaNettoPrzedRabatem);
+                                                    }
+                                                    catch (Exception cenaEx)
+                                                    {
+                                                        Warning($"Nie udało się pobrać CenaNettoPrzedRabatem dla produktu ID={towarId}: {cenaEx.Message}", "SubiektService");
+                                                    }
+
+                                                    double rabatProcent = 0.0;
+                                                    if (cenaNettoPrzedRabatem > 0.01)
+                                                    {
+                                                        rabatProcent = ((cenaNettoPrzedRabatem - apiPriceNetto.Value) / cenaNettoPrzedRabatem) * 100.0;
+                                                        rabatProcent = Math.Round(rabatProcent, 1);
+
+                                                        if (rabatProcent > 0.01)
+                                                        {
+                                                            pozycja.RabatProcent = rabatProcent;
+                                                            Info($"Obliczono rabat: {rabatProcent:F2}% dla produktu ID={towarId} (CenaNettoPrzedRabatem={cenaNettoPrzedRabatem:F2}, apiPriceNetto={apiPriceNetto.Value:F2})", "SubiektService");
+                                                        }
+                                                        else if (rabatProcent < -0.01)
+                                                        {
+                                                            pozycja.RabatProcent = 0.0;
+                                                            Warning($"Cena z API ({apiPriceNetto.Value:F2}) jest wyższa niż cena z Subiekta ({cenaNettoPrzedRabatem:F2}) dla produktu ID={towarId}. Ustawiono rabat na 0%.", "SubiektService");
+                                                        }
+                                                        else
+                                                        {
+                                                            pozycja.RabatProcent = 0.0;
+                                                            Info($"Brak rabatu dla produktu ID={towarId} (ceny są równe)", "SubiektService");
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        Warning($"CenaNettoPrzedRabatem jest równa 0 lub nieprawidłowa dla produktu ID={towarId}. Nie można obliczyć rabatu.", "SubiektService");
+                                                    }
+
+                                                    try
+                                                    {
+                                                        pozycja.CenaNettoPoRabacie = apiPriceNetto.Value;
+                                                    }
+                                                    catch (Exception setEx)
+                                                    {
+                                                        Warning($"Nie udało się ustawić CenaNettoPoRabacie (tryb procentowy) dla produktu ID={towarId}: {setEx.Message}", "SubiektService");
+                                                    }
+                                                    Info($"Ustawiono CenaNettoPoRabacie={apiPriceNetto.Value:F2} dla produktu ID={towarId} (tryb procentowy)", "SubiektService");
+                                                }
                                                 Info($"ISO Code 2 kraju: {isoCode2 ?? "brak"}", "SubiektService");
                                                 Info($"TaxRate dla pozycji ID={towarId}: {it.TaxRate ?? "brak"}", "SubiektService");
                                                 
