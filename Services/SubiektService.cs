@@ -218,15 +218,15 @@ namespace Gryzak.Services
         /// <summary>
         /// Wyszukuje kontrahenta przez zapytanie SQL do bazy MSSQL
         /// </summary>
-        private int? WyszukajKontrahentaPrzezSQL(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        private int? WyszukajKontrahentaPrzezSQL(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool useEuVatRate = false)
         {
-            return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, false);
+            return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, false, useEuVatRate);
         }
         
         /// <summary>
         /// Wewnętrzna metoda do wyszukiwania kontrahenta przez SQL z obsługą rekurencji
         /// </summary>
-        private int? WyszukajKontrahentaPrzezSQLInternal(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool isRecursive = false)
+        private int? WyszukajKontrahentaPrzezSQLInternal(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool isRecursive = false, bool useEuVatRate = false)
         {
             int? selectedId = null;
             
@@ -481,7 +481,7 @@ AND (
                                 try
                                 {
                                     // Przekaż dane z API do metody DodajKontrahenta
-                                    DodajKontrahenta(customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2);
+                                    DodajKontrahenta(customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
                                 }
                                 catch (Exception addEx)
                                 {
@@ -490,7 +490,7 @@ AND (
                                 
                                 // Po zamknięciu okna Subiekta GT, wywołaj rekurencyjnie wyszukiwanie, aby ponownie pokazać dialog
                                 Info("Okno Subiekta GT zostało zamknięte - ponownie wyświetlam dialog wyboru kontrahenta...", "SubiektService");
-                                return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, true);
+                                return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, true, useEuVatRate);
                             }
                             
                             Debug($"WyszukajKontrahentaPrzezSQL zwraca: {selectedId?.ToString() ?? "null"}", "SubiektService");
@@ -517,7 +517,7 @@ AND (
         /// <summary>
         /// Otwiera okno Subiekta GT do dodawania nowego kontrahenta z wypełnionymi danymi z API
         /// </summary>
-        public void DodajKontrahenta(string? customerName = null, string? nip = null, string? company = null, string? email = null, string? phone = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null)
+        public void DodajKontrahenta(string? customerName = null, string? nip = null, string? company = null, string? email = null, string? phone = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool useEuVatRate = false)
         {
             try
             {
@@ -687,7 +687,7 @@ AND (
                             // Jeśli dane z API są dostępne, wypełnij pola kontrahenta
                             if (customerName != null || nip != null || company != null || email != null || phone != null || address1 != null || postcode != null || city != null)
                             {
-                                WypelnijDaneKontrahenta(nowyKontrahent, customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2);
+                                WypelnijDaneKontrahenta(nowyKontrahent, customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
                             }
                             
                             // Wyświetl okno kartotekowe kontrahenta
@@ -1179,7 +1179,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
         /// <summary>
         /// Wypełnia dane kontrahenta w obiekcie Subiekta GT
         /// </summary>
-        private void WypelnijDaneKontrahenta(dynamic kontrahent, string? customerName, string? nip, string? company, string? email, string? phone, string? address1, string? address2, string? postcode, string? city, string? country, string? isoCode2 = null)
+        private void WypelnijDaneKontrahenta(dynamic kontrahent, string? customerName, string? nip, string? company, string? email, string? phone, string? address1, string? address2, string? postcode, string? city, string? country, string? isoCode2 = null, bool useEuVatRate = false)
         {
             try
             {
@@ -1263,22 +1263,40 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     }
                 }
                 
-                // NIP - dodaj prefiks UE jeśli dostępny
+                // NIP - dodaj prefiks VIES tylko gdy useEuVatRate==true i kraj!=PL
                 if (!string.IsNullOrWhiteSpace(nip))
                 {
                     try
                     {
                         string nipZPrefiksem = nip;
                         
-                        // Jeśli mamy kod ISO2, spróbuj dodać prefiks VIES
-                        if (!string.IsNullOrWhiteSpace(isoCode2))
+                        // Dodaj prefiks VIES tylko gdy:
+                        // 1. useEuVatRate == true (w totals istnieje "VAT EU Export")
+                        // 2. kraj jest inny niż PL
+                        if (useEuVatRate && !string.IsNullOrWhiteSpace(isoCode2))
                         {
-                            var viesMap = LoadViesMap();
-                            if (viesMap.TryGetValue(isoCode2.ToUpperInvariant(), out var viesCode))
+                            var isoCodeUpper = isoCode2.ToUpperInvariant();
+                            if (isoCodeUpper != "PL")
                             {
-                                nipZPrefiksem = viesCode + nip;
-                                Info("Dodaję prefiks VIES do NIP: {nipZPrefiksem}", "SubiektService");
+                                var viesMap = LoadViesMap();
+                                if (viesMap.TryGetValue(isoCodeUpper, out var viesCode))
+                                {
+                                    nipZPrefiksem = viesCode + nip;
+                                    Info("Dodaję prefiks VIES do NIP (VAT EU Export, kraj: {isoCodeUpper}): {nipZPrefiksem}", "SubiektService");
+                                }
+                                else
+                                {
+                                    Info("Nie znaleziono kodu VIES dla kraju {isoCodeUpper} - używam NIP bez prefiksu", "SubiektService");
+                                }
                             }
+                            else
+                            {
+                                Info("Pomijam dodawanie prefiksu VIES dla Polski (PL)", "SubiektService");
+                            }
+                        }
+                        else if (!useEuVatRate)
+                        {
+                            Info("Pomijam dodawanie prefiksu VIES - brak VAT EU Export w totals", "SubiektService");
                         }
                         
                         kontrahent.NIP = nipZPrefiksem;
@@ -1382,9 +1400,11 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                 {
                     try
                     {
-                        // Najpierw ustaw PodatnikVatUE jeśli kraj jest w UE (ale nie dla Polski)
-                        // Ustawiamy tylko jeśli NIP nie jest pusty i nie składa się tylko z prefiksu VIES
-                        if (!string.IsNullOrWhiteSpace(nip) && !string.IsNullOrWhiteSpace(isoCode2))
+                        // Ustaw PodatnikVatUE tylko gdy:
+                        // 1. useEuVatRate == true (w totals istnieje "VAT EU Export")
+                        // 2. kraj jest inny niż PL
+                        // 3. NIP nie jest pusty
+                        if (useEuVatRate && !string.IsNullOrWhiteSpace(nip) && !string.IsNullOrWhiteSpace(isoCode2))
                         {
                             var isoCodeUpper = isoCode2.ToUpperInvariant();
                             // Pomijamy Polskę - tylko kraje UE poza Polską
@@ -1393,32 +1413,29 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 var viesMap = LoadViesMap();
                                 if (viesMap.TryGetValue(isoCodeUpper, out var viesCode))
                                 {
-                                    // Sprawdź czy NIP nie składa się tylko z prefiksu VIES (nie ma dodatkowych cyfr)
-                                    // Używamy raw NIP (bez prefiksu) aby sprawdzić czy jest rzeczywiście wypełniony
-                                    bool nipJestPelny = nip.Length > viesCode.Length;
-                                    
-                                    if (nipJestPelny)
+                                    try
                                     {
-                                        try
-                                        {
-                                            kontrahent.PodatnikVatUE = true;
-                                            Info("Ustawiono PodatnikVatUE=True (kraj UE: {viesCode}, NIP: {nip})", "SubiektService");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Warning($"Nie udało się ustawić PodatnikVatUE: {ex.Message}", "SubiektService");
-                                        }
+                                        kontrahent.PodatnikVatUE = true;
+                                        Info("Ustawiono PodatnikVatUE=True (VAT EU Export, kraj UE: {isoCodeUpper}, kod VIES: {viesCode})", "SubiektService");
                                     }
-                                    else
+                                    catch (Exception ex)
                                     {
-                                        Info("Pomijam ustawienie PodatnikVatUE - NIP jest pusty lub składa się tylko z prefiksu VIES ({viesCode})", "SubiektService");
+                                        Warning($"Nie udało się ustawić PodatnikVatUE: {ex.Message}", "SubiektService");
                                     }
+                                }
+                                else
+                                {
+                                    Info("Nie znaleziono kodu VIES dla kraju {isoCodeUpper} - pomijam ustawienie PodatnikVatUE", "SubiektService");
                                 }
                             }
                             else
                             {
                                 Info("Pomijam ustawienie PodatnikVatUE dla Polski (PL)", "SubiektService");
                             }
+                        }
+                        else if (!useEuVatRate)
+                        {
+                            Info("Pomijam ustawienie PodatnikVatUE - brak VAT EU Export w totals", "SubiektService");
                         }
                         else if (string.IsNullOrWhiteSpace(nip))
                         {
@@ -1892,7 +1909,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     
                                     // Spróbuj wyszukać kontrahenta przez SQL po emailu
                                     Info("Próba wyszukania kontrahenta przez SQL...", "SubiektService");
-                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
+                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
                                     
                                     // Sprawdź czy użytkownik anulował (wartość -1 oznacza anulowanie)
                                     if (kontrahentId.HasValue && kontrahentId.Value == -1)
@@ -1921,7 +1938,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 try
                                 {
                                     Info("Próba wyszukania kontrahenta przez SQL (po błędzie NIP)...", "SubiektService");
-                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
+                                    int? kontrahentId = WyszukajKontrahentaPrzezSQL(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
                                     
                                     // Sprawdź czy użytkownik anulował (wartość -1 oznacza anulowanie)
                                     if (kontrahentId.HasValue && kontrahentId.Value == -1)
@@ -1955,7 +1972,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             // Próbuj wyszukać kontrahenta przez SQL nawet gdy nie ma NIP
                             try
                             {
-                                int? kontrahentId = WyszukajKontrahentaPrzezSQL(null, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2);
+                                int? kontrahentId = WyszukajKontrahentaPrzezSQL(null, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
                                 
                                 // Sprawdź czy użytkownik anulował (wartość -1 oznacza anulowanie)
                                 if (kontrahentId.HasValue && kontrahentId.Value == -1)
