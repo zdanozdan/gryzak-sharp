@@ -2564,72 +2564,42 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         }
                         
                         // Dodaj towar 'KOSZTY/2' na końcu
-                        // Tylko jeśli w API jest shipping i wartość > 0
+                        // Suma shipping + cod_fee
+                        double sumaKosztowKOSZTY2 = 0.0;
                         if (shippingAmountNetto.HasValue && shippingAmountNetto.Value > 0.0)
                         {
-                            try
-                            {
-                                dynamic towary = subiekt.Towary;
-                                dynamic towarShipping = towary.Wczytaj("KOSZTY/2");
-                                
-                                if (towarShipping != null && zkDokument != null)
-                                {
-                                    dynamic pozycje = zkDokument!.Pozycje;
-                                    dynamic shippingPoz = pozycje.Dodaj(towarShipping!.Identyfikator);
-                                    try { shippingPoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę brutto na wartość shipping z API (wartość jest netto)
-                                    try 
-                                    { 
-                                        Info($"Przed ustawieniem KOSZTY/2 (shipping): shippingAmountNetto={shippingAmountNetto.Value:F2}, subiektKurs={subiektKurs:F4}", "SubiektService");
-                                        shippingPoz.CenaNettoPrzedRabatem = shippingAmountNetto.Value;
-                                        if (vatIdKoszty.HasValue) shippingPoz.VatId = vatIdKoszty.Value;
-                                        var cenaPoUstawieniu = shippingPoz.CenaBruttoPoRabacie;
-                                        Info($"Po ustawieniu KOSZTY/2 (shipping): CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
-                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto shipping ({shippingAmountNetto.Value:F2}).", "SubiektService");
-                                    }
-                                    catch
-                                    {
-                                        Info("Dodano towar 'KOSZTY/2' na końcu pozycji, ale nie udało się ustawić ceny.", "SubiektService");
-                                    }
-                                }
-                                else
-                                {
-                                    Info("Nie znaleziono towaru o symbolu 'KOSZTY/2'.", "SubiektService");
-                                }
-                            }
-                            catch (Exception shippingEx)
-                            {
-                                Warning($"Nie udało się dodać towaru 'KOSZTY/2': {shippingEx.Message}", "SubiektService");
-                            }
+                            sumaKosztowKOSZTY2 += shippingAmountNetto.Value;
                         }
-                        else
-                        {
-                            Info("Brak shipping w API - pomijam dodawanie 'KOSZTY/2'.", "SubiektService");
-                        }
-                        
-                        // Dodaj towar 'KOSZTY/2' na końcu
-                        // Tylko jeśli w API jest cod_fee i wartość > 0
                         if (codFeeAmountNetto.HasValue && codFeeAmountNetto.Value > 0.0)
                         {
+                            sumaKosztowKOSZTY2 += codFeeAmountNetto.Value;
+                        }
+                        
+                        if (sumaKosztowKOSZTY2 > 0.0)
+                        {
                             try
                             {
                                 dynamic towary = subiekt.Towary;
-                                dynamic towarCodFee = towary.Wczytaj("KOSZTY/2");
+                                dynamic towarKoszty2 = towary.Wczytaj("KOSZTY/2");
                                 
-                                if (towarCodFee != null && zkDokument != null)
+                                if (towarKoszty2 != null && zkDokument != null)
                                 {
                                     dynamic pozycje = zkDokument!.Pozycje;
-                                    dynamic codFeePoz = pozycje.Dodaj(towarCodFee!.Identyfikator);
-                                    try { codFeePoz.IloscJm = 1; } catch { }
-                                    // Ustaw cenę brutto na wartość cod_fee z API (wartość jest netto)
+                                    dynamic koszty2Poz = pozycje.Dodaj(towarKoszty2!.Identyfikator);
+                                    try { koszty2Poz.IloscJm = 1; } catch { }
+                                    // Ustaw cenę netto na sumę shipping + cod_fee (wartości są netto)
                                     try 
                                     { 
-                                        Info($"Przed ustawieniem KOSZTY/2 (cod_fee): codFeeAmountNetto={codFeeAmountNetto.Value:F2}, subiektKurs={subiektKurs:F4}", "SubiektService");
-                                        //codFeePoz.CenaNettoPrzedRabatem = codFeeAmountNetto.Value;
-                                        //codFeePoz.RabatProcent = 0;
-                                        codFeePoz.CenaNettoPrzedRabatem = codFeeAmountNetto.Value;
-                                        if (vatIdKoszty.HasValue) codFeePoz.VatId = vatIdKoszty.Value;
-                                        Info("Dodano towar 'KOSZTY/2' z ceną brutto cod_fee ({codFeeAmountNetto.Value:F2}).", "SubiektService");
+                                        Info($"Przed ustawieniem KOSZTY/2: sumaKosztowKOSZTY2={sumaKosztowKOSZTY2:F2}, subiektKurs={subiektKurs:F4}, shippingAmountNetto={shippingAmountNetto?.ToString("F2") ?? "null"}, codFeeAmountNetto={codFeeAmountNetto?.ToString("F2") ?? "null"}", "SubiektService");
+                                        koszty2Poz.CenaNettoPrzedRabatem = sumaKosztowKOSZTY2;
+                                        if (vatIdKoszty.HasValue) koszty2Poz.VatId = vatIdKoszty.Value;
+                                        // Sprawdź wartość po ustawieniu
+                                        var cenaPoUstawieniu = koszty2Poz.CenaBruttoPoRabacie;
+                                        Info($"Po ustawieniu KOSZTY/2: CenaBruttoPoRabacie={cenaPoUstawieniu:F2}", "SubiektService");
+                                        var skladniki = new System.Collections.Generic.List<string>();
+                                        if (shippingAmountNetto.HasValue && shippingAmountNetto.Value > 0) skladniki.Add($"shipping ({shippingAmountNetto.Value:F2})");
+                                        if (codFeeAmountNetto.HasValue && codFeeAmountNetto.Value > 0) skladniki.Add($"cod_fee ({codFeeAmountNetto.Value:F2})");
+                                        Info($"Dodano towar 'KOSZTY/2' z ceną netto {sumaKosztowKOSZTY2:F2} (składniki: {string.Join(" + ", skladniki)}).", "SubiektService");
                                     }
                                     catch
                                     {
@@ -2641,14 +2611,14 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     Info("Nie znaleziono towaru o symbolu 'KOSZTY/2'.", "SubiektService");
                                 }
                             }
-                            catch (Exception codFeeEx)
+                            catch (Exception koszty2Ex)
                             {
-                                Warning($"Nie udało się dodać towaru 'KOSZTY/2' dla cod_fee: {codFeeEx.Message}", "SubiektService");
+                                Warning($"Nie udało się dodać towaru 'KOSZTY/2': {koszty2Ex.Message}", "SubiektService");
                             }
                         }
                         else
                         {
-                            Info("Brak cod_fee w API - pomijam dodawanie 'KOSZTY/2' dla cod_fee.", "SubiektService");
+                            Info("Brak shipping i cod_fee w API - pomijam dodawanie 'KOSZTY/2'.", "SubiektService");
                         }
 
                         //todo wstaw przeliczanie kursu waluty tutaj
