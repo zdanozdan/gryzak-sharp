@@ -2,7 +2,7 @@
 ; Aby użyć tego skryptu, zainstaluj Inno Setup z https://innosetup.com/
 
 #define MyAppName "Gryzak"
-#define MyAppVersion "1.5.2"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "Mikran sp. z o.o."
 #define MyAppExeName "Gryzak.exe"
 #define MyAppId "{{B8F3D4A1-2E5C-4F9A-8B6D-1C3E5F7A9B2C}"

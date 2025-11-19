@@ -2066,13 +2066,18 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             }
                         }
                         
-                        // Ustaw przeliczanie dokumentu od cen brutto (ponieważ ustawiamy CenaBruttoPoRabacie dla pozycji)
+                        // Załaduj konfigurację dla ustawienia trybu liczenia dokumentu
+                        var subiektConfigForPriceMode = _configService.LoadSubiektConfig();
+                        bool calculateFromGrossPrices = subiektConfigForPriceMode.CalculateFromGrossPrices;
+                        
+                        // Ustaw przeliczanie dokumentu od cen brutto lub netto (zgodnie z ustawieniami)
                         if (zkDokument != null)
                         {
                             try
                             {
-                                zkDokument!.LiczonyOdCenBrutto = true;
-                                Info("Ustawiono przeliczanie dokumentu ZK od cen brutto (LiczoneOdCenBrutto = false)", "SubiektService");
+                                zkDokument!.LiczonyOdCenBrutto = calculateFromGrossPrices;
+                                string trybTekst = calculateFromGrossPrices ? "brutto" : "netto";
+                                Info($"Ustawiono przeliczanie dokumentu ZK od cen {trybTekst} (LiczoneOdCenBrutto = {calculateFromGrossPrices})", "SubiektService");
                             }
                             catch (Exception bruttoEx)
                             {
@@ -2286,7 +2291,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                                         if (rabatProcent > 0.01)
                                                         {
                                                             pozycja.RabatProcent = rabatProcent;
-                                                            Info($"Obliczono rabat: {rabatProcent:F2}% dla produktu ID={towarId} (CenaNettoPrzedRabatem={cenaNettoPrzedRabatem:F2}, apiPriceNetto={apiPriceNetto.Value:F2})", "SubiektService");
+                                                            Error($"Obliczono rabat: {rabatProcent:F2}% dla produktu ID={towarId} (CenaNettoPrzedRabatem={cenaNettoPrzedRabatem:F2}, apiPriceNetto={apiPriceNetto.Value:F2})", "SubiektService");
                                                         }
                                                         else if (rabatProcent < -0.01)
                                                         {
@@ -2621,6 +2626,94 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             Info("Brak shipping i cod_fee w API - pomijam dodawanie 'KOSZTY/2'.", "SubiektService");
                         }
 
+                        // Zaokrąglij rabaty wszystkich pozycji zgodnie z ustawieniami
+                        if (zkDokument != null)
+                        {
+                            try
+                            {
+                                // Załaduj konfigurację dla trybu zaokrąglania rabatu
+                                var subiektConfigRounding = _configService.LoadSubiektConfig();
+                                var roundingMode = (subiektConfigRounding.DiscountRoundingMode ?? "percent").Trim().ToLowerInvariant();
+                                
+                                // Jeśli tryb nie jest rozpoznany, użyj domyślnego "percent"
+                                if (roundingMode != "none" && roundingMode != "percent" && roundingMode != "tens")
+                                {
+                                    roundingMode = "percent";
+                                }
+                                
+                                // Pomiń zaokrąglanie jeśli tryb to "none"
+                                if (roundingMode == "none")
+                                {
+                                    Info("Zaokrąglanie rabatów wyłączone w ustawieniach - pomijam.", "SubiektService");
+                                }
+                                else
+                                {
+                                    dynamic pozycje = zkDokument.Pozycje;
+                                    int liczbaPozycji = pozycje.Liczba;
+                                    
+                                    string trybTekst = roundingMode == "tens" ? "dziesiątych części procenta (0.1%)" : "pełnych procentów (1%)";
+                                    Info($"Zaokrąglanie rabatów do {trybTekst} dla {liczbaPozycji} pozycji...", "SubiektService");
+                                    
+                                    for (int i = 1; i <= liczbaPozycji; i++)
+                                    {
+                                        try
+                                        {
+                                            dynamic pozycja = pozycje.Element(i);
+                                            
+                                            // Pobierz aktualny rabat procentowy
+                                            double rabatProcent = 0.0;
+                                            try
+                                            {
+                                                rabatProcent = Convert.ToDouble(pozycja.RabatProcent);
+                                            }
+                                            catch
+                                            {
+                                                // Jeśli nie można odczytać rabatu, pomiń tę pozycję
+                                                continue;
+                                            }
+                                            
+                                            // Zaokrąglij tylko jeśli rabat > 0
+                                            if (rabatProcent > 0.01)
+                                            {
+                                                double rabatZaokraglony = 0.0;
+                                                string trybOpis = "";
+                                                
+                                                if (roundingMode == "tens")
+                                                {
+                                                    // Zaokrąglenie do dziesiątych części procenta (0.1%)
+                                                    rabatZaokraglony = Math.Round(rabatProcent, 1);
+                                                    trybOpis = "dziesiątych części procenta";
+                                                }
+                                                else // roundingMode == "percent"
+                                                {
+                                                    // Zaokrąglenie do pełnych procentów (1%)
+                                                    rabatZaokraglony = Math.Round(rabatProcent, 0);
+                                                    trybOpis = "pełnych procentów";
+                                                }
+                                                
+                                                // Ustaw zaokrąglony rabat
+                                                pozycja.RabatProcent = rabatZaokraglony;
+                                                
+                                                string formatZaokraglony = roundingMode == "tens" ? "F1" : "F0";
+                                                Info($"Pozycja {i}: Zaokrąglono rabat z {rabatProcent:F2}% do {rabatZaokraglony.ToString(formatZaokraglony)}% ({trybOpis})", "SubiektService");
+                                            }
+                                        }
+                                        catch (Exception pozEx)
+                                        {
+                                            Warning($"Błąd podczas zaokrąglania rabatu dla pozycji {i}: {pozEx.Message}", "SubiektService");
+                                        }
+                                    }
+                                    
+                                    string trybTekstKoniec = roundingMode == "tens" ? "dziesiątych części procenta" : "pełnych procentów";
+                                    Info($"Zakończono zaokrąglanie rabatów do {trybTekstKoniec}.", "SubiektService");
+                                }
+                            }
+                            catch (Exception zaokraglEx)
+                            {
+                                Warning($"Błąd podczas zaokrąglania rabatów: {zaokraglEx.Message}", "SubiektService");
+                            }
+                        }
+                        
                         //todo wstaw przeliczanie kursu waluty tutaj
                         
                         // Przelicz dokument przed odczytem wartości (może być wymagane)

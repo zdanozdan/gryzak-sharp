@@ -12,6 +12,8 @@ namespace Gryzak.Models
         public string Password { get; set; } = "zdanoszef123";
         public int AutoReleaseLicenseTimeoutMinutes { get; set; } = 0; // 0 = wyłączone, inna wartość = minuty nieaktywności
         public string DiscountCalculationMode { get; set; } = "percent"; // "percent" lub "amount"
+        public bool CalculateFromGrossPrices { get; set; } = false; // true = liczenie od cen brutto, false = liczenie od cen netto
+        public string DiscountRoundingMode { get; set; } = "percent"; // "none" = bez zaokrąglania, "percent" = do pełnych procentów (1%), "tens" = do dziesiątek procentów (10%)
     }
 }
 

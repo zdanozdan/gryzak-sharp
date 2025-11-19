@@ -150,6 +150,41 @@
                                    TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
+
+                <!-- Sekcja: Zaokrąglanie rabatu -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Zaokrąglanie rabatu" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+
+                        <TextBlock Text="Sposób zaokrąglania rabatu:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox Name="DiscountRoundingModeComboBox" SelectedValuePath="Tag" Margin="0,0,0,5">
+                            <ComboBoxItem Content="Bez zaokrąglania" Tag="none"/>
+                            <ComboBoxItem Content="Do pełnych procentów (1%)" Tag="percent"/>
+                            <ComboBoxItem Content="Do dziesiątych części procenta (0.1%)" Tag="tens"/>
+                        </ComboBox>
+                        <TextBlock Text="Wybierz, jak rabaty mają być zaokrąglane na końcu generowania dokumentu." 
+                                   FontSize="11" 
+                                   Foreground="Gray" 
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Sekcja: Liczenie dokumentu -->
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Liczenie dokumentu" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+
+                        <TextBlock Text="Sposób liczenia dokumentu:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox Name="PriceCalculationModeComboBox" SelectedValuePath="Tag" Margin="0,0,0,5">
+                            <ComboBoxItem Content="Od cen brutto" Tag="gross"/>
+                            <ComboBoxItem Content="Od cen netto" Tag="net"/>
+                        </ComboBox>
+                        <TextBlock Text="Wybierz, czy dokument ma być liczony od cen brutto czy od cen netto." 
+                                   FontSize="11" 
+                                   Foreground="Gray" 
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
 

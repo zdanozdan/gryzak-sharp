@@ -58,6 +58,16 @@ namespace Gryzak.Views
                 _currentConfig.DiscountCalculationMode = "percent";
             }
             DiscountModeComboBox.SelectedValue = _currentConfig.DiscountCalculationMode;
+
+            // Ustaw tryb liczenia dokumentu (brutto/netto)
+            PriceCalculationModeComboBox.SelectedValue = _currentConfig.CalculateFromGrossPrices ? "gross" : "net";
+
+            // Ustaw tryb zaokrąglania rabatu
+            if (string.IsNullOrWhiteSpace(_currentConfig.DiscountRoundingMode))
+            {
+                _currentConfig.DiscountRoundingMode = "percent";
+            }
+            DiscountRoundingModeComboBox.SelectedValue = _currentConfig.DiscountRoundingMode;
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -70,6 +80,14 @@ namespace Gryzak.Views
             _currentConfig.Password = PasswordBox.Password;
             var selectedDiscountMode = DiscountModeComboBox.SelectedValue as string;
             _currentConfig.DiscountCalculationMode = string.IsNullOrWhiteSpace(selectedDiscountMode) ? "percent" : selectedDiscountMode;
+            
+            // Zapisz tryb liczenia dokumentu (brutto/netto)
+            var selectedPriceMode = PriceCalculationModeComboBox.SelectedValue as string;
+            _currentConfig.CalculateFromGrossPrices = selectedPriceMode == "gross";
+            
+            // Zapisz tryb zaokrąglania rabatu
+            var selectedRoundingMode = DiscountRoundingModeComboBox.SelectedValue as string;
+            _currentConfig.DiscountRoundingMode = string.IsNullOrWhiteSpace(selectedRoundingMode) ? "percent" : selectedRoundingMode;
             
             // Parsuj timeout automatycznego zwalniania licencji
             if (int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out int timeoutMinutes))
