@@ -293,6 +293,7 @@ FROM
 INNER JOIN
     dbo.kh__Kontrahent AS K ON A.adr_IdObiektu = K.kh_Id
 WHERE A.adr_TypAdresu = 1
+AND K.kh_Zablokowany = 0
 AND (
 ";
                     
