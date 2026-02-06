@@ -1,5 +1,15 @@
 # Historia zmian - Gryzak
 
+## 1.6.3 (2026-02-05)
+
+- Dodanie parametrów obiektu .gt w ustawieniach (Produkt, Autentykacja, Tryb uruchomienia)
+- Rozbudowane logowanie parametrów podczas testu połączenia
+- Naprawa błędów kompilacji i ostrzeżeń instalatora
+
+## 1.6.2 (2026-02-05)
+
+- Aktualizacja wersji
+
 ## 1.0.1 (2025-11-04)
 
 ### Dodane

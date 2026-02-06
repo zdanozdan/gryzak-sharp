@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.IO;
 using Gryzak.Views;
 using Microsoft.Data.SqlClient;
+using Gryzak.Models;
 using static Gryzak.Services.Logger;
 
 namespace Gryzak.Services
@@ -88,10 +89,10 @@ namespace Gryzak.Services
                 }
 
                 // Ustaw wszystkie wymagane parametry GT
-                gt.Produkt = 1; // gtaProduktSubiekt = 1
+                gt.Produkt = subiektConfig.GtProdukt; // gtaProduktSubiekt = 1
                 gt.Serwer = subiektConfig.ServerAddress;
                 gt.Baza = subiektConfig.DatabaseName;
-                gt.Autentykacja = 2; // gtaAutentykacjaMieszana = 2
+                gt.Autentykacja = subiektConfig.AuthenticationMode; // (0 - Mieszana, 1 - Windows)
 
                 // Ustaw dane użytkownika bazy danych (jeśli podano)
                 if (!string.IsNullOrWhiteSpace(subiektConfig.ServerUsername))
@@ -104,13 +105,23 @@ namespace Gryzak.Services
                 gt.Operator = subiektConfig.User ?? "Szef";
                 gt.OperatorHaslo = subiektConfig.Password ?? "";
 
-                Info($"Ustawiono parametry GT - Serwer: {subiektConfig.ServerAddress}, Baza: {subiektConfig.DatabaseName}, Operator: {subiektConfig.User}", "SubiektService");
+                // Logowanie wszystkich parametrów GT
+                Info("Logowanie parametrów GT:", "SubiektService");
+                Info($"- Produkt: {gt.Produkt}", "SubiektService");
+                Info($"- Serwer: {gt.Serwer}", "SubiektService");
+                Info($"- Baza: {gt.Baza}", "SubiektService");
+                Info($"- Autentykacja: {gt.Autentykacja}", "SubiektService");
+                Info($"- Użytkownik SQL: {gt.Uzytkownik}", "SubiektService");
+                Info($"- Hasło SQL: {(string.IsNullOrEmpty(gt.UzytkownikHaslo) ? "brak" : "****")}", "SubiektService");
+                Info($"- Operator: {gt.Operator}", "SubiektService");
+                Info($"- Hasło Operatora: {(string.IsNullOrEmpty(gt.OperatorHaslo) ? "brak" : "****")}", "SubiektService");
+                Info($"- Uruchom - Tryb dopasowania: {subiektConfig.LaunchDopasujOperatora}", "SubiektService");
+                Info($"- Uruchom - Tryb uruchomienia: {subiektConfig.LaunchTryb}", "SubiektService");
 
-                // Uruchom Subiekta GT normalnie (z oknem) - nie w tle
-                // gtaUruchomDopasujOperatora = 2, gtaUruchomNormalnie = 0
+                // Uruchom Subiekta GT
                 try
                 {
-                    dynamic subiekt = gt.Uruchom(2, 0); // Dopasuj operatora + uruchom normalnie (z oknem)
+                    dynamic subiekt = gt.Uruchom(subiektConfig.LaunchDopasujOperatora, subiektConfig.LaunchTryb);
                     if (subiekt == null)
                     {
                         Info("BŁĄD: Uruchomienie Subiekta GT zwróciło null.", "SubiektService");
@@ -562,11 +573,9 @@ AND (
                     }
                     
                     // Ustaw parametry połączenia i logowania
+                    var subiektConfig = _configService.LoadSubiektConfig();
                     try
                     {
-                        // Wczytaj konfigurację przed ustawieniem parametrów
-                        var subiektConfig = _configService.LoadSubiektConfig();
-                        
                         // Sprawdź czy wszystkie wymagane parametry są ustawione
                         if (string.IsNullOrWhiteSpace(subiektConfig.ServerAddress))
                         {
@@ -591,10 +600,10 @@ AND (
                         }
                         
                         // Ustaw wszystkie wymagane parametry GT
-                        gt.Produkt = 1; // gtaProduktSubiekt = 1
+                        gt.Produkt = subiektConfig.GtProdukt;
                         gt.Serwer = subiektConfig.ServerAddress;
                         gt.Baza = subiektConfig.DatabaseName;
-                        gt.Autentykacja = 2; // gtaAutentykacjaMieszana = 2
+                        gt.Autentykacja = subiektConfig.AuthenticationMode; // (0 - Mieszana, 1 - Windows)
                         
                         // Ustaw dane użytkownika bazy danych (jeśli podano)
                         if (!string.IsNullOrWhiteSpace(subiektConfig.ServerUsername))
@@ -623,7 +632,7 @@ AND (
                     // Uruchom Subiekta GT
                     try
                     {
-                        subiekt = gt.Uruchom(2, 4); // Dopasuj operatora + uruchom w tle
+                        subiekt = gt.Uruchom(subiektConfig.LaunchDopasujOperatora, subiektConfig.LaunchTryb);
                         if (subiekt == null)
                         {
                             Info("BŁĄD: Uruchomienie Subiekta GT zwróciło null.", "SubiektService");
@@ -1638,11 +1647,9 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     }
 
                     // Ustaw parametry połączenia i logowania
+                    var subiektConfig = _configService.LoadSubiektConfig();
                     try
                     {
-                        // Wczytaj konfigurację przed ustawieniem parametrów
-                        var subiektConfig = _configService.LoadSubiektConfig();
-                        
                         // Sprawdź czy wszystkie wymagane parametry są ustawione
                         if (string.IsNullOrWhiteSpace(subiektConfig.ServerAddress))
                         {
@@ -1667,10 +1674,10 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         }
                         
                         // Ustaw wszystkie wymagane parametry GT
-                        gt.Produkt = 1; // gtaProduktSubiekt = 1
+                        gt.Produkt = subiektConfig.GtProdukt;
                         gt.Serwer = subiektConfig.ServerAddress;
                         gt.Baza = subiektConfig.DatabaseName;
-                        gt.Autentykacja = 2; // gtaAutentykacjaMieszana = 2
+                        gt.Autentykacja = subiektConfig.AuthenticationMode; // (0 - Mieszana, 1 - Windows)
                         
                         // Ustaw dane użytkownika bazy danych (jeśli podano)
                         if (!string.IsNullOrWhiteSpace(subiektConfig.ServerUsername))
@@ -1702,7 +1709,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     {
                         // gtaUruchomDopasujOperatora = 2, gtaUruchomWTle = 4
                         // To uruchomi Subiekta w tle bez pokazywania jakichkolwiek okien (włącznie z logowaniem)
-                        subiekt = gt.Uruchom(2, 4); // Dopasuj operatora + uruchom w tle
+                        subiekt = gt.Uruchom(subiektConfig.LaunchDopasujOperatora, subiektConfig.LaunchTryb);
                         if (subiekt == null)
                         {
                             Info("BŁĄD: Uruchomienie Subiekta GT zwróciło null.", "SubiektService");

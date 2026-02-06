@@ -2,7 +2,7 @@
 ; Aby użyć tego skryptu, zainstaluj Inno Setup z https://innosetup.com/
 
 #define MyAppName "Gryzak"
-#define MyAppVersion "1.6.1"
+#define MyAppVersion "1.6.3"
 #define MyAppPublisher "Mikran sp. z o.o."
 #define MyAppExeName "Gryzak.exe"
 #define MyAppId "{{B8F3D4A1-2E5C-4F9A-8B6D-1C3E5F7A9B2C}"
@@ -30,7 +30,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 
 [Files]
 ; Uwaga: Foldery publish\win-x64 i publish\win-x86 muszą istnieć przed kompilacją instalatora
@@ -42,7 +41,6 @@ Source: "publish\win-x86\*"; DestDir: "{app}"; Check: not Is64BitInstallMode; Fl
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

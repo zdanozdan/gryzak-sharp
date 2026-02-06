@@ -51,6 +51,10 @@ namespace Gryzak.Views
             }
             
             PasswordBox.Password = _currentConfig.Password;
+            GtProduktComboBox.SelectedValue = _currentConfig.GtProdukt.ToString();
+            AuthenticationModeComboBox.SelectedValue = _currentConfig.AuthenticationMode.ToString();
+            LaunchDopasujComboBox.SelectedValue = _currentConfig.LaunchDopasujOperatora.ToString();
+            LaunchTrybComboBox.SelectedValue = _currentConfig.LaunchTryb.ToString();
             AutoReleaseLicenseTimeoutTextBox.Text = _currentConfig.AutoReleaseLicenseTimeoutMinutes.ToString();
 
             if (string.IsNullOrWhiteSpace(_currentConfig.DiscountCalculationMode))
@@ -78,6 +82,19 @@ namespace Gryzak.Views
             _currentConfig.ServerPassword = ServerPasswordBox.Password;
             _currentConfig.User = UserComboBox.Text.Trim();
             _currentConfig.Password = PasswordBox.Password;
+
+            if (GtProduktComboBox.SelectedValue is string gtProduktStr && int.TryParse(gtProduktStr, out int gtProdukt))
+                _currentConfig.GtProdukt = gtProdukt;
+
+            if (AuthenticationModeComboBox.SelectedValue is string authModeStr && int.TryParse(authModeStr, out int authMode))
+                _currentConfig.AuthenticationMode = authMode;
+
+            if (LaunchDopasujComboBox.SelectedValue is string dopasujStr && int.TryParse(dopasujStr, out int dopasuj))
+                _currentConfig.LaunchDopasujOperatora = dopasuj;
+
+            if (LaunchTrybComboBox.SelectedValue is string trybStr && int.TryParse(trybStr, out int tryb))
+                _currentConfig.LaunchTryb = tryb;
+
             var selectedDiscountMode = DiscountModeComboBox.SelectedValue as string;
             _currentConfig.DiscountCalculationMode = string.IsNullOrWhiteSpace(selectedDiscountMode) ? "percent" : selectedDiscountMode;
             
@@ -429,6 +446,18 @@ SELECT [uz_Id]
                 _currentConfig.ServerPassword = ServerPasswordBox.Password;
                 _currentConfig.User = UserComboBox.Text.Trim();
                 _currentConfig.Password = PasswordBox.Password;
+
+                if (GtProduktComboBox.SelectedValue is string gtProduktStr && int.TryParse(gtProduktStr, out int gtProdukt))
+                    _currentConfig.GtProdukt = gtProdukt;
+
+                if (AuthenticationModeComboBox.SelectedValue is string authModeStr && int.TryParse(authModeStr, out int authMode))
+                    _currentConfig.AuthenticationMode = authMode;
+
+                if (LaunchDopasujComboBox.SelectedValue is string dopasujStr && int.TryParse(dopasujStr, out int dopasuj))
+                    _currentConfig.LaunchDopasujOperatora = dopasuj;
+
+                if (LaunchTrybComboBox.SelectedValue is string trybStr && int.TryParse(trybStr, out int tryb))
+                    _currentConfig.LaunchTryb = tryb;
 
                 // Walidacja podstawowa
                 if (string.IsNullOrWhiteSpace(_currentConfig.ServerAddress))

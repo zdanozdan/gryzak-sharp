@@ -597,7 +597,7 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <TextBlock Grid.Column="2" Text="Gryzak v1.6.1" FontSize="11" Foreground="Gray"/>
+                    <TextBlock Grid.Column="2" Text="Gryzak v1.6.3" FontSize="11" Foreground="Gray"/>
                 </Grid>
             </Border>
         </Grid>

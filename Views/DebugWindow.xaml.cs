@@ -461,8 +461,7 @@ namespace Gryzak.Views
                 try
                 {
                     // W trybie deweloperskim: znajdź katalog projektu przez przejście w górę z katalogu bin
-                    var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                    string? assemblyLocation = Path.GetDirectoryName(assembly.Location);
+                    string assemblyLocation = System.AppContext.BaseDirectory;
                     
                     if (assemblyLocation != null && (assemblyLocation.Contains("\\bin\\") || assemblyLocation.Contains("/bin/")))
                     {

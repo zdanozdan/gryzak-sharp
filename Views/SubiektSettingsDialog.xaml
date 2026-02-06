@@ -79,19 +79,49 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Sekcja: Użytkownik Subiekt GT -->
+                <!-- Sekcja: Parametry GT -->
                 <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
                     <StackPanel>
-                        <TextBlock Text="Użytkownik Subiekt GT" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+                        <TextBlock Text="Parametry GT" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
                         
-                        <TextBlock Text="Użytkownik:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBlock Text="Użytkownik (Operator):" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <ComboBox Name="UserComboBox" 
                                   IsEditable="True"
                                   DisplayMemberPath="DisplayName"
                                   SelectedValuePath="UserName"/>
 
-                        <TextBlock Text="Hasło:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBlock Text="Hasło operatora:" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <PasswordBox Name="PasswordBox"/>
+
+                        <TextBlock Text="Produkt GT:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox Name="GtProduktComboBox" SelectedValuePath="Tag">
+                            <ComboBoxItem Content="1 - Subiekt GT" Tag="1"/>
+                            <ComboBoxItem Content="2 - Gestor GT" Tag="2"/>
+                            <ComboBoxItem Content="3 - Gratyfikant GT" Tag="3"/>
+                            <ComboBoxItem Content="4 - Rachmistrz GT" Tag="4"/>
+                            <ComboBoxItem Content="5 - Rewizor GT" Tag="5"/>
+                        </ComboBox>
+
+                        <TextBlock Text="Tryb autentykacji SQL:" FontWeight="SemiBold" Margin="0,5,0,5"/>
+                        <ComboBox Name="AuthenticationModeComboBox" SelectedValuePath="Tag">
+                            <ComboBoxItem Content="0 - Mieszana (SQL + Windows)" Tag="0"/>
+                            <ComboBoxItem Content="1 - Windows" Tag="1"/>
+                        </ComboBox>
+
+                        <TextBlock Text="Uruchom - Tryb dopasowania:" FontWeight="SemiBold" Margin="0,5,0,5"/>
+                        <ComboBox Name="LaunchDopasujComboBox" SelectedValuePath="Tag">
+                            <ComboBoxItem Content="0 - Dopasuj (serwer/baza)" Tag="0"/>
+                            <ComboBoxItem Content="1 - Dopasuj użytkownika SQL" Tag="1"/>
+                            <ComboBoxItem Content="2 - Dopasuj operatora GT" Tag="2"/>
+                        </ComboBox>
+
+                        <TextBlock Text="Uruchom - Tryb uruchomienia:" FontWeight="SemiBold" Margin="0,5,0,5"/>
+                        <ComboBox Name="LaunchTrybComboBox" SelectedValuePath="Tag">
+                            <ComboBoxItem Content="0 - Standardowy (gtaUruchom)" Tag="0"/>
+                            <ComboBoxItem Content="1 - Nie zablokowany (gtaUruchomNieZablokowany)" Tag="1"/>
+                            <ComboBoxItem Content="2 - Zawsze nowy (gtaUruchomNowy)" Tag="2"/>
+                            <ComboBoxItem Content="4 - W tle (gtaUruchomWTle)" Tag="4"/>
+                        </ComboBox>
                         
                         <Button Name="LoadUsersButton" 
                                 Content="📋 Pobierz listę użytkowników" 
