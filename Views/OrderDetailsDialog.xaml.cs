@@ -301,7 +301,7 @@ namespace Gryzak.Views
                         companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
                         _order.Company = companyValue;
                         CustomerCompany = companyValue;
-                        Debug("Zaktualizowano firmę: {CustomerCompany}", "OrderDetailsDialog");
+                        Debug($"Zaktualizowano firmę: {CustomerCompany}", "OrderDetailsDialog");
                     }
                 }
 
@@ -346,7 +346,7 @@ namespace Gryzak.Views
                     var fullAddress = string.Join(", ", addressParts.Where(s => !string.IsNullOrWhiteSpace(s)));
                     _order.Address = string.IsNullOrWhiteSpace(fullAddress) ? null : fullAddress;
                     CustomerAddress = _order.Address;
-                    Debug("Zaktualizowano adres: {CustomerAddress}", "OrderDetailsDialog");
+                    Debug($"Zaktualizowano adres: {CustomerAddress}", "OrderDetailsDialog");
                 }
 
                 // Aktualizuj NIP (vat)
@@ -354,7 +354,7 @@ namespace Gryzak.Views
                 {
                     _order.Nip = vatProp.GetString();
                     CustomerNip = _order.Nip;
-                    Debug("Zaktualizowano NIP: {CustomerNip}", "OrderDetailsDialog");
+                    Debug($"Zaktualizowano NIP: {CustomerNip}", "OrderDetailsDialog");
                 }
 
                 // Aktualizuj kraj - użyj kod ISO 2 aby znaleźć polską nazwę kraju
@@ -385,7 +385,7 @@ namespace Gryzak.Views
                         {
                             _order.Country = polishName;
                             CustomerCountry = _order.CountryWithIso3;
-                            Debug("Zaktualizowano kraj (ISO {iso2Value}): {_order.Country}", "OrderDetailsDialog");
+                            Debug($"Zaktualizowano kraj (ISO {iso2Value}): {_order.Country}", "OrderDetailsDialog");
                         }
                         else
                         {
@@ -394,7 +394,7 @@ namespace Gryzak.Views
                             {
                                 _order.Country = countryProp.GetString() ?? "";
                                 CustomerCountry = _order.CountryWithIso3;
-                                Debug("Zaktualizowano kraj (oryginalna nazwa): {_order.Country}", "OrderDetailsDialog");
+                                Debug($"Zaktualizowano kraj (oryginalna nazwa): {_order.Country}", "OrderDetailsDialog");
                             }
                         }
                     }
@@ -405,7 +405,7 @@ namespace Gryzak.Views
                         {
                             _order.Country = countryProp.GetString() ?? "";
                             CustomerCountry = _order.CountryWithIso3;
-                            Debug("Zaktualizowano kraj (oryginalna nazwa, brak MainViewModel): {_order.Country}", "OrderDetailsDialog");
+                            Debug($"Zaktualizowano kraj (oryginalna nazwa, brak MainViewModel): {_order.Country}", "OrderDetailsDialog");
                         }
                     }
                 }
@@ -416,7 +416,7 @@ namespace Gryzak.Views
                     {
                         _order.Country = countryProp.GetString() ?? "";
                         CustomerCountry = _order.CountryWithIso3;
-                        Debug("Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {_order.Country}", "OrderDetailsDialog");
+                        Debug($"Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {_order.Country}", "OrderDetailsDialog");
                     }
                 }
                 
@@ -425,7 +425,7 @@ namespace Gryzak.Views
                 {
                     _order.IsoCode3 = iso3Prop.GetString();
                     CustomerCountry = _order.CountryWithIso3;
-                    Debug("Zaktualizowano ISO Code 3: {_order.IsoCode3}", "OrderDetailsDialog");
+                    Debug($"Zaktualizowano ISO Code 3: {_order.IsoCode3}", "OrderDetailsDialog");
                 }
 
                 // Aktualizuj walutę
@@ -434,7 +434,7 @@ namespace Gryzak.Views
                     var currencyValue = currencyProp.GetString() ?? "PLN";
                     Currency = currencyValue;
                     _order.Currency = currencyValue;
-                    Debug("Zaktualizowano walutę: {Currency}", "OrderDetailsDialog");
+                    Debug($"Zaktualizowano walutę: {Currency}", "OrderDetailsDialog");
                 }
 
                 // Produkty
@@ -499,7 +499,7 @@ namespace Gryzak.Views
                             OnPropertyChanged(nameof(TotalPriceGross));
                             OnPropertyChanged(nameof(TotalSum));
                             OnPropertyChanged(nameof(TotalSumGross));
-                            Debug("Załadowano produkty: {items.Count}", "OrderDetailsDialog");
+                            Debug($"Załadowano produkty: {items.Count}", "OrderDetailsDialog");
                         }
                     }
                 }
@@ -568,7 +568,7 @@ namespace Gryzak.Views
                             totalsList.Add(orderTotal);
                             
                             // Loguj znalezione total
-                            Debug("Znaleziono total: code={orderTotal.Code}, title={orderTotal.Title}, value={orderTotal.Value:F2}, sort={orderTotal.SortOrder}", "OrderDetailsDialog");
+                            Debug($"Znaleziono total: code={orderTotal.Code}, title={orderTotal.Title}, value={orderTotal.Value:F2}, sort={orderTotal.SortOrder}", "OrderDetailsDialog");
                             
                             // Ustaw Total jeśli to główny total
                             if (orderTotal.Code == "total")
@@ -583,7 +583,7 @@ namespace Gryzak.Views
                         
                         // Ustaw kolekcję
                         OrderTotals = new ObservableCollection<OrderTotal>(totalsList);
-                        Debug("Załadowano {totalsList.Count} totals", "OrderDetailsDialog");
+                        Debug($"Załadowano {totalsList.Count} totals", "OrderDetailsDialog");
                     }
                 }
                 catch (Exception totalsEx)

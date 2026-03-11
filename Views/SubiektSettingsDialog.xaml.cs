@@ -311,7 +311,7 @@ SELECT [uz_Id]
                             Debug("========================================", "SubiektSettings");
                             Debug("Pobieranie listy użytkowników z MSSQL...", "SubiektSettings");
                             Debug("Zapytanie SQL:", "SubiektSettings");
-                            Debug("{sqlQuery}", "SubiektSettings");
+                            Debug($"{sqlQuery}", "SubiektSettings");
                             Debug("========================================", "SubiektSettings");
 
                             using (var command = new SqlCommand(sqlQuery, connection))
@@ -357,17 +357,17 @@ SELECT [uz_Id]
                                         };
                                         users.Add(userItem);
 
-                                        Debug("Użytkownik {rowCount}:", "SubiektSettings");
-                                        Debug("  ID: {uzId}", "SubiektSettings");
-                                        Debug("  Nazwisko: {uzNazwisko}", "SubiektSettings");
-                                        Debug("  Imię: {uzImie}", "SubiektSettings");
-                                        Debug("  Status: {uzStatus}", "SubiektSettings");
-                                        Debug("  Wyświetlana nazwa: {displayName}", "SubiektSettings");
+                                        Debug($"Użytkownik {rowCount}:", "SubiektSettings");
+                                        Debug($"  ID: {uzId}", "SubiektSettings");
+                                        Debug($"  Nazwisko: {uzNazwisko}", "SubiektSettings");
+                                        Debug($"  Imię: {uzImie}", "SubiektSettings");
+                                        Debug($"  Status: {uzStatus}", "SubiektSettings");
+                                        Debug($"  Wyświetlana nazwa: {displayName}", "SubiektSettings");
                                         Debug("---", "SubiektSettings");
                                     }
 
                                     Debug("========================================", "SubiektSettings");
-                                    Debug("Znaleziono {rowCount} użytkowników", "SubiektSettings");
+                                    Debug($"Znaleziono {rowCount} użytkowników", "SubiektSettings");
                                     Debug("========================================", "SubiektSettings");
                                 }
                             }

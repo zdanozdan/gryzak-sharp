@@ -259,6 +259,7 @@ namespace Gryzak.Services
                 var builder = new SqlConnectionStringBuilder
                 {
                     DataSource = serverAddress,
+                    InitialCatalog = subiektConfig.DatabaseName,
                     UserID = username,
                     Password = password,
                     ConnectTimeout = 10,
@@ -274,19 +275,22 @@ namespace Gryzak.Services
                 string connectionString = builder.ConnectionString;
                 
                 // Wykonaj zapytanie SQL
-                using (var connection = new SqlConnection(connectionString))
+                var kontrahenci = new ObservableCollection<KontrahentItem>();
+                try
                 {
-                    connection.Open();
-                    
-                    // Jeśli nie ma emaila ani nazwy klienta, nie wykonuj zapytania
-                    if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName))
+                    using (var connection = new SqlConnection(connectionString))
                     {
-                        Debug("Brak adresu email i nazwy klienta - pomijam wyszukiwanie przez SQL.", "SubiektService");
-                        return null;
-                    }
-                    
-                    // Buduj zapytanie SQL dynamicznie w zależności od dostępnych danych
-                    string sqlQuery = @"
+                        connection.Open();
+                        
+                        // Jeśli nie ma emaila ani nazwy klienta, nie wykonuj zapytania
+                        if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName))
+                        {
+                            Debug("Brak adresu email i nazwy klienta - pomijam wyszukiwanie przez SQL.", "SubiektService");
+                        }
+                        else
+                        {
+                            // Buduj zapytanie SQL dynamicznie w zależności od dostępnych danych
+                            string sqlQuery = @"
 SELECT TOP(20)
     A.adr_TypAdresu,
     A.adr_Adres,
@@ -307,209 +311,213 @@ WHERE A.adr_TypAdresu = 1
 AND K.kh_Zablokowany = 0
 AND (
 ";
-                    
-                    // Lista warunków do dodania
-                    var conditions = new List<string>();
-                    
-                    // Warunek dla pełnej nazwy (imię i nazwisko)
-                    if (!string.IsNullOrWhiteSpace(customerName))
-                    {
-                        // Podziel nazwę na słowa (imię i nazwisko)
-                        var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (nameParts.Length > 0)
-                        {
-                            // Dodaj warunek dla każdego słowa z nazwy
-                            var nameConditions = new List<string>();
-                            foreach (var part in nameParts)
-                            {
-                                nameConditions.Add($"A.adr_NazwaPelna LIKE @NamePart{nameConditions.Count}");
-                            }
-                            conditions.Add($"({string.Join(" AND ", nameConditions)})");
-                        }
-                    }
-                    
-                    // Warunek dla adresu email
-                    if (!string.IsNullOrWhiteSpace(email))
-                    {
-                        conditions.Add("K.kh_EMail = @Email");
-                    }
-                    
-                    sqlQuery += string.Join("\n        OR \n        ", conditions);
-                    sqlQuery += "\n    )\n";
-                    
-                    Debug($"Wykonuję zapytanie SQL do wyszukania kontrahenta (email: {email}, customerName: {customerName}):", "SubiektService");
-                    
-                    using (var command = new SqlCommand(sqlQuery, connection))
-                    {
-                        // Dodaj parametr email do zapytania SQL (zabezpieczenie przed SQL injection)
-                        if (!string.IsNullOrWhiteSpace(email))
-                        {
-                            command.Parameters.AddWithValue("@Email", email);
-                        }
-                        
-                        // Dodaj parametry dla każdego słowa z nazwy (imię i nazwisko)
-                        if (!string.IsNullOrWhiteSpace(customerName))
-                        {
-                            var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                            for (int i = 0; i < nameParts.Length; i++)
-                            {
-                                command.Parameters.AddWithValue($"@NamePart{i}", $"%{nameParts[i]}%");
-                            }
-                        }
-                        
-                        // Loguj finalne zapytanie z parametrami
-                        string loggedQuery = sqlQuery;
-                        if (!string.IsNullOrWhiteSpace(email))
-                        {
-                            loggedQuery = loggedQuery.Replace("@Email", $"'{email}'");
-                        }
-                        if (!string.IsNullOrWhiteSpace(customerName))
-                        {
-                            var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                            for (int i = 0; i < nameParts.Length; i++)
-                            {
-                                loggedQuery = loggedQuery.Replace($"@NamePart{i}", $"'%{nameParts[i]}%'");
-                            }
-                        }
-                        Info("{loggedQuery}", "SubiektService");
-                        
-                        
-                        using (var reader = command.ExecuteReader())
-                        {
-                            var kontrahenci = new ObservableCollection<KontrahentItem>();
                             
-                            while (reader.Read())
+                            // Lista warunków do dodania
+                            var conditions = new List<string>();
+                            
+                            // Warunek dla pełnej nazwy (imię i nazwisko)
+                            if (!string.IsNullOrWhiteSpace(customerName))
                             {
-                                var kontrahent = new KontrahentItem
+                                // Podziel nazwę na słowa (imię i nazwisko)
+                                var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                                if (nameParts.Length > 0)
                                 {
-                                    Id = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetValue(8)), // kh_Id
-                                    Symbol = reader.IsDBNull(9) ? "" : reader.GetValue(9)?.ToString() ?? "",
-                                    NazwaPelna = reader.IsDBNull(3) ? "" : reader.GetValue(3)?.ToString() ?? "",
-                                    Email = reader.IsDBNull(10) ? "" : reader.GetValue(10)?.ToString() ?? "",
-                                    NIP = reader.IsDBNull(4) ? "" : reader.GetValue(4)?.ToString() ?? "",
-                                    Adres = reader.IsDBNull(1) ? "" : reader.GetValue(1)?.ToString() ?? "",
-                                    Miejscowosc = reader.IsDBNull(6) ? "" : reader.GetValue(6)?.ToString() ?? "",
-                                    Kod = reader.IsDBNull(7) ? "" : reader.GetValue(7)?.ToString() ?? ""
-                                };
-                                
-                                kontrahenci.Add(kontrahent);
-                            }
-                            
-                            // Zawsze pokaż dialog wyboru, nawet jeśli nie znaleziono żadnych kontrahentów
-                            // Użytkownik może zdecydować czy wybrać kontrahenta, dodać nowego, czy kontynuować bez kontrahenta
-                            if (kontrahenci.Count > 0)
-                            {
-                                Info("Znaleziono {kontrahenci.Count} kontrahentów przez SQL.", "SubiektService");
-                            }
-                            else
-                            {
-                                Info("Nie znaleziono kontrahentów przez SQL - wyświetlam dialog z pustą listą.", "SubiektService");
-                            }
-                            
-                            Info("Wyświetlam dialog wyboru kontrahenta ({kontrahenci.Count} wyników)...", "SubiektService");
-                            
-                            // Użyj synchronicznego Invoke, aby upewnić się że dialog jest wyświetlony
-                            bool shouldAddNew = false;
-                            bool shouldCancel = false;
-                            Application.Current?.Dispatcher.Invoke(() =>
-                            {
-                                try
-                                {
-                                    Info("Tworzę dialog SelectKontrahentDialog...", "SubiektService");
-                                    var dialog = new SelectKontrahentDialog(kontrahenci, customerName, email, phone, company, nip, address);
-                                    
-                                    // Ustaw właściciela dialogu PO utworzeniu okna ale PRZED ShowDialog
-                                    // W WPF można ustawić Owner tylko jeśli okno główne jest już wyświetlone
-                                    bool hasOwner = false;
-                                    try
+                                    // Dodaj warunek dla każdego słowa z nazwy
+                                    var nameConditions = new List<string>();
+                                    foreach (var part in nameParts)
                                     {
-                                        if (Application.Current?.MainWindow != null && Application.Current.MainWindow.IsLoaded)
+                                        nameConditions.Add($"A.adr_NazwaPelna LIKE @NamePart{nameConditions.Count}");
+                                    }
+                                    conditions.Add($"({string.Join(" AND ", nameConditions)})");
+                                }
+                            }
+                            
+                            // Warunek dla adresu email
+                            if (!string.IsNullOrWhiteSpace(email))
+                            {
+                                conditions.Add("K.kh_EMail = @Email");
+                            }
+                            
+                            sqlQuery += string.Join("\n        OR \n        ", conditions);
+                            sqlQuery += "\n    )\n";
+                            
+                            Debug($"Wykonuję zapytanie SQL do wyszukania kontrahenta (email: {email}, customerName: {customerName}):", "SubiektService");
+                            
+                            using (var command = new SqlCommand(sqlQuery, connection))
+                            {
+                                // Dodaj parametr email do zapytania SQL (zabezpieczenie przed SQL injection)
+                                if (!string.IsNullOrWhiteSpace(email))
+                                {
+                                    command.Parameters.AddWithValue("@Email", email);
+                                }
+                                
+                                // Dodaj parametry dla każdego słowa z nazwy (imię i nazwisko)
+                                if (!string.IsNullOrWhiteSpace(customerName))
+                                {
+                                    var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                                    for (int i = 0; i < nameParts.Length; i++)
+                                    {
+                                        command.Parameters.AddWithValue($"@NamePart{i}", $"%{nameParts[i]}%");
+                                    }
+                                }
+                                
+                                // Loguj finalne zapytanie z parametrami
+                                string loggedQuery = sqlQuery;
+                                if (!string.IsNullOrWhiteSpace(email))
+                                {
+                                    loggedQuery = loggedQuery.Replace("@Email", $"'{email}'");
+                                }
+                                if (!string.IsNullOrWhiteSpace(customerName))
+                                {
+                                    var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                                    for (int i = 0; i < nameParts.Length; i++)
+                                    {
+                                        loggedQuery = loggedQuery.Replace($"@NamePart{i}", $"'%{nameParts[i]}%'");
+                                    }
+                                }
+                                Info($"{loggedQuery}", "SubiektService");
+                                
+                                using (var reader = command.ExecuteReader())
+                                {
+                                    while (reader.Read())
+                                    {
+                                        var kontrahent = new KontrahentItem
                                         {
-                                            dialog.Owner = Application.Current.MainWindow;
-                                            hasOwner = true;
-                                        }
-                                    }
-                                    catch (Exception ownerEx)
-                                    {
-                                        Warning($"Nie można ustawić Owner dla dialogu: {ownerEx.Message}", "SubiektService");
-                                        // Kontynuuj bez Owner - okno będzie wycentrowane na ekranie
-                                        hasOwner = false;
-                                    }
-                                    
-                                    // Ustaw lokalizację okna PRZED wyświetleniem (ale PO ustawieniu Owner)
-                                    dialog.WindowStartupLocation = hasOwner ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
-                                    
-                                    // Ustaw dialog na wierzchu, aby był widoczny
-                                    dialog.Topmost = true;
-                                    
-                                    Info("Wyświetlam dialog ShowDialog()...", "SubiektService");
-                                    bool? result = dialog.ShowDialog();
-                                    
-                                    // Wyłącz Topmost po zamknięciu dialogu
-                                    dialog.Topmost = false;
-                                    Info("Dialog ShowDialog() zakończył się z wynikiem: {result}", "SubiektService");
-                                    
-                                    // Sprawdź najpierw specjalne akcje (kolejność ma znaczenie!)
-                                    if (dialog.ShouldOpenEmpty)
-                                    {
-                                        Info("Użytkownik wybrał 'Pusty' - ZK zostanie otwarte bez kontrahenta.", "SubiektService");
-                                        selectedId = null; // Explicitnie ustaw na null aby otworzyć ZK bez kontrahenta
-                                    }
-                                    else if (dialog.ShouldAddNew)
-                                    {
-                                        Info("Użytkownik chce dodać nowego kontrahenta - otwieram okno Subiekta GT", "SubiektService");
-                                        shouldAddNew = true;
-                                    }
-                                    else if (result == true && dialog.SelectedKontrahent != null)
-                                    {
-                                        selectedId = dialog.SelectedKontrahent.Id;
-                                        Info("Użytkownik wybrał kontrahenta: ID={dialog.SelectedKontrahent.Id}, Symbol={dialog.SelectedKontrahent.Symbol}", "SubiektService");
-                                    }
-                                    else
-                                    {
-                                        // Użytkownik kliknął Anuluj lub zamknął okno - nie otwieraj ZK
-                                        Info("Użytkownik anulował wybór kontrahenta - dialog zostanie zamknięty bez otwierania ZK.", "SubiektService");
-                                        shouldCancel = true; // Anuluj całkowicie - nie otwieraj ZK
+                                            Id = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetValue(8)), // kh_Id
+                                            Symbol = reader.IsDBNull(9) ? "" : reader.GetValue(9)?.ToString() ?? "",
+                                            NazwaPelna = reader.IsDBNull(3) ? "" : reader.GetValue(3)?.ToString() ?? "",
+                                            Email = reader.IsDBNull(10) ? "" : reader.GetValue(10)?.ToString() ?? "",
+                                            NIP = reader.IsDBNull(4) ? "" : reader.GetValue(4)?.ToString() ?? "",
+                                            Adres = reader.IsDBNull(1) ? "" : reader.GetValue(1)?.ToString() ?? "",
+                                            Miejscowosc = reader.IsDBNull(6) ? "" : reader.GetValue(6)?.ToString() ?? "",
+                                            Kod = reader.IsDBNull(7) ? "" : reader.GetValue(7)?.ToString() ?? ""
+                                        };
+                                        
+                                        kontrahenci.Add(kontrahent);
                                     }
                                 }
-                                catch (Exception dialogEx)
-                                {
-                                    Error(dialogEx, "SubiektService", "Błąd podczas wyświetlania dialogu wyboru kontrahenta");
-                                }
-                            }, System.Windows.Threading.DispatcherPriority.Normal);
-                            
-                            // Jeśli użytkownik anulował, zakończ bez otwierania ZK
-                            // Używamy -1 jako specjalnej wartości oznaczającej anulowanie
-                            if (shouldCancel)
-                            {
-                                Info("Anulowano otwieranie ZK - zwracam -1 (specjalna wartość dla anulowania)", "SubiektService");
-                                return -1;
                             }
-                            
-                            // Jeśli użytkownik chce dodać nowego kontrahenta, otwórz okno Subiekta GT
-                            if (shouldAddNew)
-                            {
-                                Info("Otwieram okno dodawania kontrahenta...", "SubiektService");
-                                try
-                                {
-                                    // Przekaż dane z API do metody DodajKontrahenta
-                                    DodajKontrahenta(customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
-                                }
-                                catch (Exception addEx)
-                                {
-                                    Error(addEx, "SubiektService", "Błąd podczas otwierania okna dodawania kontrahenta");
-                                }
-                                
-                                // Po zamknięciu okna Subiekta GT, wywołaj rekurencyjnie wyszukiwanie, aby ponownie pokazać dialog
-                                Info("Okno Subiekta GT zostało zamknięte - ponownie wyświetlam dialog wyboru kontrahenta...", "SubiektService");
-                                return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, true, useEuVatRate);
-                            }
-                            
-                            Debug($"WyszukajKontrahentaPrzezSQL zwraca: {selectedId?.ToString() ?? "null"}", "SubiektService");
-                            return selectedId;
                         }
                     }
                 }
+                catch (Exception sqlEx)
+                {
+                    Error(sqlEx, "SubiektService", "Błąd podczas wyszukiwania kontrahenta przez SQL");
+                    // Kontynuujemy, aby wyświetlić dialog nawet z pustą listą lub błędami
+                }
+
+                // Zawsze pokaż dialog wyboru, nawet jeśli nie znaleziono żadnych kontrahentów
+                // Użytkownik może zdecydować czy wybrać kontrahenta, dodać nowego, czy kontynuować bez kontrahenta
+                if (kontrahenci.Count > 0)
+                {
+                    Info($"Znaleziono {kontrahenci.Count} kontrahentów przez SQL.", "SubiektService");
+                }
+                else
+                {
+                    Info("Nie znaleziono kontrahentów przez SQL - wyświetlam dialog z pustą listą.", "SubiektService");
+                }
+                
+                Info($"Wyświetlam dialog wyboru kontrahenta ({kontrahenci.Count} wyników)...", "SubiektService");
+                
+                // Użyj synchronicznego Invoke, aby upewnić się że dialog jest wyświetlony
+                bool shouldAddNew = false;
+                bool shouldCancel = false;
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        Info("Tworzę dialog SelectKontrahentDialog...", "SubiektService");
+                        var dialog = new SelectKontrahentDialog(kontrahenci, customerName, email, phone, company, nip, address);
+                        
+                        // Ustaw właściciela dialogu PO utworzeniu okna ale PRZED ShowDialog
+                        // W WPF można ustawić Owner tylko jeśli okno główne jest już wyświetlone
+                        bool hasOwner = false;
+                        try
+                        {
+                            if (Application.Current?.MainWindow != null && Application.Current.MainWindow.IsLoaded)
+                            {
+                                dialog.Owner = Application.Current.MainWindow;
+                                hasOwner = true;
+                            }
+                        }
+                        catch (Exception ownerEx)
+                        {
+                            Warning($"Nie można ustawić Owner dla dialogu: {ownerEx.Message}", "SubiektService");
+                            // Kontynuuj bez Owner - okno będzie wycentrowane na ekranie
+                            hasOwner = false;
+                        }
+                        
+                        // Ustaw lokalizację okna PRZED wyświetleniem (ale PO ustawieniu Owner)
+                        dialog.WindowStartupLocation = hasOwner ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
+                        
+                        // Ustaw dialog na wierzchu, aby był widoczny
+                        dialog.Topmost = true;
+                        
+                        Info("Wyświetlam dialog ShowDialog()...", "SubiektService");
+                        bool? result = dialog.ShowDialog();
+                        
+                        // Wyłącz Topmost po zamknięciu dialogu
+                        dialog.Topmost = false;
+                        Info($"Dialog ShowDialog() zakończył się z wynikiem: {result}", "SubiektService");
+                        
+                        // Sprawdź najpierw specjalne akcje (kolejność ma znaczenie!)
+                        if (dialog.ShouldOpenEmpty)
+                        {
+                            Info("Użytkownik wybrał 'Pusty' - ZK zostanie otwarte bez kontrahenta.", "SubiektService");
+                            selectedId = null; // Explicitnie ustaw na null aby otworzyć ZK bez kontrahenta
+                        }
+                        else if (dialog.ShouldAddNew)
+                        {
+                            Info("Użytkownik chce dodać nowego kontrahenta - otwieram okno Subiekta GT", "SubiektService");
+                            shouldAddNew = true;
+                        }
+                        else if (result == true && dialog.SelectedKontrahent != null)
+                        {
+                            selectedId = dialog.SelectedKontrahent.Id;
+                            Info($"Użytkownik wybrał kontrahenta: ID={dialog.SelectedKontrahent.Id}, Symbol={dialog.SelectedKontrahent.Symbol}", "SubiektService");
+                        }
+                        else
+                        {
+                            // Użytkownik kliknął Anuluj lub zamknął okno - nie otwieraj ZK
+                            Info("Użytkownik anulował wybór kontrahenta - dialog zostanie zamknięty bez otwierania ZK.", "SubiektService");
+                            shouldCancel = true; // Anuluj całkowicie - nie otwieraj ZK
+                        }
+                    }
+                    catch (Exception dialogEx)
+                    {
+                        Error(dialogEx, "SubiektService", "Błąd podczas wyświetlania dialogu wyboru kontrahenta");
+                    }
+                }, System.Windows.Threading.DispatcherPriority.Normal);
+                
+                // Jeśli użytkownik anulował, zakończ bez otwierania ZK
+                // Używamy -1 jako specjalnej wartości oznaczającej anulowanie
+                if (shouldCancel)
+                {
+                    Info("Anulowano otwieranie ZK - zwracam -1 (specjalna wartość dla anulowania)", "SubiektService");
+                    return -1;
+                }
+                
+                // Jeśli użytkownik chce dodać nowego kontrahenta, otwórz okno Subiekta GT
+                if (shouldAddNew)
+                {
+                    Info("Otwieram okno dodawania kontrahenta...", "SubiektService");
+                    try
+                    {
+                        // Przekaż dane z API do metody DodajKontrahenta
+                        DodajKontrahenta(customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
+                    }
+                    catch (Exception addEx)
+                    {
+                        Error(addEx, "SubiektService", "Błąd podczas otwierania okna dodawania kontrahenta");
+                    }
+                    
+                    // Po zamknięciu okna Subiekta GT, wywołaj rekurencyjnie wyszukiwanie, aby ponownie pokazać dialog
+                    Info("Okno Subiekta GT zostało zamknięte - ponownie wyświetlam dialog wyboru kontrahenta...", "SubiektService");
+                    return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, true, useEuVatRate);
+                }
+                
+                Debug($"WyszukajKontrahentaPrzezSQL zwraca: {selectedId?.ToString() ?? "null"}", "SubiektService");
+                return selectedId;
             }
             catch (Exception ex)
             {
@@ -803,7 +811,7 @@ WHERE pa_Nazwa = @CountryName";
                                 var countryId = reader.IsDBNull(0) ? null : (int?)Convert.ToInt32(reader.GetValue(0));
                                 if (countryId.HasValue)
                                 {
-                                    Info("Znaleziono kraj '{countryName}' w słowniku: ID={countryId.Value}", "SubiektService");
+                                    Info($"Znaleziono kraj '{countryName}' w słowniku: ID={countryId.Value}", "SubiektService");
                                     return countryId.Value;
                                 }
                             }
@@ -811,7 +819,7 @@ WHERE pa_Nazwa = @CountryName";
                     }
                 }
                 
-                Info("Nie znaleziono kraju '{countryName}' w słowniku państw.", "SubiektService");
+                Info($"Nie znaleziono kraju '{countryName}' w słowniku państw.", "SubiektService");
                 return null;
             }
             catch (Exception ex)
@@ -1001,14 +1009,14 @@ WHERE dok_NrPelnyOryg = @NumerOryginalny";
                             {
                                 var dokId = reader.IsDBNull(0) ? null : (int?)Convert.ToInt32(reader.GetValue(0));
                                 var nrPelnyOryg = reader.IsDBNull(1) ? null : reader.GetString(1);
-                                Info("Znaleziono istniejący dokument z numerem oryginalnym '{numerOryginalny}' (dok_Id={dokId})", "SubiektService");
+                                Info($"Znaleziono istniejący dokument z numerem oryginalnym '{numerOryginalny}' (dok_Id={dokId})", "SubiektService");
                                 return dokId;
                             }
                         }
                     }
                 }
                 
-                Info("Nie znaleziono dokumentu z numerem oryginalnym '{numerOryginalny}'", "SubiektService");
+                Info($"Nie znaleziono dokumentu z numerem oryginalnym '{numerOryginalny}'", "SubiektService");
                 return null;
             }
             catch (Exception ex)
@@ -1243,18 +1251,18 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     // try
                     // {
                     //     kontrahent.Symbol = pelnaNazwa;
-                    //     Info("Ustawiono Symbol: {pelnaNazwa}", "SubiektService");
+                    //     Info($"Ustawiono Symbol: {pelnaNazwa}", "SubiektService");
                     // }
                     // catch (Exception ex)
                     // {
-                    //     Info("Nie udało się ustawić Symbol: {ex.Message}", "SubiektService");
+                    //     Info($"Nie udało się ustawić Symbol: {ex.Message}", "SubiektService");
                     // }
                     
                     // Nazwa
                     try
                     {
                         kontrahent.Nazwa = pelnaNazwa;
-                        Info("Ustawiono Nazwa: {pelnaNazwa}", "SubiektService");
+                        Info($"Ustawiono Nazwa: {pelnaNazwa}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
@@ -1265,7 +1273,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     try
                     {
                         kontrahent.NazwaPelna = pelnaNazwa;
-                        Info("Ustawiono NazwaPelna: {pelnaNazwa}", "SubiektService");
+                        Info($"Ustawiono NazwaPelna: {pelnaNazwa}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
@@ -1292,11 +1300,11 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 if (viesMap.TryGetValue(isoCodeUpper, out var viesCode))
                                 {
                                     nipZPrefiksem = viesCode + nip;
-                                    Info("Dodaję prefiks VIES do NIP (VAT EU Export, kraj: {isoCodeUpper}): {nipZPrefiksem}", "SubiektService");
+                                    Info($"Dodaję prefiks VIES do NIP (VAT EU Export, kraj: {isoCodeUpper}): {nipZPrefiksem}", "SubiektService");
                                 }
                                 else
                                 {
-                                    Info("Nie znaleziono kodu VIES dla kraju {isoCodeUpper} - używam NIP bez prefiksu", "SubiektService");
+                                    Info($"Nie znaleziono kodu VIES dla kraju {isoCodeUpper} - używam NIP bez prefiksu", "SubiektService");
                                 }
                             }
                             else
@@ -1310,7 +1318,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         }
                         
                         kontrahent.NIP = nipZPrefiksem;
-                        Info("Ustawiono NIP: {nipZPrefiksem}", "SubiektService");
+                        Info($"Ustawiono NIP: {nipZPrefiksem}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
@@ -1324,7 +1332,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     try
                     {
                         kontrahent.Ulica = address1;
-                        Info("Ustawiono Ulica: {address1}", "SubiektService");
+                        Info($"Ustawiono Ulica: {address1}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
@@ -1338,7 +1346,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     try
                     {
                         kontrahent.Miejscowosc = city;
-                        Info("Ustawiono Miejscowosc: {city}", "SubiektService");
+                        Info($"Ustawiono Miejscowosc: {city}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
@@ -1352,7 +1360,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     try
                     {
                         kontrahent.KodPocztowy = postcode;
-                        Info("Ustawiono KodPocztowy: {postcode}", "SubiektService");
+                        Info($"Ustawiono KodPocztowy: {postcode}", "SubiektService");
                     }
                     catch (Exception ex)
                     {
@@ -1372,7 +1380,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             if (nowyEmail != null)
                             {
                                 nowyEmail.Podstawowy = true;
-                                Info("Ustawiono Email: {email}", "SubiektService");
+                                Info($"Ustawiono Email: {email}", "SubiektService");
                             }
                         }
                     }
@@ -1394,7 +1402,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             if (nowyTelefon != null)
                             {
                                 nowyTelefon.Podstawowy = true;
-                                Info("Ustawiono Telefon: {phone}", "SubiektService");
+                                Info($"Ustawiono Telefon: {phone}", "SubiektService");
                             }
                         }
                     }
@@ -1426,7 +1434,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     try
                                     {
                                         kontrahent.PodatnikVatUE = true;
-                                        Info("Ustawiono PodatnikVatUE=True (VAT EU Export, kraj UE: {isoCodeUpper}, kod VIES: {viesCode})", "SubiektService");
+                                        Info($"Ustawiono PodatnikVatUE=True (VAT EU Export, kraj UE: {isoCodeUpper}, kod VIES: {viesCode})", "SubiektService");
                                     }
                                     catch (Exception ex)
                                     {
@@ -1435,7 +1443,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 }
                                 else
                                 {
-                                    Info("Nie znaleziono kodu VIES dla kraju {isoCodeUpper} - pomijam ustawienie PodatnikVatUE", "SubiektService");
+                                    Info($"Nie znaleziono kodu VIES dla kraju {isoCodeUpper} - pomijam ustawienie PodatnikVatUE", "SubiektService");
                                 }
                             }
                             else
@@ -1457,11 +1465,11 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         if (countryId.HasValue)
                         {
                             kontrahent.Panstwo = countryId.Value;
-                            Info("Ustawiono Panstwo: {country} (ID={countryId.Value})", "SubiektService");
+                            Info($"Ustawiono Panstwo: {country} (ID={countryId.Value})", "SubiektService");
                         }
                         else
                         {
-                            Info("Nie znaleziono kraju '{country}' w słowniku - pomijam ustawienie Panstwo", "SubiektService");
+                            Info($"Nie znaleziono kraju '{country}' w słowniku - pomijam ustawienie Panstwo", "SubiektService");
                         }
                     }
                     catch (Exception ex)
@@ -1498,7 +1506,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             if (aplikacja != null)
                             {
                                 bool zakonczWynik = aplikacja.Zakoncz();
-                                Info("Wywołano Zakoncz() na obiekcie Aplikacja. Wynik: {zakonczWynik}", "SubiektService");
+                                Info($"Wywołano Zakoncz() na obiekcie Aplikacja. Wynik: {zakonczWynik}", "SubiektService");
                                 
                                 // Poczekaj chwilę na zamknięcie procesu
                                 System.Threading.Thread.Sleep(500);
@@ -1519,7 +1527,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                         if (aplikacjaGT != null)
                                         {
                                             bool zakonczWynik = aplikacjaGT.Zakoncz();
-                                            Info("Wywołano Zakoncz() na obiekcie GT.Aplikacja. Wynik: {zakonczWynik}", "SubiektService");
+                                            Info($"Wywołano Zakoncz() na obiekcie GT.Aplikacja. Wynik: {zakonczWynik}", "SubiektService");
                                             System.Threading.Thread.Sleep(500);
                                         }
                                     }
@@ -1773,7 +1781,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                     int? dokId = PobierzIdIstniejacegoDokumentu(orderId!); // orderId nie może być null w tym miejscu
                     if (dokId.HasValue)
                     {
-                        Info("Dokument z numerem oryginalnym '{orderId}' już istnieje (dok_Id={dokId.Value}).", "SubiektService");
+                        Info($"Dokument z numerem oryginalnym '{orderId}' już istnieje (dok_Id={dokId.Value}).", "SubiektService");
                         
                         // Wyświetl ostrzeżenie i zapytaj użytkownika
                         var result = MessageBox.Show(
@@ -1785,12 +1793,12 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                         
                         if (result == System.Windows.MessageBoxResult.No)
                         {
-                            Info("Użytkownik anulował otwieranie dokumentu ZK - dokument z numerem '{orderId}' już istnieje.", "SubiektService");
+                            Info($"Użytkownik anulował otwieranie dokumentu ZK - dokument z numerem '{orderId}' już istnieje.", "SubiektService");
                             return;
                         }
                         
                         // Użytkownik wybrał "Tak" - otwórz istniejący dokument
-                        Info("Użytkownik zdecydował otworzyć istniejący dokument (dok_Id={dokId.Value}).", "SubiektService");
+                        Info($"Użytkownik zdecydował otworzyć istniejący dokument (dok_Id={dokId.Value}).", "SubiektService");
                         
                         try
                         {
@@ -1803,7 +1811,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             {
                                 // Otwórz dokument do edycji (bez uzupełniania danych)
                                 istniejacyDokument.Wyswietl(false);
-                                Info("Otwarto istniejący dokument ZK (dok_Id={dokId.Value}) do edycji.", "SubiektService");
+                                Info($"Otwarto istniejący dokument ZK (dok_Id={dokId.Value}) do edycji.", "SubiektService");
                                 
                                 // Aktywuj okno dokumentu na wierzch
                                 try
@@ -1821,7 +1829,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             }
                             else
                             {
-                                Info("Nie udało się wczytać dokumentu o ID={dokId.Value}. Tworzę nowy dokument.", "SubiektService");
+                                Info($"Nie udało się wczytać dokumentu o ID={dokId.Value}. Tworzę nowy dokument.", "SubiektService");
                             }
                         }
                         catch (Exception wczytajEx)
@@ -1909,11 +1917,11 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 {
                                     // Ustaw ID kontrahenta w dokumencie
                                     zkDokument.KontrahentId = kontrahent.Identyfikator;
-                                    Info("Ustawiono kontrahenta o ID={kontrahent.Identyfikator} (NIP: {nip}) w dokumencie ZK.", "SubiektService");
+                                    Info($"Ustawiono kontrahenta o ID={kontrahent.Identyfikator} (NIP: {nip}) w dokumencie ZK.", "SubiektService");
                                 }
                                 else
                                 {
-                                    Info("Nie znaleziono kontrahenta o NIP: {nip}", "SubiektService");
+                                    Info($"Nie znaleziono kontrahenta o NIP: {nip}", "SubiektService");
                                     
                                     // Spróbuj wyszukać kontrahenta przez SQL po emailu
                                     Info("Próba wyszukania kontrahenta przez SQL...", "SubiektService");
@@ -1930,7 +1938,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     {
                                         // Ustaw ID kontrahenta w dokumencie
                                         zkDokument.KontrahentId = kontrahentId.Value;
-                                        Info("Ustawiono kontrahenta o ID={kontrahentId.Value} (znaleziony przez SQL) w dokumencie ZK.", "SubiektService");
+                                        Info($"Ustawiono kontrahenta o ID={kontrahentId.Value} (znaleziony przez SQL) w dokumencie ZK.", "SubiektService");
                                     }
                                     else
                                     {
@@ -1960,7 +1968,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                         // Ustaw ID kontrahenta w dokumencie
                                         int id = kontrahentId!.Value; // HasValue jest true, więc Value nie jest null
                                         zkDokument!.KontrahentId = id; // Sprawdziliśmy != null wyżej
-                                        Info("Ustawiono kontrahenta o ID={id} (znaleziony przez SQL po błędzie) w dokumencie ZK.", "SubiektService");
+                                        Info($"Ustawiono kontrahenta o ID={id} (znaleziony przez SQL po błędzie) w dokumencie ZK.", "SubiektService");
                                     }
                                     else
                                     {
@@ -1994,7 +2002,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     // Ustaw ID kontrahenta w dokumencie
                                     int id = kontrahentId!.Value; // HasValue jest true, więc Value nie jest null
                                     zkDokument!.KontrahentId = id; // Sprawdziliśmy != null wyżej
-                                    Info("Ustawiono kontrahenta o ID={id} (znaleziony przez SQL bez NIP) w dokumencie ZK.", "SubiektService");
+                                    Info($"Ustawiono kontrahenta o ID={id} (znaleziony przez SQL bez NIP) w dokumencie ZK.", "SubiektService");
                                 }
                                 else
                                 {
@@ -2014,7 +2022,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             try
                             {
                                 zkDokument!.NumerOryginalny = orderId;
-                                Info("Ustawiono numer oryginalnego dokumentu: {orderId}", "SubiektService");
+                                Info($"Ustawiono numer oryginalnego dokumentu: {orderId}", "SubiektService");
                             }
                             catch (Exception numOrigEx)
                             {
@@ -2060,7 +2068,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 //try
                                 //{
                                  //   zkDokument!.PobierzKursWaluty();
-                                   // Info("Pobrano kurs waluty dla {currency}", "SubiektService");
+                                   // Info($"Pobrano kurs waluty dla {currency}", "SubiektService");
                                 //}
                                 //catch (Exception kursEx)
                                 //{
@@ -2124,7 +2132,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                         // sdoUwagi = 1 (wartość enum SuDokumentOpisEnum)
                                         const int sdoUwagi = 1;
                                         dokumentyManager.ZmienOpisDokumentu(zkDokument, sdoUwagi, fullNote);
-                                        Info("Dodano informacje do uwag ZK (ZmienOpisDokumentu): {fullNote}", "SubiektService");
+                                        Info($"Dodano informacje do uwag ZK (ZmienOpisDokumentu): {fullNote}", "SubiektService");
                                     }
                                 }
                                 catch (Exception methodEx)
@@ -2137,7 +2145,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                         try
                                         {
                                             zkDokument!.Uwagi = fullNote;
-                                            Info("Dodano informacje do uwag ZK (Uwagi): {fullNote}", "SubiektService");
+                                            Info($"Dodano informacje do uwag ZK (Uwagi): {fullNote}", "SubiektService");
                                         }
                                         catch (Exception directEx)
                                         {
@@ -2147,7 +2155,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                             try
                                             {
                                                 zkDokument!.Opis = fullNote;
-                                                Info("Dodano informacje do uwag ZK (Opis): {fullNote}", "SubiektService");
+                                                Info($"Dodano informacje do uwag ZK (Opis): {fullNote}", "SubiektService");
                                             }
                                             catch
                                             {
@@ -2182,9 +2190,9 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             {
                                 couponPercentage = (couponAmount.Value / totalProductsValue) * 100.0;
                                 Info("ANALIZA KUPONU:", "SubiektService");
-                                Info("Wartość kuponu: {couponAmount.Value:F2}", "SubiektService");
-                                Info("Suma wartości produktów: {totalProductsValue:F2}", "SubiektService");
-                                Info("Procent kuponu względem produktów: {couponPercentage:F2}%", "SubiektService");
+                                Info($"Wartość kuponu: {couponAmount.Value:F2}", "SubiektService");
+                                Info($"Suma wartości produktów: {totalProductsValue:F2}", "SubiektService");
+                                Info($"Procent kuponu względem produktów: {couponPercentage:F2}%", "SubiektService");
                             }
                             else
                             {
@@ -2405,7 +2413,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                         }
                                         else
                                         {
-                                            Info("Brak ceny brutto z API dla produktu ID={towarId}", "SubiektService");
+                                            Info($"Brak ceny brutto z API dla produktu ID={towarId}", "SubiektService");
                                         }
                                         
                                         // Dodaj opcje produktu do opisu pozycji (jeśli są dostępne)
@@ -2457,7 +2465,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     }
                                     else
                                     {
-                                        Info("Pominięto pozycję z nieprawidłowym product_id: '{it.ProductId}'", "SubiektService");
+                                        Info($"Pominięto pozycję z nieprawidłowym product_id: '{it.ProductId}'", "SubiektService");
                                     }
                                     }
                                 }
@@ -2770,7 +2778,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             // Przejdź przez wszystkie pozycje i zsumuj ich wartości
                             // W Subiekcie GT indeksy pozycji zaczynają się od 1, nie od 0!
                             int liczbaPozycji = pozycje.Liczba;
-                            Info("Liczba pozycji w dokumencie ZK: {liczbaPozycji}", "SubiektService");
+                            Info($"Liczba pozycji w dokumencie ZK: {liczbaPozycji}", "SubiektService");
                             
                             for (int i = 1; i <= liczbaPozycji; i++)
                             {
@@ -2791,25 +2799,25 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                     }
                                     
                                     sumaWartosci += wartoscPozycji;
-                                    Info("Pozycja {i}: Wartość = {wartoscPozycji:F2}", "SubiektService");
+                                    Info($"Pozycja {i}: Wartość = {wartoscPozycji:F2}", "SubiektService");
                                     
                                     // Dodatkowe logowanie - sprawdź jakie właściwości pozycji są dostępne
                                     try
                                     {
                                         var ilosc = pozycja.IloscJm;
-                                        Info("  - Ilość: {ilosc}", "SubiektService");
+                                        Info($"  - Ilość: {ilosc}", "SubiektService");
                                     }
                                     catch { }
                                     try
                                     {
                                         var cenaBruttoPoRabacie = pozycja.CenaBruttoPoRabacie;
-                                        Info("  - CenaBruttoPoRabacie: {cenaBruttoPoRabacie:F2}", "SubiektService");
+                                        Info($"  - CenaBruttoPoRabacie: {cenaBruttoPoRabacie:F2}", "SubiektService");
                                     }
                                     catch { }
                                     try
                                     {
                                         var cenaNettoPoRabacie = pozycja.CenaNettoPoRabacie;
-                                        Info("  - CenaNettoPoRabacie: {cenaNettoPoRabacie:F2}", "SubiektService");
+                                        Info($"  - CenaNettoPoRabacie: {cenaNettoPoRabacie:F2}", "SubiektService");
                                     }
                                     catch { }
                                 }
@@ -2820,7 +2828,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             }
                             
                             Info("=========================================", "SubiektService");
-                            Info("SUMA WARTOŚCI WSZYSTKICH POZYCJI: {sumaWartosci:F2}", "SubiektService");
+                            Info($"SUMA WARTOŚCI WSZYSTKICH POZYCJI: {sumaWartosci:F2}", "SubiektService");
                             Info("=========================================", "SubiektService");
                             
                             // Porównaj sumę pozycji ZK z wartością zamówienia z API
@@ -2833,8 +2841,8 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                         double roznica = Math.Abs(sumaWartosci - orderTotalValue);
                                         double roznicaProcent = sumaWartosci > 0 ? (roznica / sumaWartosci) * 100.0 : 0.0;
                                         
-                                        Info("Wartość zamówienia z API: {orderTotalValue:F2}", "SubiektService");
-                                        Info("Różnica: {roznica:F2} ({roznicaProcent:F2}%)", "SubiektService");
+                                        Info($"Wartość zamówienia z API: {orderTotalValue:F2}", "SubiektService");
+                                        Info($"Różnica: {roznica:F2} ({roznicaProcent:F2}%)", "SubiektService");
                                         
                                         // Jeśli różnica jest większa niż próg tolerancji (0.001 = 0.01 grosza)
                                         // Używamy progu zamiast > 0.0 aby uniknąć błędów zaokrąglenia zmiennoprzecinkowych
@@ -2849,40 +2857,40 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                             
                                             // Porównaj bezpośrednio sumę ZK z wartością z API
                                             // Wartość z API jest już finalną wartością (uwzględnia wszystkie składniki)
-                                            Info("Suma pozycji ZK: {sumaWartosci:F2}", "SubiektService");
-                                            Info("Wartość zamówienia z API (total): {orderTotalValue:F2}", "SubiektService");
-                                            Info("Różnica: {roznica:F2} ({roznicaProcent:F2}%)", "SubiektService");
+                                            Info($"Suma pozycji ZK: {sumaWartosci:F2}", "SubiektService");
+                                            Info($"Wartość zamówienia z API (total): {orderTotalValue:F2}", "SubiektService");
+                                            Info($"Różnica: {roznica:F2} ({roznicaProcent:F2}%)", "SubiektService");
                                             
                                             // Sprawdź komponenty zamówienia z API (dla informacji)
                                             double sumaKosztow = 0.0;
                                             if (handlingAmountNetto.HasValue && handlingAmountNetto.Value > 0.01)
                                             {
                                                 sumaKosztow += handlingAmountNetto.Value;
-                                                Info("Handling z API: {handlingAmountNetto.Value:F2}", "SubiektService");
+                                                Info($"Handling z API: {handlingAmountNetto.Value:F2}", "SubiektService");
                                             }
                                             if (glsAmountNetto.HasValue && glsAmountNetto.Value > 0.01)
                                             {
                                                 sumaKosztow += glsAmountNetto.Value;
-                                                Info("Gls z API: {glsAmountNetto.Value:F2}", "SubiektService");
+                                                Info($"Gls z API: {glsAmountNetto.Value:F2}", "SubiektService");
                                             }
                                             if (shippingAmountNetto.HasValue && shippingAmountNetto.Value > 0.01)
                                             {
                                                 sumaKosztow += shippingAmountNetto.Value;
-                                                Info("Shipping z API: {shippingAmountNetto.Value:F2}", "SubiektService");
+                                                Info($"Shipping z API: {shippingAmountNetto.Value:F2}", "SubiektService");
                                             }
                                             if (codFeeAmountNetto.HasValue && codFeeAmountNetto.Value > 0.01)
                                             {
                                                 sumaKosztow += codFeeAmountNetto.Value;
-                                                Info("Cod_fee z API: {codFeeAmountNetto.Value:F2}", "SubiektService");
+                                                Info($"Cod_fee z API: {codFeeAmountNetto.Value:F2}", "SubiektService");
                                             }
                                             if (sumaKosztow > 0.01)
                                             {
-                                                Info("Suma kosztów z API: {sumaKosztow:F2}", "SubiektService");
+                                                Info($"Suma kosztów z API: {sumaKosztow:F2}", "SubiektService");
                                             }
                                             
                                             if (couponAmount.HasValue && couponAmount.Value > 0.01)
                                             {
-                                                Info("Kupon z API: -{couponAmount.Value:F2}", "SubiektService");
+                                                Info($"Kupon z API: -{couponAmount.Value:F2}", "SubiektService");
                                             }
                                             
                                             // Analiza różnicy między ZK a API
@@ -2945,7 +2953,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                             Info("WNIOSKI:", "SubiektService");
                                             foreach (var wniosek in wnioski)
                                             {
-                                                Info("  - {wniosek}", "SubiektService");
+                                                Info($"  - {wniosek}", "SubiektService");
                                             }
                                             Info("=========================================", "SubiektService");
                                             
@@ -3064,7 +3072,7 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 try
                                 {
                                     double wartoscDokumentuBrutto = zkDokument.WartoscBrutto;
-                                    Info("Wartość brutto dokumentu ZK (z właściwości): {wartoscDokumentuBrutto:F2}", "SubiektService");
+                                    Info($"Wartość brutto dokumentu ZK (z właściwości): {wartoscDokumentuBrutto:F2}", "SubiektService");
                                 }
                                 catch { }
                             }
@@ -3074,14 +3082,14 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                                 try
                                 {
                                     double wartoscDokumentuNetto = zkDokument!.WartoscNetto;
-                                    Info("Wartość netto dokumentu ZK (z właściwości): {wartoscDokumentuNetto:F2}", "SubiektService");
+                                    Info($"Wartość netto dokumentu ZK (z właściwości): {wartoscDokumentuNetto:F2}", "SubiektService");
                                 }
                                 catch { }
                                 
                                 try
                                 {
                                     double wartoscDokumentu = zkDokument!.Wartosc;
-                                    Info("Wartość dokumentu ZK (z właściwości): {wartoscDokumentu:F2}", "SubiektService");
+                                    Info($"Wartość dokumentu ZK (z właściwości): {wartoscDokumentu:F2}", "SubiektService");
                                 }
                                 catch { }
                             }
@@ -3200,6 +3208,118 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
             // Wywołaj OtworzOknoZK z orderId = null aby pominąć sprawdzanie istnienia dokumentu
             // Sprawdzanie w OtworzOknoZK jest wykonywane tylko jeśli orderId nie jest null i nie jest pusty
             OtworzOknoZK(nip, items, couponAmount, subTotal, couponTitle, null, handlingAmountNetto, shippingAmountNetto, currency, currencyValue, codFeeAmountNetto, orderTotal, glsAmountNetto, glsKgAmountNetto, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
+        }
+
+        public class TowarPLUInfo
+        {
+            public int Id { get; set; }
+            public string Nazwa { get; set; } = "";
+        }
+
+        public List<TowarPLUInfo> PobierzWszystkieTowary()
+        {
+            var towary = new List<TowarPLUInfo>();
+            try
+            {
+                var subiektConfig = _configService.LoadSubiektConfig();
+                string serverAddress = subiektConfig.ServerAddress ?? "";
+                string databaseName = subiektConfig.DatabaseName ?? "";
+                string username = subiektConfig.ServerUsername ?? "";
+                string password = subiektConfig.ServerPassword ?? "";
+
+                if (string.IsNullOrWhiteSpace(serverAddress) || string.IsNullOrWhiteSpace(databaseName))
+                {
+                    return towary;
+                }
+
+                var builder = new SqlConnectionStringBuilder
+                {
+                    DataSource = serverAddress,
+                    InitialCatalog = databaseName,
+                    UserID = username,
+                    Password = password,
+                    ConnectTimeout = 10,
+                    Encrypt = false
+                };
+
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    builder.IntegratedSecurity = true;
+                }
+
+                using (var connection = new SqlConnection(builder.ConnectionString))
+                {
+                    connection.Open();
+                    string sqlQuery = "SELECT tw_Id, tw_Nazwa FROM tw__Towar WHERE tw_PLU <> tw_Id OR tw_PLU IS NULL ORDER BY tw_Id";
+                    using (var command = new SqlCommand(sqlQuery, connection))
+                    {
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                towary.Add(new TowarPLUInfo 
+                                { 
+                                    Id = reader.GetInt32(0),
+                                    Nazwa = reader.IsDBNull(1) ? "" : reader.GetString(1)
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "SubiektService", "Błąd podczas pobierania towarów");
+            }
+            return towary;
+        }
+
+        public bool AktualizujTowarPLU(int twId)
+        {
+            try
+            {
+                var subiektConfig = _configService.LoadSubiektConfig();
+                string serverAddress = subiektConfig.ServerAddress ?? "";
+                string databaseName = subiektConfig.DatabaseName ?? "";
+                string username = subiektConfig.ServerUsername ?? "";
+                string password = subiektConfig.ServerPassword ?? "";
+
+                var builder = new SqlConnectionStringBuilder
+                {
+                    DataSource = serverAddress,
+                    InitialCatalog = databaseName,
+                    UserID = username,
+                    Password = password,
+                    ConnectTimeout = 10,
+                    Encrypt = false
+                };
+
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    builder.IntegratedSecurity = true;
+                }
+
+                using (var connection = new SqlConnection(builder.ConnectionString))
+                {
+                    connection.Open();
+                    string sqlQuery = "UPDATE tw__Towar SET tw_PLU = tw_Id WHERE tw_Id = @twId";
+                    
+                    // Logowanie zapytania SQL
+                    Debug($"SQL WyPLUwacz: UPDATE tw__Towar SET tw_PLU = tw_Id WHERE tw_Id = {twId}", "SubiektService");
+                    
+                    using (var command = new SqlCommand(sqlQuery, connection))
+                    {
+                        command.Parameters.AddWithValue("@twId", twId);
+                        int rows = command.ExecuteNonQuery();
+                        return rows > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "SubiektService", $"Błąd podczas aktualizacji PLU dla towaru {twId}");
+                return false;
+            }
         }
     }
 }

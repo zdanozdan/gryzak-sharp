@@ -1,7 +1,16 @@
 # Historia zmian - Gryzak
 
-## 1.6.3 (2026-02-05)
+## 1.6.4 (2026-03-11)
 
+- Naprawa błędu SQL "Nieprawidłowa nazwa obiektu dbo.adr__Ewid" (dodanie InitialCatalog do połączenia)
+- Gwarancja wyświetlania okna wyboru kontrahenta nawet w przypadku błędów SQL lub braku wyników
+- Poprawienie logowania (naprawa ok. 100 błędnych formatowań z brakującym znakiem $)
+- Usunięcie oznaczenia ".plu" z wersji aplikacji
+
+## 1.6.3.plu (2026-02-05)
+
+- Dodanie narzędzia WyPLUwacz (limit 100 produktów)
+- Nowe modalne okno postępu z obsługą przerywania
 - Dodanie parametrów obiektu .gt w ustawieniach (Produkt, Autentykacja, Tryb uruchomienia)
 - Rozbudowane logowanie parametrów podczas testu połączenia
 - Naprawa błędów kompilacji i ostrzeżeń instalatora

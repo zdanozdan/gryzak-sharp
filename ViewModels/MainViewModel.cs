@@ -203,6 +203,7 @@ namespace Gryzak.ViewModels
         public ICommand ZwolnijLicencjeCommand { get; }
         public ICommand ClearSearchCommand { get; }
         public ICommand OpenOrderFromHistoryCommand { get; }
+        public ICommand WyPLUwaczCommand { get; }
 
         public MainViewModel()
         {
@@ -218,6 +219,7 @@ namespace Gryzak.ViewModels
             ZwolnijLicencjeCommand = new RelayCommand(() => ZwolnijLicencje(), () => IsSubiektActive);
             ClearSearchCommand = new RelayCommand(() => { SearchText = ""; });
             OpenOrderFromHistoryCommand = new RelayCommand<string>(orderId => OpenOrderFromHistory(orderId));
+            WyPLUwaczCommand = new RelayCommand(async () => await WyPLUwaczAsync());
 
             // Zapisz się na event zmiany instancji Subiekta
             Services.SubiektService.InstancjaZmieniona += SubiektService_InstancjaZmieniona;
@@ -368,7 +370,7 @@ namespace Gryzak.ViewModels
 
                 var orders = await _apiService.LoadOrdersAsync(_currentPage);
                 
-                Debug("Załadowano stronę {_currentPage}: {orders.Count} zamówień", "MainViewModel");
+                Debug($"Załadowano stronę {_currentPage}: {orders.Count} zamówień", "MainViewModel");
                 
                 if (isFirstPage)
                 {
@@ -380,12 +382,12 @@ namespace Gryzak.ViewModels
                 {
                     _hasMorePages = false;
                     OnPropertyChanged(nameof(HasMorePages));
-                    Debug("Ostatnia strona - zwrócono {orders.Count} zamówień", "MainViewModel");
+                    Debug($"Ostatnia strona - zwrócono {orders.Count} zamówień", "MainViewModel");
                 }
 
                 if (orders.Count == 0)
                 {
-                    Debug("Brak zamówień na stronie {_currentPage}", "MainViewModel");
+                    Debug($"Brak zamówień na stronie {_currentPage}", "MainViewModel");
                 }
                 else
                 {
@@ -401,12 +403,12 @@ namespace Gryzak.ViewModels
                                 if (_countryMap.TryGetValue(isoCode2, out var polishName))
                                 {
                                     order.Country = polishName;
-                                    Debug("Zmapowano kraj (ISO {isoCode2}): {order.Country}", "MainViewModel");
+                                    Debug($"Zmapowano kraj (ISO {isoCode2}): {order.Country}", "MainViewModel");
                                 }
                             }
                             
                             AllOrders.Add(order);
-                            Debug("Dodano zamówienie: {order.Id} - {order.Customer}", "MainViewModel");
+                            Debug($"Dodano zamówienie: {order.Id} - {order.Customer}", "MainViewModel");
                             
                             // Jeśli to zaznaczone zamówienie, ustaw flagę
                             if (SelectedOrder != null && SelectedOrder.Id == order.Id)
@@ -496,7 +498,7 @@ namespace Gryzak.ViewModels
                     }
                 }
                 
-                Debug("Przetworzonych zamówień: {AllOrders.Count}, przefiltrowanych: {FilteredOrders.Count}, HasOrders: {HasOrders}, HasMorePages: {_hasMorePages}", "MainViewModel");
+                Debug($"Przetworzonych zamówień: {AllOrders.Count}, przefiltrowanych: {FilteredOrders.Count}, HasOrders: {HasOrders}, HasMorePages: {_hasMorePages}", "MainViewModel");
             }
             catch (Exception ex)
             {
@@ -519,7 +521,7 @@ namespace Gryzak.ViewModels
             {
                 IsLoading = false;
                 IsLoadingMore = false;
-                Debug("IsLoading: {IsLoading}, IsLoadingMore: {IsLoadingMore}", "MainViewModel");
+                Debug($"IsLoading: {IsLoading}, IsLoadingMore: {IsLoadingMore}", "MainViewModel");
             }
         }
 
@@ -535,11 +537,11 @@ namespace Gryzak.ViewModels
         {
             FilteredOrders.Clear();
             
-            Debug("FilterOrders - StatusFilter: '{StatusFilter}', SearchText: '{SearchText}', AllOrders.Count: {AllOrders.Count}", "MainViewModel");
+            Debug($"FilterOrders - StatusFilter: '{StatusFilter}', SearchText: '{SearchText}', AllOrders.Count: {AllOrders.Count}", "MainViewModel");
             
             if (AllOrders.Count > 0)
             {
-                Debug("Przykładowy status pierwszego zamówienia: '{AllOrders[0].Status}'", "MainViewModel");
+                Debug($"Przykładowy status pierwszego zamówienia: '{AllOrders[0].Status}'", "MainViewModel");
             }
 
             // Najpierw filtruj po statusie
@@ -566,14 +568,14 @@ namespace Gryzak.ViewModels
             }
 
             var ordersList = orders.ToList();
-            Debug("Po filtrowaniu: {ordersList.Count} zamówień", "MainViewModel");
+            Debug($"Po filtrowaniu: {ordersList.Count} zamówień", "MainViewModel");
 
             foreach (var order in ordersList)
             {
                 FilteredOrders.Add(order);
             }
 
-            Debug("FilteredOrders.Count: {FilteredOrders.Count}", "MainViewModel");
+            Debug($"FilteredOrders.Count: {FilteredOrders.Count}", "MainViewModel");
             OnPropertyChanged(nameof(HasOrders));
             UpdateStatistics();
         }
@@ -739,6 +741,96 @@ namespace Gryzak.ViewModels
                     "Błąd",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
+            }
+        }
+
+        private async Task WyPLUwaczAsync()
+        {
+            Views.ProgressDialog? progressDialog = null;
+            Views.MainWindow? mainWindow = null;
+            try
+            {
+                // Znajdź MainWindow jako ownera
+                foreach (Window window in Application.Current.Windows)
+                {
+                    if (window is Views.MainWindow mw)
+                    {
+                        mainWindow = mw;
+                        break;
+                    }
+                }
+
+                // Utwórz i pokaż okno
+                progressDialog = new Views.ProgressDialog();
+                if (mainWindow != null)
+                {
+                    progressDialog.Owner = mainWindow;
+                    mainWindow.IsEnabled = false; // Zrób okno modalnym manualnie
+                }
+                
+                progressDialog.UpdateProgress(0, "Pobieranie listy produktów...", "Oczekiwanie");
+                progressDialog.Show(); 
+
+                var subiektService = new Services.SubiektService();
+                var towary = await Task.Run(() => subiektService.PobierzWszystkieTowary());
+                
+                if (towary.Count == 0)
+                {
+                    MessageBox.Show("Nie znaleziono produktów w bazie danych.", "Informacja", MessageBoxButton.OK, MessageBoxImage.Information);
+                    progressDialog.Close();
+                    return;
+                }
+
+                // Napisz ile produktów będzie pobranych i czekaj na "Wykonaj"
+                progressDialog.UpdateProgress(0, $"Gotowy do przetworzenia {towary.Count} produktów. Kliknij Wykonaj.", "Gotowy");
+                
+                // Czekaj na kliknięcie "Wykonaj"
+                await progressDialog.WaitForStart();
+
+                progressDialog.UpdateProgress(0, $"Przetwarzanie {towary.Count} produktów...", $"0 z {towary.Count}");
+                
+                for (int i = 0; i < towary.Count; i++)
+                {
+                    // Sprawdź czy użytkownik przerwał
+                    if (progressDialog.IsCancelled)
+                    {
+                        break;
+                    }
+
+                    var towar = towary[i];
+                    var procent = (double)(i + 1) / towary.Count * 100;
+                    progressDialog.UpdateProgress(procent, $"Przetwarzanie: {towar.Nazwa}", $"{i + 1} z {towary.Count}");
+                    
+                    // Wykonaj UPDATE
+                    await Task.Run(() => subiektService.AktualizujTowarPLU(towar.Id));
+                    
+                    // Krótka przerwa dla UI
+                    await Task.Delay(10);
+                }
+                
+                if (progressDialog.IsCancelled)
+                {
+                    progressDialog.UpdateProgress(progressDialog.ProgressBar.Value, "Przetwarzanie przerwane przez użytkownika.", "PRZERWANO");
+                }
+                else
+                {
+                    progressDialog.UpdateProgress(100, "Zakończono wyPLUwanie!", $"{towary.Count} z {towary.Count}");
+                }
+                
+                progressDialog.MarkAsFinished();
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd podczas akcji WyPLUwacz");
+                MessageBox.Show($"Wystąpił błąd: {ex.Message}", "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
+                progressDialog?.Close();
+            }
+            finally
+            {
+                if (mainWindow != null)
+                {
+                    mainWindow.IsEnabled = true;
+                }
             }
         }
 
@@ -1086,19 +1178,19 @@ namespace Gryzak.ViewModels
                 
                 // Wypisz pełne dane zamówienia do konsoli
                 Debug("=== ZAZNACZONO ZAMÓWIENIE ===", "MainViewModel");
-                Debug("ID Zamówienia: {order.Id}", "MainViewModel");
-                Debug("Klient: {order.Customer}", "MainViewModel");
-                Debug("Email: {order.Email}", "MainViewModel");
-                Debug("Telefon: {order.Phone}", "MainViewModel");
+                Debug($"ID Zamówienia: {order.Id}", "MainViewModel");
+                Debug($"Klient: {order.Customer}", "MainViewModel");
+                Debug($"Email: {order.Email}", "MainViewModel");
+                Debug($"Telefon: {order.Phone}", "MainViewModel");
                 Debug($"Firma: {order.Company ?? "Brak"}", "MainViewModel");
                 Debug($"NIP: {order.Nip ?? "Brak"}", "MainViewModel");
                 Debug($"Adres: {order.Address ?? "Brak"}", "MainViewModel");
-                Debug("Status: {order.Status}", "MainViewModel");
-                Debug("Status Płatności: {order.PaymentStatus}", "MainViewModel");
-                Debug("Wartość: {order.Total} {order.Currency}", "MainViewModel");
-                Debug("Data: {order.Date:dd.MM.yyyy HH:mm}", "MainViewModel");
-                Debug("Obsługuje: {order.AssignedTo}", "MainViewModel");
-                Debug("Liczba produktów: {order.Items?.Count ?? 0}", "MainViewModel");
+                Debug($"Status: {order.Status}", "MainViewModel");
+                Debug($"Status Płatności: {order.PaymentStatus}", "MainViewModel");
+                Debug($"Wartość: {order.Total} {order.Currency}", "MainViewModel");
+                Debug($"Data: {order.Date:dd.MM.yyyy HH:mm}", "MainViewModel");
+                Debug($"Obsługuje: {order.AssignedTo}", "MainViewModel");
+                Debug($"Liczba produktów: {order.Items?.Count ?? 0}", "MainViewModel");
                 Debug("==========================", "MainViewModel");
                 
                 // Pobierz szczegóły zamówienia z API
@@ -1110,7 +1202,7 @@ namespace Gryzak.ViewModels
         {
             try
             {
-                Debug("Ładowanie szczegółów zamówienia {orderId}...", "MainViewModel");
+                Debug($"Ładowanie szczegółów zamówienia {orderId}...", "MainViewModel");
                 var detailsJson = await _apiService.GetOrderDetailsAsync(orderId);
                 
                 // Sformatuj JSON do pretty print
@@ -1323,14 +1415,14 @@ namespace Gryzak.ViewModels
                 if (root.TryGetProperty("email", out var emailProp) && emailProp.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.Email = emailProp.GetString() ?? "Brak email";
-                    Debug("Zaktualizowano email: {order.Email}", "MainViewModel");
+                    Debug($"Zaktualizowano email: {order.Email}", "MainViewModel");
                 }
                 
                 // Aktualizuj telefon
                 if (root.TryGetProperty("telephone", out var telProp) && telProp.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.Phone = telProp.GetString() ?? "Brak telefonu";
-                    Debug("Zaktualizowano telefon: {order.Phone}", "MainViewModel");
+                    Debug($"Zaktualizowano telefon: {order.Phone}", "MainViewModel");
                 }
                 
                 // Aktualizuj nazwę firmy (payment_company)
@@ -1343,7 +1435,7 @@ namespace Gryzak.ViewModels
                         companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
                         companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
                         order.Company = companyValue;
-                        Debug("Zaktualizowano firmę: {order.Company}", "MainViewModel");
+                        Debug($"Zaktualizowano firmę: {order.Company}", "MainViewModel");
                     }
                 }
                 
@@ -1386,14 +1478,14 @@ namespace Gryzak.ViewModels
                     }
                     
                     order.Address = string.Join(", ", addressParts.Where(s => !string.IsNullOrWhiteSpace(s)));
-                    Debug("Zaktualizowano adres: {order.Address}", "MainViewModel");
+                    Debug($"Zaktualizowano adres: {order.Address}", "MainViewModel");
                 }
                 
                 // Aktualizuj NIP (vat)
                 if (root.TryGetProperty("vat", out var vatProp) && vatProp.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.Nip = vatProp.GetString();
-                    Debug("Zaktualizowano NIP: {order.Nip}", "MainViewModel");
+                    Debug($"Zaktualizowano NIP: {order.Nip}", "MainViewModel");
                 }
 
                 // Aktualizuj kraj - użyj kod ISO 2 aby znaleźć polską nazwę kraju
@@ -1418,7 +1510,7 @@ namespace Gryzak.ViewModels
                     if (!string.IsNullOrWhiteSpace(iso2Value) && _countryMap.TryGetValue(iso2Value, out var polishName))
                     {
                         order.Country = polishName;
-                        Debug("Zaktualizowano kraj (ISO {iso2Value}): {order.Country}", "MainViewModel");
+                        Debug($"Zaktualizowano kraj (ISO {iso2Value}): {order.Country}", "MainViewModel");
                     }
                     else
                     {
@@ -1426,7 +1518,7 @@ namespace Gryzak.ViewModels
                         if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
                         {
                             order.Country = countryProp.GetString() ?? "";
-                            Debug("Zaktualizowano kraj (oryginalna nazwa): {order.Country}", "MainViewModel");
+                            Debug($"Zaktualizowano kraj (oryginalna nazwa): {order.Country}", "MainViewModel");
                         }
                     }
                 }
@@ -1436,7 +1528,7 @@ namespace Gryzak.ViewModels
                     if (root.TryGetProperty("payment_country", out var countryProp) && countryProp.ValueKind == System.Text.Json.JsonValueKind.String)
                     {
                         order.Country = countryProp.GetString() ?? "";
-                        Debug("Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {order.Country}", "MainViewModel");
+                        Debug($"Zaktualizowano kraj (oryginalna nazwa, brak ISO 2): {order.Country}", "MainViewModel");
                     }
                 }
                 
@@ -1444,7 +1536,7 @@ namespace Gryzak.ViewModels
                 if (root.TryGetProperty("iso_code_3", out var iso3Prop) && iso3Prop.ValueKind == System.Text.Json.JsonValueKind.String)
                 {
                     order.IsoCode3 = iso3Prop.GetString();
-                    Debug("Zaktualizowano ISO Code 3: {order.IsoCode3}", "MainViewModel");
+                    Debug($"Zaktualizowano ISO Code 3: {order.IsoCode3}", "MainViewModel");
                 }
 
                 // Aktualizuj currency_value z API
@@ -1467,7 +1559,7 @@ namespace Gryzak.ViewModels
                     if (currencyValue.HasValue)
                     {
                         order.CurrencyValue = currencyValue;
-                        Debug("Zaktualizowano currency_value: {currencyValue.Value:F4}", "MainViewModel");
+                        Debug($"Zaktualizowano currency_value: {currencyValue.Value:F4}", "MainViewModel");
                     }
                 }
 
@@ -1525,7 +1617,7 @@ namespace Gryzak.ViewModels
                                 items.Add(product);
                             }
                             order.Items = items;
-                            Debug("Załadowano produkty: {items.Count}", "MainViewModel");
+                            Debug($"Załadowano produkty: {items.Count}", "MainViewModel");
                         }
                     }
                 }
@@ -1556,7 +1648,7 @@ namespace Gryzak.ViewModels
                             if (totalEl.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == System.Text.Json.JsonValueKind.String)
                             {
                                 var code = codeProp.GetString();
-                                Debug("Sprawdzam pozycję totals: code={code}", "MainViewModel");
+                                Debug($"Sprawdzam pozycję totals: code={code}", "MainViewModel");
                                 // Sprawdź czy są pozycje brutto dla konkretnych kosztów (np. "handling_brutto", "shipping_brutto")
                                 if (code == "handling_brutto" || code == "handling_bruto") hasHandlingBrutto = true;
                                 if (code == "gls_brutto" || code == "gls_bruto") hasGlsBrutto = true;
@@ -1604,18 +1696,18 @@ namespace Gryzak.ViewModels
                                         {
                                             order.CouponTitle = titleProp.GetString();
                                         }
-                                        Debug("Znaleziono kupon: {order.CouponTitle} (wartość: {order.CouponAmount:F2})", "MainViewModel");
+                                        Debug($"Znaleziono kupon: {order.CouponTitle} (wartość: {order.CouponAmount:F2})", "MainViewModel");
                                     }
                                     else if (code == "sub_total")
                                     {
                                         order.SubTotal = valueParsed.Value;
-                                        Debug("Znaleziono sub_total: {order.SubTotal:F2}", "MainViewModel");
+                                        Debug($"Znaleziono sub_total: {order.SubTotal:F2}", "MainViewModel");
                                     }
                                     else if (code == "handling")
                                     {
                                         // Wartości z API są netto
                                         order.HandlingAmountNetto = valueParsed.Value;
-                                        Debug("Znaleziono handling (netto): {order.HandlingAmountNetto:F2}", "MainViewModel");
+                                        Debug($"Znaleziono handling (netto): {order.HandlingAmountNetto:F2}", "MainViewModel");
                                     }
                                     else if (code == "gls")
                                     {
@@ -1632,31 +1724,31 @@ namespace Gryzak.ViewModels
                                         {
                                             // Sumuj pozycje gls z "kg" w tytule (wartości netto)
                                             order.GlsKgAmountNetto = (order.GlsKgAmountNetto ?? 0.0) + valueParsed.Value;
-                                            Debug("Znaleziono gls z 'kg' (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsKgAmountNetto:F2}", "MainViewModel");
+                                            Debug($"Znaleziono gls z 'kg' (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsKgAmountNetto:F2}", "MainViewModel");
                                         }
                                         else
                                         {
                                             // Zwykły gls - dodaj do GlsAmountNetto (lub sumuj jeśli wiele pozycji) - wartości netto
                                             order.GlsAmountNetto = (order.GlsAmountNetto ?? 0.0) + valueParsed.Value;
-                                            Debug("Znaleziono gls (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsAmountNetto:F2}", "MainViewModel");
+                                            Debug($"Znaleziono gls (netto): {valueParsed.Value:F2} (tytuł: {title}), suma: {order.GlsAmountNetto:F2}", "MainViewModel");
                                         }
                                     }
                                     else if (code == "shipping")
                                     {
                                         // Wartości netto z API
                                         order.ShippingAmountNetto = valueParsed.Value;
-                                        Debug("Znaleziono shipping (netto): {order.ShippingAmountNetto:F2}", "MainViewModel");
+                                        Debug($"Znaleziono shipping (netto): {order.ShippingAmountNetto:F2}", "MainViewModel");
                                     }
                                     else if (code == "cod_fee")
                                     {
                                         // Wartości netto z API
                                         order.CodFeeAmountNetto = valueParsed.Value;
-                                        Debug("Znaleziono cod_fee (netto): {order.CodFeeAmountNetto:F2}", "MainViewModel");
+                                        Debug($"Znaleziono cod_fee (netto): {order.CodFeeAmountNetto:F2}", "MainViewModel");
                                     }
                                     else if (code == "total")
                                     {
                                         order.Total = valueParsed.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-                                        Debug("Znaleziono total: {order.Total}", "MainViewModel");
+                                        Debug($"Znaleziono total: {order.Total}", "MainViewModel");
                                     }
                                     else if (code == "tax")
                                     {
@@ -1670,7 +1762,7 @@ namespace Gryzak.ViewModels
                                         if (!string.IsNullOrWhiteSpace(title) && title.StartsWith("VAT EU Export", StringComparison.OrdinalIgnoreCase))
                                         {
                                             order.UseEuVatRate = true;
-                                            Debug("Znaleziono VAT EU Export w totals - ustawiono UseEuVatRate=true (tytuł: {title})", "MainViewModel");
+                                            Debug($"Znaleziono VAT EU Export w totals - ustawiono UseEuVatRate=true (tytuł: {title})", "MainViewModel");
                                         }
                                     }
                                     // Pomijamy pozycje "vat", "brutto" - są to pozycje dla całego zamówienia

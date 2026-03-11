@@ -89,6 +89,9 @@
                     </MenuItem.Style>
                 </MenuItem>
             </MenuItem>
+            <MenuItem Header="_Narzędzia">
+                <MenuItem Header="WyPLUwacz" Command="{Binding WyPLUwaczCommand}"/>
+            </MenuItem>
             <MenuItem Header="_Pomoc">
                 <MenuItem Header="O aplikacji" Click="AboutMenuItem_Click"/>
                 <MenuItem Header="Readme" Click="ReadmeMenuItem_Click"/>
@@ -597,7 +600,7 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <TextBlock Grid.Column="2" Text="Gryzak v1.6.3" FontSize="11" Foreground="Gray"/>
+                    <TextBlock Grid.Column="2" Text="Gryzak v1.6.4" FontSize="11" Foreground="Gray"/>
                 </Grid>
             </Border>
         </Grid>
