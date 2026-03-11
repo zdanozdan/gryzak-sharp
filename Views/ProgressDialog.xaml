@@ -1,0 +1,46 @@
+<Window x:Class="Gryzak.Views.ProgressDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Przetwarzanie..." 
+        Height="200" Width="400"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStyle="ThreeDBorderWindow"
+        Icon="pack://application:,,,/gryzak_icon.png">
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Name="StatusTextBlock" 
+                   Text="Gotowy do przetwarzania..." 
+                   FontSize="11" 
+                   Margin="0,0,0,10" 
+                   TextWrapping="Wrap"/>
+
+        <Grid Grid.Row="1" VerticalAlignment="Top">
+            <ProgressBar Name="ProgressBar" 
+                         Height="25" 
+                         Minimum="0" 
+                         Maximum="100"/>
+            <TextBlock Name="ProgressCountTextBlock" 
+                       Text="Oczekiwanie" 
+                       HorizontalAlignment="Center" 
+                       VerticalAlignment="Center" 
+                       FontSize="11" 
+                       FontWeight="SemiBold"/>
+        </Grid>
+
+        <Button Name="ActionButton" 
+                Grid.Row="2" 
+                Content="Wykonaj" 
+                Width="100" 
+                HorizontalAlignment="Right" 
+                Padding="10,5"
+                Click="ActionButton_Click"/>
+    </Grid>
+</Window>
