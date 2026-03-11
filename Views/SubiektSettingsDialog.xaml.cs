@@ -149,28 +149,29 @@ namespace Gryzak.Views
 
         private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
         {
-            string serverAddress = ServerAddressTextBox.Text.Trim();
-            string username = ServerUsernameTextBox.Text.Trim();
-            string password = ServerPasswordBox.Password;
-
-            // Walidacja podstawowa
-            if (string.IsNullOrWhiteSpace(serverAddress))
-            {
-                MessageBox.Show("Proszę podać adres serwera MSSQL.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // Wyłącz przycisk podczas testowania
-            TestConnectionButton.IsEnabled = false;
-            TestConnectionButton.Content = "⏳ Testowanie...";
-            Mouse.OverrideCursor = Cursors.Wait;
-
             try
             {
+                string serverAddress = ServerAddressTextBox.Text.Trim();
+                string databaseName = DatabaseNameTextBox.Text.Trim();
+                string username = ServerUsernameTextBox.Text.Trim();
+                string password = ServerPasswordBox.Password;
+
+                if (string.IsNullOrWhiteSpace(serverAddress))
+                {
+                    MessageBox.Show("Proszę podać adres serwera MSSQL.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Wyłącz przycisk podczas testowania
+                TestConnectionButton.IsEnabled = false;
+                TestConnectionButton.Content = "⏳ Testowanie...";
+                Mouse.OverrideCursor = Cursors.Wait;
+
                 // Utwórz connection string
                 var builder = new SqlConnectionStringBuilder
                 {
                     DataSource = serverAddress,
+                    InitialCatalog = databaseName,
                     UserID = username,
                     Password = password,
                     ConnectTimeout = 10, // 10 sekund timeout
@@ -254,6 +255,7 @@ namespace Gryzak.Views
         private async void LoadUsersButton_Click(object sender, RoutedEventArgs e)
         {
             string serverAddress = ServerAddressTextBox.Text.Trim();
+            string databaseName = DatabaseNameTextBox.Text.Trim();
             string username = ServerUsernameTextBox.Text.Trim();
             string password = ServerPasswordBox.Password;
 
@@ -261,6 +263,12 @@ namespace Gryzak.Views
             if (string.IsNullOrWhiteSpace(serverAddress))
             {
                 MessageBox.Show("Proszę podać adres serwera MSSQL.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(databaseName))
+            {
+                MessageBox.Show("Proszę podać nazwę bazy danych.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -275,6 +283,7 @@ namespace Gryzak.Views
                 var builder = new SqlConnectionStringBuilder
                 {
                     DataSource = serverAddress,
+                    InitialCatalog = databaseName,
                     UserID = username,
                     Password = password,
                     ConnectTimeout = 10,
@@ -304,7 +313,7 @@ SELECT [uz_Id]
       ,[uz_Nazwisko]
       ,[uz_Imie]
       ,[uz_Status]
-  FROM [MIKRAN].[dbo].[pd_Uzytkownik] 
+  FROM [dbo].[pd_Uzytkownik] 
   WHERE uz_Status > 0
   ORDER BY [uz_Nazwisko], [uz_Imie]";
 

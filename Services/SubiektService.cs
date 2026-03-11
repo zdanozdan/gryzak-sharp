@@ -777,6 +777,7 @@ AND (
                 var builder = new SqlConnectionStringBuilder
                 {
                     DataSource = serverAddress,
+                    InitialCatalog = subiektConfig.DatabaseName,
                     UserID = username,
                     Password = password,
                     ConnectTimeout = 10,
@@ -859,6 +860,7 @@ WHERE pa_Nazwa = @CountryName";
                     var builder = new SqlConnectionStringBuilder
                     {
                         DataSource = serverAddress,
+                        InitialCatalog = subiektConfig.DatabaseName,
                         UserID = username,
                         Password = password,
                         ConnectTimeout = 10,
@@ -975,6 +977,7 @@ FROM [dbo].[sl_StawkaVAT];";
                 var builder = new SqlConnectionStringBuilder
                 {
                     DataSource = serverAddress,
+                    InitialCatalog = subiektConfig.DatabaseName,
                     UserID = username,
                     Password = password,
                     ConnectTimeout = 10,
@@ -996,7 +999,7 @@ FROM [dbo].[sl_StawkaVAT];";
 SELECT 
     [dok_Id],
     [dok_NrPelnyOryg]
-FROM [MIKRAN].[dbo].[dok__Dokument]
+FROM [dbo].[dok__Dokument]
 WHERE dok_NrPelnyOryg = @NumerOryginalny";
                     
                     using (var command = new SqlCommand(sqlQuery, connection))
