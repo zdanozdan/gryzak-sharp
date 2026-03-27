@@ -1,5 +1,9 @@
 # Historia zmian - Gryzak
 
+## 1.6.5 (2026-03-11)
+
+- Ograniczenie sprawdzania istnienia dokumentów tylko do typu ZK (Zamówienie od Klienta), aby uniknąć błędnego łączenia z fakturami zakupu lub innymi dokumentami o tym samym numerze oryginału.
+
 ## 1.6.4 (2026-03-11)
 
 - Naprawa błędu SQL "Nieprawidłowa nazwa obiektu dbo.adr__Ewid" (dodanie InitialCatalog do połączenia)

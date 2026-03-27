@@ -15,8 +15,11 @@ namespace Gryzak.Services
 {
     public class SubiektService
     {
-        // Stała dla typu dokumentu ZK (zamówienie od klienta)
+        // Stała dla typu dokumentu ZK (zamówienie od klienta) w API Sfery
         private const int gtaSubiektDokumentZK = unchecked((int)0xFFFFFFF8); // -8
+        
+        // Stała dla typu dokumentu ZK w bazie danych SQL (pole dok_Typ)
+        private const int dokTypZK = 16;
         
         // Cache dla obiektu GT i Subiekta - aby nie uruchamiać od nowa za każdym razem
         private static dynamic? _cachedGt = null;
@@ -995,12 +998,13 @@ FROM [dbo].[sl_StawkaVAT];";
                 {
                     connection.Open();
                     
-                    string sqlQuery = @"
+                    string sqlQuery = $@"
 SELECT 
     [dok_Id],
     [dok_NrPelnyOryg]
 FROM [dbo].[dok__Dokument]
-WHERE dok_NrPelnyOryg = @NumerOryginalny";
+WHERE dok_NrPelnyOryg = @NumerOryginalny
+AND dok_Typ = {dokTypZK}";
                     
                     using (var command = new SqlCommand(sqlQuery, connection))
                     {
@@ -1115,7 +1119,8 @@ SELECT DISTINCT
     [dok_NrPelny],
     [dok_NrPelnyOryg]
 FROM [dbo].[dok__Dokument]
-WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
+WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})
+AND [dok_Typ] = {dokTypZK}";
                     
                     // Loguj zapytanie SQL z wartościami
                     var loggedQuery = new System.Text.StringBuilder();
@@ -1132,7 +1137,8 @@ WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})";
                             loggedQuery.Append(", ");
                         }
                     }
-                    loggedQuery.Append(")");
+                    loggedQuery.AppendLine(")");
+                    loggedQuery.AppendLine($"AND [dok_Typ] = {dokTypZK}");
                     
                     Debug($"Zapytanie SQL:", "SubiektService");
                     Debug(loggedQuery.ToString(), "SubiektService");
