@@ -1,5 +1,13 @@
 # Historia zmian - Gryzak
 
+## 1.6.7 (2026-04-20)
+
+- Pobieranie zamówienia po numerze z API: przycisk lupy przy polu wyszukiwania oraz zaproszenie z lupą przy pustym wyniku filtra (zamiast samego komunikatu „Brak zamówień”).
+
+## 1.6.6 (2026-03-11)
+
+- Rozszerzenie akcji WyPLUwacz: teraz aktualizuje również pola SWW (`tw_SWW`) oraz podstawowy kod kreskowy (`tw_PodstKodKresk`), ustawiając je na wartość identyfikatora towaru.
+
 ## 1.6.5 (2026-03-11)
 
 - Ograniczenie sprawdzania istnienia dokumentów tylko do typu ZK (Zamówienie od Klienta), aby uniknąć błędnego łączenia z fakturami zakupu lub innymi dokumentami o tym samym numerze oryginału.

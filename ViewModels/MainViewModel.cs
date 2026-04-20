@@ -44,6 +44,8 @@ namespace Gryzak.ViewModels
         private string _timeUntilReleaseText = "";
         private bool _isReleasingLicense = false; // Flaga zapobiegająca wielokrotnemu zwolnieniu
         private List<string> _orderHistory = new List<string>();
+        private RelayCommand? _fetchOrderFromApiRelayCommand;
+        private bool _isSearchApiBusy;
 
         public ObservableCollection<Order> AllOrders { get; } = new ObservableCollection<Order>();
         public ObservableCollection<Order> FilteredOrders { get; } = new ObservableCollection<Order>();
@@ -62,13 +64,26 @@ namespace Gryzak.ViewModels
         public bool IsLoading
         {
             get => _isLoading;
-            set { _isLoading = value; OnPropertyChanged(); }
+            set
+            {
+                if (_isLoading == value) return;
+                _isLoading = value;
+                OnPropertyChanged();
+                _fetchOrderFromApiRelayCommand?.RaiseCanExecuteChanged();
+                NotifyEmptyListPlaceholdersChanged();
+            }
         }
 
         public bool IsLoadingMore
         {
             get => _isLoadingMore;
-            set { _isLoadingMore = value; OnPropertyChanged(); }
+            set
+            {
+                if (_isLoadingMore == value) return;
+                _isLoadingMore = value;
+                OnPropertyChanged();
+                _fetchOrderFromApiRelayCommand?.RaiseCanExecuteChanged();
+            }
         }
 
         public bool HasMorePages => _hasMorePages;
@@ -76,7 +91,14 @@ namespace Gryzak.ViewModels
         public bool IsApiConfigured
         {
             get => _isApiConfigured;
-            set { _isApiConfigured = value; OnPropertyChanged(); }
+            set
+            {
+                if (_isApiConfigured == value) return;
+                _isApiConfigured = value;
+                OnPropertyChanged();
+                _fetchOrderFromApiRelayCommand?.RaiseCanExecuteChanged();
+                NotifyEmptyListPlaceholdersChanged();
+            }
         }
 
         public string SearchText
@@ -116,6 +138,24 @@ namespace Gryzak.ViewModels
         }
 
         public bool HasOrders => FilteredOrders.Count > 0;
+
+        /// <summary>
+        /// Pusta lista wyników przy aktywnym filtrze / wyszukiwaniu lub gdy są już załadowane zamówienia — pokaż CTA pobrania po numerze.
+        /// </summary>
+        public bool EmptyListShowsFetchByNumberHint =>
+            IsApiConfigured &&
+            !IsLoading &&
+            FilteredOrders.Count == 0 &&
+            (AllOrders.Count > 0 || !string.IsNullOrWhiteSpace(SearchText));
+
+        /// <summary>
+        /// Pusta lista i brak filtra (nic nie załadowano z API).
+        /// </summary>
+        public bool EmptyListShowsNoOrdersMessage =>
+            IsApiConfigured &&
+            !IsLoading &&
+            FilteredOrders.Count == 0 &&
+            !EmptyListShowsFetchByNumberHint;
 
         public bool IsSubiektActive
         {
@@ -202,8 +242,21 @@ namespace Gryzak.ViewModels
         public ICommand NoweZKCommand { get; }
         public ICommand ZwolnijLicencjeCommand { get; }
         public ICommand ClearSearchCommand { get; }
+        public ICommand FetchOrderFromApiCommand { get; }
         public ICommand OpenOrderFromHistoryCommand { get; }
         public ICommand WyPLUwaczCommand { get; }
+
+        public bool IsSearchApiBusy
+        {
+            get => _isSearchApiBusy;
+            private set
+            {
+                if (_isSearchApiBusy == value) return;
+                _isSearchApiBusy = value;
+                OnPropertyChanged();
+                _fetchOrderFromApiRelayCommand?.RaiseCanExecuteChanged();
+            }
+        }
 
         public MainViewModel()
         {
@@ -218,6 +271,10 @@ namespace Gryzak.ViewModels
             NoweZKCommand = new RelayCommand(() => DodajNoweZK());
             ZwolnijLicencjeCommand = new RelayCommand(() => ZwolnijLicencje(), () => IsSubiektActive);
             ClearSearchCommand = new RelayCommand(() => { SearchText = ""; });
+            _fetchOrderFromApiRelayCommand = new RelayCommand(
+                async () => await FetchOrderFromApiAsync(),
+                () => IsApiConfigured && !IsSearchApiBusy && !IsLoading && !IsLoadingMore);
+            FetchOrderFromApiCommand = _fetchOrderFromApiRelayCommand;
             OpenOrderFromHistoryCommand = new RelayCommand<string>(orderId => OpenOrderFromHistory(orderId));
             WyPLUwaczCommand = new RelayCommand(async () => await WyPLUwaczAsync());
 
@@ -533,6 +590,110 @@ namespace Gryzak.ViewModels
             await LoadOrdersAsync(false);
         }
 
+        /// <summary>
+        /// Pobiera zamówienie po numerze z pola wyszukiwania (API szczegółów) i wstawia lub aktualizuje w liście.
+        /// </summary>
+        private async Task FetchOrderFromApiAsync()
+        {
+            var orderId = SearchText?.Trim();
+            if (string.IsNullOrWhiteSpace(orderId))
+            {
+                MessageBox.Show(
+                    "Wpisz numer zamówienia (ID) w polu wyszukiwania, następnie kliknij ikonę lupy.",
+                    "Pobieranie zamówienia",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (!IsApiConfigured)
+            {
+                MessageBox.Show(
+                    "Skonfiguruj adres API w ustawieniach, aby pobierać zamówienia.",
+                    "Pobieranie zamówienia",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            IsSearchApiBusy = true;
+            try
+            {
+                Debug($"FetchOrderFromApiAsync: pobieranie zamówienia {orderId} z API", "MainViewModel");
+                var detailsJson = await _apiService.GetOrderDetailsAsync(orderId);
+                var order = CreateOrderFromDetailsJson(detailsJson);
+
+                if (order == null)
+                {
+                    MessageBox.Show(
+                        $"Nie udało się odczytać danych zamówienia {orderId} z odpowiedzi API.",
+                        "Pobieranie zamówienia",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                    return;
+                }
+
+                var existing = AllOrders.FirstOrDefault(o => string.Equals(o.Id, order.Id, StringComparison.OrdinalIgnoreCase));
+                if (existing != null)
+                {
+                    AllOrders.Remove(existing);
+                    if (SelectedOrder != null && string.Equals(SelectedOrder.Id, existing.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        SelectedOrder = null;
+                    }
+                }
+
+                AllOrders.Insert(0, order);
+
+                try
+                {
+                    var subiektService = new Services.SubiektService();
+                    var map = await Task.Run(() => subiektService.SprawdzIstnienieDokumentowZK(new List<string> { order.Id.Trim() }));
+                    if (map.TryGetValue(order.Id.Trim(), out var numerDokumentu))
+                    {
+                        order.IsDocumentExists = true;
+                        order.SubiektDocumentNumber = numerDokumentu ?? "";
+                    }
+                    else
+                    {
+                        order.IsDocumentExists = false;
+                        order.SubiektDocumentNumber = "";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Error(ex, "MainViewModel", "Błąd podczas sprawdzania dokumentu ZK dla pobranego zamówienia");
+                }
+
+                FilterOrders();
+
+                foreach (var o in AllOrders)
+                {
+                    o.IsSelected = false;
+                }
+
+                order.IsSelected = true;
+                SelectedOrder = order;
+                OnPropertyChanged(nameof(HasOrders));
+                UpdateStatistics();
+
+                Debug($"FetchOrderFromApiAsync: dodano/zaktualizowano zamówienie {order.Id} na liście", "MainViewModel");
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", $"Błąd pobierania zamówienia {orderId} z API");
+                MessageBox.Show(
+                    $"Nie udało się pobrać zamówienia: {ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                IsSearchApiBusy = false;
+            }
+        }
+
         private void FilterOrders()
         {
             FilteredOrders.Clear();
@@ -578,6 +739,13 @@ namespace Gryzak.ViewModels
             Debug($"FilteredOrders.Count: {FilteredOrders.Count}", "MainViewModel");
             OnPropertyChanged(nameof(HasOrders));
             UpdateStatistics();
+            NotifyEmptyListPlaceholdersChanged();
+        }
+
+        private void NotifyEmptyListPlaceholdersChanged()
+        {
+            OnPropertyChanged(nameof(EmptyListShowsFetchByNumberHint));
+            OnPropertyChanged(nameof(EmptyListShowsNoOrdersMessage));
         }
 
         private void UpdateStatistics()

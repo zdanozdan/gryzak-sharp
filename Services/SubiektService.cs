@@ -3259,7 +3259,7 @@ AND [dok_Typ] = {dokTypZK}";
                 using (var connection = new SqlConnection(builder.ConnectionString))
                 {
                     connection.Open();
-                    string sqlQuery = "SELECT tw_Id, tw_Nazwa FROM tw__Towar WHERE tw_PLU <> tw_Id OR tw_PLU IS NULL ORDER BY tw_Id";
+                    string sqlQuery = "SELECT tw_Id, tw_Nazwa FROM tw__Towar WHERE tw_PLU <> tw_Id OR tw_PLU IS NULL OR tw_PodstKodKresk <> CAST(tw_Id AS varchar) OR tw_PodstKodKresk IS NULL OR tw_SWW <> CAST(tw_Id AS varchar) OR tw_SWW IS NULL ORDER BY tw_Id";
                     using (var command = new SqlCommand(sqlQuery, connection))
                     {
                         using (var reader = command.ExecuteReader())
@@ -3311,10 +3311,10 @@ AND [dok_Typ] = {dokTypZK}";
                 using (var connection = new SqlConnection(builder.ConnectionString))
                 {
                     connection.Open();
-                    string sqlQuery = "UPDATE tw__Towar SET tw_PLU = tw_Id WHERE tw_Id = @twId";
+                    string sqlQuery = "UPDATE tw__Towar SET tw_PLU = tw_Id, tw_PodstKodKresk = tw_Id, tw_SWW = tw_Id WHERE tw_Id = @twId";
                     
                     // Logowanie zapytania SQL
-                    Debug($"SQL WyPLUwacz: UPDATE tw__Towar SET tw_PLU = tw_Id WHERE tw_Id = {twId}", "SubiektService");
+                    Debug($"SQL WyPLUwacz: UPDATE tw__Towar SET tw_PLU = tw_Id, tw_PodstKodKresk = tw_Id, tw_SWW = tw_Id WHERE tw_Id = {twId}", "SubiektService");
                     
                     using (var command = new SqlCommand(sqlQuery, connection))
                     {
