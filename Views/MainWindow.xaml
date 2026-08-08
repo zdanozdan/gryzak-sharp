@@ -48,7 +48,7 @@
         <!-- Menu -->
         <Menu Grid.Row="0" Background="#F5F5F5">
             <MenuItem Header="_Plik">
-                <MenuItem Header="Konfiguracja API" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
+                <MenuItem Header="Ustawienia sklepu" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
                 <MenuItem Header="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}"/>
                 <Separator/>
                 <MenuItem Header="Debug" Click="DebugMenuItem_Click"/>
@@ -505,9 +505,9 @@
                         </Style>
                     </StackPanel.Style>
                     <TextBlock Text="🔧 Konfiguracja wymagana" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
-                    <TextBlock Text="API nie jest skonfigurowane. Skonfiguruj połączenie z API aby zobaczyć zamówienia." 
+                    <TextBlock Text="API sklepu nie jest skonfigurowane. Ustaw połączenie ze sklepem, aby zobaczyć zamówienia." 
                                HorizontalAlignment="Center" TextWrapping="Wrap" Width="400" Margin="0,0,0,15"/>
-                    <Button Content="⚙️ Skonfiguruj API" Command="{Binding ConfigureApiCommand}" HorizontalAlignment="Center"/>
+                    <Button Content="⚙️ Ustawienia sklepu" Command="{Binding ConfigureApiCommand}" HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Filtrowanie: brak wyników — CTA pobrania po numerze z API -->

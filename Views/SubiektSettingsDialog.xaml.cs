@@ -1,12 +1,10 @@
 using System;
 using System.Collections.ObjectModel;
-using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using Gryzak.Models;
 using Gryzak.Services;
-using Microsoft.Data.SqlClient;
 using static Gryzak.Services.Logger;
 
 namespace Gryzak.Views
@@ -17,7 +15,6 @@ namespace Gryzak.Views
         private SubiektConfig _currentConfig;
         private ObservableCollection<UserItem> _users = new ObservableCollection<UserItem>();
 
-        // Klasa pomocnicza do reprezentacji użytkownika
         private class UserItem
         {
             public string UserName { get; set; } = "";
@@ -33,17 +30,68 @@ namespace Gryzak.Views
             LoadConfig();
         }
 
+        private SubiektConfig BuildConfigFromUi()
+        {
+            var config = new SubiektConfig
+            {
+                ApiBaseUrl = ApiBaseUrlTextBox.Text.Trim(),
+                ApiKey = ApiKeyPasswordBox.Password,
+                ServerAddress = ServerAddressTextBox.Text.Trim(),
+                DatabaseName = DatabaseNameTextBox.Text.Trim(),
+                ServerUsername = ServerUsernameTextBox.Text.Trim(),
+                ServerPassword = ServerPasswordBox.Password,
+                User = UserComboBox.Text.Trim(),
+                Password = PasswordBox.Password,
+                GtProdukt = _currentConfig.GtProdukt,
+                AuthenticationMode = _currentConfig.AuthenticationMode,
+                LaunchDopasujOperatora = _currentConfig.LaunchDopasujOperatora,
+                LaunchTryb = _currentConfig.LaunchTryb,
+                AutoReleaseLicenseTimeoutMinutes = _currentConfig.AutoReleaseLicenseTimeoutMinutes,
+                DiscountCalculationMode = _currentConfig.DiscountCalculationMode,
+                CalculateFromGrossPrices = _currentConfig.CalculateFromGrossPrices,
+                DiscountRoundingMode = _currentConfig.DiscountRoundingMode
+            };
+
+            if (GtProduktComboBox.SelectedValue is string gtProduktStr && int.TryParse(gtProduktStr, out int gtProdukt))
+                config.GtProdukt = gtProdukt;
+
+            if (AuthenticationModeComboBox.SelectedValue is string authModeStr && int.TryParse(authModeStr, out int authMode))
+                config.AuthenticationMode = authMode;
+
+            if (LaunchDopasujComboBox.SelectedValue is string dopasujStr && int.TryParse(dopasujStr, out int dopasuj))
+                config.LaunchDopasujOperatora = dopasuj;
+
+            if (LaunchTrybComboBox.SelectedValue is string trybStr && int.TryParse(trybStr, out int tryb))
+                config.LaunchTryb = tryb;
+
+            var selectedDiscountMode = DiscountModeComboBox.SelectedValue as string;
+            config.DiscountCalculationMode = string.IsNullOrWhiteSpace(selectedDiscountMode) ? "percent" : selectedDiscountMode;
+
+            var selectedPriceMode = PriceCalculationModeComboBox.SelectedValue as string;
+            config.CalculateFromGrossPrices = selectedPriceMode == "gross";
+
+            var selectedRoundingMode = DiscountRoundingModeComboBox.SelectedValue as string;
+            config.DiscountRoundingMode = string.IsNullOrWhiteSpace(selectedRoundingMode) ? "percent" : selectedRoundingMode;
+
+            if (int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out int timeoutMinutes))
+            {
+                config.AutoReleaseLicenseTimeoutMinutes = timeoutMinutes < 0 ? 0 : timeoutMinutes;
+            }
+
+            return config;
+        }
+
         private void LoadConfig()
         {
+            ApiBaseUrlTextBox.Text = _currentConfig.ApiBaseUrl ?? "";
+            ApiKeyPasswordBox.Password = _currentConfig.ApiKey ?? "";
             ServerAddressTextBox.Text = _currentConfig.ServerAddress ?? "";
             DatabaseNameTextBox.Text = _currentConfig.DatabaseName ?? "";
             ServerUsernameTextBox.Text = _currentConfig.ServerUsername ?? "";
             ServerPasswordBox.Password = _currentConfig.ServerPassword ?? "";
             
-            // Ustaw źródło danych dla ComboBox
             UserComboBox.ItemsSource = _users;
             
-            // Ustaw wybranego użytkownika jeśli istnieje w konfiguracji
             string savedUser = _currentConfig.User ?? "";
             if (!string.IsNullOrEmpty(savedUser))
             {
@@ -63,10 +111,8 @@ namespace Gryzak.Views
             }
             DiscountModeComboBox.SelectedValue = _currentConfig.DiscountCalculationMode;
 
-            // Ustaw tryb liczenia dokumentu (brutto/netto)
             PriceCalculationModeComboBox.SelectedValue = _currentConfig.CalculateFromGrossPrices ? "gross" : "net";
 
-            // Ustaw tryb zaokrąglania rabatu
             if (string.IsNullOrWhiteSpace(_currentConfig.DiscountRoundingMode))
             {
                 _currentConfig.DiscountRoundingMode = "percent";
@@ -76,47 +122,15 @@ namespace Gryzak.Views
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            _currentConfig.ServerAddress = ServerAddressTextBox.Text.Trim();
-            _currentConfig.DatabaseName = DatabaseNameTextBox.Text.Trim();
-            _currentConfig.ServerUsername = ServerUsernameTextBox.Text.Trim();
-            _currentConfig.ServerPassword = ServerPasswordBox.Password;
-            _currentConfig.User = UserComboBox.Text.Trim();
-            _currentConfig.Password = PasswordBox.Password;
+            _currentConfig = BuildConfigFromUi();
 
-            if (GtProduktComboBox.SelectedValue is string gtProduktStr && int.TryParse(gtProduktStr, out int gtProdukt))
-                _currentConfig.GtProdukt = gtProdukt;
-
-            if (AuthenticationModeComboBox.SelectedValue is string authModeStr && int.TryParse(authModeStr, out int authMode))
-                _currentConfig.AuthenticationMode = authMode;
-
-            if (LaunchDopasujComboBox.SelectedValue is string dopasujStr && int.TryParse(dopasujStr, out int dopasuj))
-                _currentConfig.LaunchDopasujOperatora = dopasuj;
-
-            if (LaunchTrybComboBox.SelectedValue is string trybStr && int.TryParse(trybStr, out int tryb))
-                _currentConfig.LaunchTryb = tryb;
-
-            var selectedDiscountMode = DiscountModeComboBox.SelectedValue as string;
-            _currentConfig.DiscountCalculationMode = string.IsNullOrWhiteSpace(selectedDiscountMode) ? "percent" : selectedDiscountMode;
-            
-            // Zapisz tryb liczenia dokumentu (brutto/netto)
-            var selectedPriceMode = PriceCalculationModeComboBox.SelectedValue as string;
-            _currentConfig.CalculateFromGrossPrices = selectedPriceMode == "gross";
-            
-            // Zapisz tryb zaokrąglania rabatu
-            var selectedRoundingMode = DiscountRoundingModeComboBox.SelectedValue as string;
-            _currentConfig.DiscountRoundingMode = string.IsNullOrWhiteSpace(selectedRoundingMode) ? "percent" : selectedRoundingMode;
-            
-            // Parsuj timeout automatycznego zwalniania licencji
-            if (int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out int timeoutMinutes))
+            if (_currentConfig.AutoReleaseLicenseTimeoutMinutes < 0)
             {
-                if (timeoutMinutes < 0)
-                {
-                    MessageBox.Show("Czas nieaktywności nie może być ujemny. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    timeoutMinutes = 0;
-                }
-                _currentConfig.AutoReleaseLicenseTimeoutMinutes = timeoutMinutes;
+                MessageBox.Show("Czas nieaktywności nie może być ujemny. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
             }
-            else
+
+            if (!int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out _))
             {
                 MessageBox.Show("Nieprawidłowa wartość czasu nieaktywności. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
                 _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
@@ -137,7 +151,6 @@ namespace Gryzak.Views
         
         private void NumberValidationTextBox(object sender, TextCompositionEventArgs e)
         {
-            // Pozwól tylko na cyfry
             e.Handled = !char.IsDigit(e.Text, e.Text.Length - 1);
         }
 
@@ -151,279 +164,91 @@ namespace Gryzak.Views
         {
             try
             {
-                string serverAddress = ServerAddressTextBox.Text.Trim();
-                string databaseName = DatabaseNameTextBox.Text.Trim();
-                string username = ServerUsernameTextBox.Text.Trim();
-                string password = ServerPasswordBox.Password;
+                var config = BuildConfigFromUi();
 
-                if (string.IsNullOrWhiteSpace(serverAddress))
+                if (string.IsNullOrWhiteSpace(config.ApiBaseUrl))
                 {
-                    MessageBox.Show("Proszę podać adres serwera MSSQL.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Proszę podać URL API Subiekt (z /api/v1).", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
-                // Wyłącz przycisk podczas testowania
                 TestConnectionButton.IsEnabled = false;
                 TestConnectionButton.Content = "⏳ Testowanie...";
                 Mouse.OverrideCursor = Cursors.Wait;
 
-                // Utwórz connection string
-                var builder = new SqlConnectionStringBuilder
-                {
-                    DataSource = serverAddress,
-                    InitialCatalog = databaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10, // 10 sekund timeout
-                    Encrypt = false // Dla starszych serwerów MSSQL
-                };
+                var api = new SubiektApiService(_configService);
+                var (ok, message) = await api.TestConnectionAsync(config);
 
-                // Jeśli nie podano username/password, użyj Windows Authentication
-                if (string.IsNullOrWhiteSpace(username))
+                if (ok)
                 {
-                    builder.IntegratedSecurity = true;
-                }
-
-                string connectionString = builder.ConnectionString;
-
-                // Test połączenia asynchronicznie
-                bool success = await Task.Run(() =>
-                {
-                    try
-                    {
-                        using (var connection = new SqlConnection(connectionString))
-                        {
-                            connection.Open();
-                            // Wykonaj prosty query aby sprawdzić czy połączenie działa
-                            using (var command = new SqlCommand("SELECT @@VERSION", connection))
-                            {
-                                var version = command.ExecuteScalar();
-                                Info($"Połączenie z MSSQL udane. Wersja serwera: {version}", "SubiektSettings");
-                            }
-                            return true;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Error(ex, "SubiektSettings", "Błąd połączenia z MSSQL");
-                        throw;
-                    }
-                });
-
-                if (success)
-                {
+                    Info($"Połączenie z API Subiekt udane: {message}", "SubiektSettings");
                     MessageBox.Show(
-                        "Połączenie z serwerem MSSQL zakończone pomyślnie!",
+                        $"Połączenie z API Subiekt zakończone pomyślnie!\n\n{message}",
                         "Sukces",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
                 }
             }
-            catch (SqlException sqlEx)
-            {
-                string errorMessage = "Nie udało się połączyć z serwerem MSSQL.\n\n";
-                errorMessage += $"Błąd: {sqlEx.Message}";
-                
-                if (sqlEx.Number == 18456)
-                {
-                    errorMessage += "\n\nSprawdź poprawność nazwy użytkownika i hasła.";
-                }
-                else if (sqlEx.Number == -1 || sqlEx.Number == 2)
-                {
-                    errorMessage += "\n\nNie można nawiązać połączenia. Sprawdź:\n- Czy adres serwera jest poprawny\n- Czy serwer jest dostępny w sieci\n- Czy firewall nie blokuje połączenia";
-                }
-
-                MessageBox.Show(errorMessage, "Błąd połączenia", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
             catch (Exception ex)
             {
+                Error(ex, "SubiektSettings", "Błąd połączenia z API Subiekt");
                 MessageBox.Show(
-                    $"Nie udało się połączyć z serwerem MSSQL.\n\nBłąd: {ex.Message}",
+                    $"Nie udało się połączyć z API Subiekt.\n\nBłąd: {ex.Message}",
                     "Błąd połączenia",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
             finally
             {
-                // Przywróć przycisk i kursor
                 TestConnectionButton.IsEnabled = true;
-                TestConnectionButton.Content = "🔌 Testuj połączenie";
+                TestConnectionButton.Content = "🔌 Testuj połączenie API";
                 Mouse.OverrideCursor = null;
             }
         }
 
         private async void LoadUsersButton_Click(object sender, RoutedEventArgs e)
         {
-            string serverAddress = ServerAddressTextBox.Text.Trim();
-            string databaseName = DatabaseNameTextBox.Text.Trim();
-            string username = ServerUsernameTextBox.Text.Trim();
-            string password = ServerPasswordBox.Password;
+            var config = BuildConfigFromUi();
 
-            // Walidacja podstawowa
-            if (string.IsNullOrWhiteSpace(serverAddress))
+            if (string.IsNullOrWhiteSpace(config.ApiBaseUrl))
             {
-                MessageBox.Show("Proszę podać adres serwera MSSQL.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Proszę podać URL API Subiekt (z /api/v1).", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(databaseName))
-            {
-                MessageBox.Show("Proszę podać nazwę bazy danych.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // Wyłącz przycisk podczas pobierania
             LoadUsersButton.IsEnabled = false;
             LoadUsersButton.Content = "⏳ Pobieranie...";
             Mouse.OverrideCursor = Cursors.Wait;
 
             try
             {
-                // Utwórz connection string
-                var builder = new SqlConnectionStringBuilder
-                {
-                    DataSource = serverAddress,
-                    InitialCatalog = databaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10,
-                    Encrypt = false
-                };
+                var api = new SubiektApiService(_configService);
+                var usersList = await api.GetUsersAsync(config);
 
-                // Jeśli nie podano username/password, użyj Windows Authentication
-                if (string.IsNullOrWhiteSpace(username))
+                _users.Clear();
+                foreach (var user in usersList)
                 {
-                    builder.IntegratedSecurity = true;
+                    string displayName = $"{user.Uz_Nazwisko} {user.Uz_Imie}".Trim();
+                    _users.Add(new UserItem
+                    {
+                        Id = user.Uz_Id,
+                        UserName = displayName,
+                        DisplayName = displayName
+                    });
                 }
 
-                string connectionString = builder.ConnectionString;
-
-                // Wykonaj zapytanie SQL asynchronicznie
-                var usersList = await Task.Run(() =>
+                string savedUser = _currentConfig.User ?? "";
+                if (!string.IsNullOrEmpty(savedUser))
                 {
-                    var users = new System.Collections.Generic.List<UserItem>();
-                    try
-                    {
-                        using (var connection = new SqlConnection(connectionString))
-                        {
-                            connection.Open();
-                            
-                            string sqlQuery = @"
-SELECT [uz_Id]
-      ,[uz_Nazwisko]
-      ,[uz_Imie]
-      ,[uz_Status]
-  FROM [dbo].[pd_Uzytkownik] 
-  WHERE uz_Status > 0
-  ORDER BY [uz_Nazwisko], [uz_Imie]";
+                    UserComboBox.Text = savedUser;
+                }
 
-                            Debug("========================================", "SubiektSettings");
-                            Debug("Pobieranie listy użytkowników z MSSQL...", "SubiektSettings");
-                            Debug("Zapytanie SQL:", "SubiektSettings");
-                            Debug($"{sqlQuery}", "SubiektSettings");
-                            Debug("========================================", "SubiektSettings");
-
-                            using (var command = new SqlCommand(sqlQuery, connection))
-                            {
-                                using (var reader = command.ExecuteReader())
-                                {
-                                    int rowCount = 0;
-                                    while (reader.Read())
-                                    {
-                                        rowCount++;
-                                        
-                                        // Bezpieczne odczytywanie wartości z obsługą różnych typów
-                                        int uzId = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0));
-                                        string uzNazwisko = reader.IsDBNull(1) ? "" : reader.GetValue(1)?.ToString() ?? "";
-                                        string uzImie = reader.IsDBNull(2) ? "" : reader.GetValue(2)?.ToString() ?? "";
-                                        
-                                        // Status może być int lub boolean - obsłuż oba przypadki
-                                        object statusValue = reader.GetValue(3);
-                                        string uzStatus = "";
-                                        if (!reader.IsDBNull(3))
-                                        {
-                                            if (statusValue is bool boolStatus)
-                                            {
-                                                uzStatus = boolStatus ? "1" : "0";
-                                            }
-                                            else
-                                            {
-                                                uzStatus = Convert.ToString(statusValue) ?? "";
-                                            }
-                                        }
-
-                                        // Format: "Nazwisko Imię"
-                                        string displayName = $"{uzNazwisko} {uzImie}".Trim();
-                                        
-                                        // Dla logowania używamy również "Nazwisko Imię"
-                                        string userName = displayName;
-
-                                        var userItem = new UserItem
-                                        {
-                                            Id = uzId,
-                                            UserName = userName,
-                                            DisplayName = displayName
-                                        };
-                                        users.Add(userItem);
-
-                                        Debug($"Użytkownik {rowCount}:", "SubiektSettings");
-                                        Debug($"  ID: {uzId}", "SubiektSettings");
-                                        Debug($"  Nazwisko: {uzNazwisko}", "SubiektSettings");
-                                        Debug($"  Imię: {uzImie}", "SubiektSettings");
-                                        Debug($"  Status: {uzStatus}", "SubiektSettings");
-                                        Debug($"  Wyświetlana nazwa: {displayName}", "SubiektSettings");
-                                        Debug("---", "SubiektSettings");
-                                    }
-
-                                    Debug("========================================", "SubiektSettings");
-                                    Debug($"Znaleziono {rowCount} użytkowników", "SubiektSettings");
-                                    Debug("========================================", "SubiektSettings");
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Error(ex, "SubiektSettings", "Błąd podczas pobierania użytkowników");
-                        throw;
-                    }
-                    
-                    return users;
-                });
-
-                // Zaktualizuj ComboBox na wątku UI
-                Dispatcher.Invoke(() =>
-                {
-                    _users.Clear();
-                    
-                    // Użytkownicy są już posortowani w zapytaniu SQL
-                    foreach (var user in usersList)
-                    {
-                        _users.Add(user);
-                    }
-                    
-                    // Jeśli istnieje zapisany użytkownik, ustaw go jako wybrany
-                    string savedUser = _currentConfig.User ?? "";
-                    if (!string.IsNullOrEmpty(savedUser))
-                    {
-                        UserComboBox.Text = savedUser;
-                    }
-                });
-
+                Info($"Pobrano {usersList.Count} użytkowników z API Subiekt.", "SubiektSettings");
                 MessageBox.Show(
                     $"Lista użytkowników została pobrana ({usersList.Count} użytkowników).\n\nWybierz użytkownika z listy powyżej.",
                     "Sukces",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
-            }
-            catch (SqlException sqlEx)
-            {
-                string errorMessage = "Nie udało się pobrać listy użytkowników.\n\n";
-                errorMessage += $"Błąd: {sqlEx.Message}";
-                
-                Error(sqlEx, "SubiektSettings", "Błąd SQL");
-
-                MessageBox.Show(errorMessage, "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch (Exception ex)
             {
@@ -437,9 +262,8 @@ SELECT [uz_Id]
             }
             finally
             {
-                // Przywróć przycisk i kursor
                 LoadUsersButton.IsEnabled = true;
-                LoadUsersButton.Content = "📋 Pobierz listę użytkowników";
+                LoadUsersButton.Content = "📋 Pobierz listę użytkowników (API)";
                 Mouse.OverrideCursor = null;
             }
         }
@@ -448,30 +272,11 @@ SELECT [uz_Id]
         {
             try
             {
-                // Najpierw zapisz aktualne ustawienia
-                _currentConfig.ServerAddress = ServerAddressTextBox.Text.Trim();
-                _currentConfig.DatabaseName = DatabaseNameTextBox.Text.Trim();
-                _currentConfig.ServerUsername = ServerUsernameTextBox.Text.Trim();
-                _currentConfig.ServerPassword = ServerPasswordBox.Password;
-                _currentConfig.User = UserComboBox.Text.Trim();
-                _currentConfig.Password = PasswordBox.Password;
+                _currentConfig = BuildConfigFromUi();
 
-                if (GtProduktComboBox.SelectedValue is string gtProduktStr && int.TryParse(gtProduktStr, out int gtProdukt))
-                    _currentConfig.GtProdukt = gtProdukt;
-
-                if (AuthenticationModeComboBox.SelectedValue is string authModeStr && int.TryParse(authModeStr, out int authMode))
-                    _currentConfig.AuthenticationMode = authMode;
-
-                if (LaunchDopasujComboBox.SelectedValue is string dopasujStr && int.TryParse(dopasujStr, out int dopasuj))
-                    _currentConfig.LaunchDopasujOperatora = dopasuj;
-
-                if (LaunchTrybComboBox.SelectedValue is string trybStr && int.TryParse(trybStr, out int tryb))
-                    _currentConfig.LaunchTryb = tryb;
-
-                // Walidacja podstawowa
                 if (string.IsNullOrWhiteSpace(_currentConfig.ServerAddress))
                 {
-                    MessageBox.Show("Proszę podać adres serwera MSSQL.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Proszę podać adres serwera (Sfera).", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -481,7 +286,6 @@ SELECT [uz_Id]
                     return;
                 }
 
-                // Zapisz tymczasowo ustawienia, aby metoda testowa mogła je użyć
                 try
                 {
                     _configService.SaveSubiektConfig(_currentConfig);
@@ -489,20 +293,14 @@ SELECT [uz_Id]
                 catch (Exception ex)
                 {
                     Warning($"Nie udało się zapisać ustawień przed testem: {ex.Message}", "SubiektSettings");
-                    // Kontynuuj mimo błędu - spróbuj użyć ustawień z pamięci
                 }
 
-                // Wyłącz przycisk podczas testowania
                 TestSubiektButton.IsEnabled = false;
                 TestSubiektButton.Content = "⏳ Uruchamianie...";
                 Mouse.OverrideCursor = Cursors.Wait;
 
-                // Uruchom test asynchronicznie na wątku UI (STA)
-                // COM wymaga STA, więc używamy Dispatcher.BeginInvoke zamiast Task.Run
-                // Użyjemy Task.Delay z Dispatcher.BeginInvoke aby nie blokować UI podczas uruchamiania
-                await Task.Delay(100); // Krótkie opóźnienie, aby UI zdążył się zaktualizować
+                await Task.Delay(100);
                 
-                // BeginInvoke nie zwraca Task, więc używamy _ aby zignorować wynik
                 _ = Dispatcher.BeginInvoke(new Action(() =>
                 {
                     try
@@ -536,7 +334,6 @@ SELECT [uz_Id]
                     MessageBoxImage.Error);
                 Error(ex, "SubiektSettings");
                 
-                // Przywróć przycisk
                 TestSubiektButton.IsEnabled = true;
                 TestSubiektButton.Content = "🚀 Testuj uruchomienie Subiekta GT";
                 Mouse.OverrideCursor = null;
@@ -544,4 +341,3 @@ SELECT [uz_Id]
         }
     }
 }
-

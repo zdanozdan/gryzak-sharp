@@ -7,7 +7,6 @@ using System.Windows;
 using System.Text.Json;
 using System.IO;
 using Gryzak.Views;
-using Microsoft.Data.SqlClient;
 using Gryzak.Models;
 using static Gryzak.Services.Logger;
 
@@ -17,9 +16,6 @@ namespace Gryzak.Services
     {
         // Stała dla typu dokumentu ZK (zamówienie od klienta) w API Sfery
         private const int gtaSubiektDokumentZK = unchecked((int)0xFFFFFFF8); // -8
-        
-        // Stała dla typu dokumentu ZK w bazie danych SQL (pole dok_Typ)
-        private const int dokTypZK = 16;
         
         // Cache dla obiektu GT i Subiekta - aby nie uruchamiać od nowa za każdym razem
         private static dynamic? _cachedGt = null;
@@ -33,10 +29,12 @@ namespace Gryzak.Services
         private static readonly object _vatRatesCacheLock = new object();
 
         private readonly ConfigService _configService;
+        private readonly SubiektApiService _apiService;
 
         public SubiektService()
         {
             _configService = new ConfigService();
+            _apiService = new SubiektApiService(_configService);
         }
 
         /// <summary>
@@ -230,7 +228,7 @@ namespace Gryzak.Services
         }
         
         /// <summary>
-        /// Wyszukuje kontrahenta przez zapytanie SQL do bazy MSSQL
+        /// Wyszukuje kontrahenta przez Subiekt REST API
         /// </summary>
         private int? WyszukajKontrahentaPrzezSQL(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool useEuVatRate = false)
         {
@@ -238,7 +236,7 @@ namespace Gryzak.Services
         }
         
         /// <summary>
-        /// Wewnętrzna metoda do wyszukiwania kontrahenta przez SQL z obsługą rekurencji
+        /// Wewnętrzna metoda do wyszukiwania kontrahenta przez API z obsługą rekurencji
         /// </summary>
         private int? WyszukajKontrahentaPrzezSQLInternal(string? nip, string? email = null, string? customerName = null, string? phone = null, string? company = null, string? address = null, string? address1 = null, string? address2 = null, string? postcode = null, string? city = null, string? country = null, string? isoCode2 = null, bool isRecursive = false, bool useEuVatRate = false)
         {
@@ -246,183 +244,46 @@ namespace Gryzak.Services
             
             try
             {
-                // Wczytaj konfigurację serwera MSSQL
-                var subiektConfig = _configService.LoadSubiektConfig();
-                string serverAddress = subiektConfig.ServerAddress ?? "";
-                string username = subiektConfig.ServerUsername ?? "";
-                string password = subiektConfig.ServerPassword ?? "";
-                
-                if (string.IsNullOrWhiteSpace(serverAddress))
+                if (!_apiService.IsConfigured())
                 {
-                    Debug("Brak adresu serwera MSSQL w konfiguracji - pomijam wyszukiwanie przez SQL.", "SubiektService");
+                    Debug("Brak URL API Subiekt w konfiguracji - pomijam wyszukiwanie kontrahenta.", "SubiektService");
                     return null;
                 }
-                
-                // Utwórz connection string
-                var builder = new SqlConnectionStringBuilder
-                {
-                    DataSource = serverAddress,
-                    InitialCatalog = subiektConfig.DatabaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10,
-                    Encrypt = false
-                };
-                
-                // Jeśli nie podano username/password, użyj Windows Authentication
-                if (string.IsNullOrWhiteSpace(username))
-                {
-                    builder.IntegratedSecurity = true;
-                }
-                
-                string connectionString = builder.ConnectionString;
-                
-                // Wykonaj zapytanie SQL
-                var kontrahenci = new ObservableCollection<KontrahentItem>();
-                try
-                {
-                    using (var connection = new SqlConnection(connectionString))
-                    {
-                        connection.Open();
-                        
-                        // Jeśli nie ma emaila ani nazwy klienta, nie wykonuj zapytania
-                        if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName))
-                        {
-                            Debug("Brak adresu email i nazwy klienta - pomijam wyszukiwanie przez SQL.", "SubiektService");
-                        }
-                        else
-                        {
-                            // Buduj zapytanie SQL dynamicznie w zależności od dostępnych danych
-                            string sqlQuery = @"
-SELECT TOP(20)
-    A.adr_TypAdresu,
-    A.adr_Adres,
-    A.adr_Nazwa,
-    A.adr_NazwaPelna,
-    A.adr_NIP,
-    A.adr_Ulica,
-    A.adr_Miejscowosc,
-    A.adr_Kod,
-    K.kh_Id,
-    K.kh_Symbol,
-    K.kh_EMail
-FROM
-    dbo.adr__Ewid AS A
-INNER JOIN
-    dbo.kh__Kontrahent AS K ON A.adr_IdObiektu = K.kh_Id
-WHERE A.adr_TypAdresu = 1
-AND K.kh_Zablokowany = 0
-AND (
-";
-                            
-                            // Lista warunków do dodania
-                            var conditions = new List<string>();
-                            
-                            // Warunek dla pełnej nazwy (imię i nazwisko)
-                            if (!string.IsNullOrWhiteSpace(customerName))
-                            {
-                                // Podziel nazwę na słowa (imię i nazwisko)
-                                var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                                if (nameParts.Length > 0)
-                                {
-                                    // Dodaj warunek dla każdego słowa z nazwy
-                                    var nameConditions = new List<string>();
-                                    foreach (var part in nameParts)
-                                    {
-                                        nameConditions.Add($"A.adr_NazwaPelna LIKE @NamePart{nameConditions.Count}");
-                                    }
-                                    conditions.Add($"({string.Join(" AND ", nameConditions)})");
-                                }
-                            }
-                            
-                            // Warunek dla adresu email
-                            if (!string.IsNullOrWhiteSpace(email))
-                            {
-                                conditions.Add("K.kh_EMail = @Email");
-                            }
-                            
-                            sqlQuery += string.Join("\n        OR \n        ", conditions);
-                            sqlQuery += "\n    )\n";
-                            
-                            Debug($"Wykonuję zapytanie SQL do wyszukania kontrahenta (email: {email}, customerName: {customerName}):", "SubiektService");
-                            
-                            using (var command = new SqlCommand(sqlQuery, connection))
-                            {
-                                // Dodaj parametr email do zapytania SQL (zabezpieczenie przed SQL injection)
-                                if (!string.IsNullOrWhiteSpace(email))
-                                {
-                                    command.Parameters.AddWithValue("@Email", email);
-                                }
-                                
-                                // Dodaj parametry dla każdego słowa z nazwy (imię i nazwisko)
-                                if (!string.IsNullOrWhiteSpace(customerName))
-                                {
-                                    var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                                    for (int i = 0; i < nameParts.Length; i++)
-                                    {
-                                        command.Parameters.AddWithValue($"@NamePart{i}", $"%{nameParts[i]}%");
-                                    }
-                                }
-                                
-                                // Loguj finalne zapytanie z parametrami
-                                string loggedQuery = sqlQuery;
-                                if (!string.IsNullOrWhiteSpace(email))
-                                {
-                                    loggedQuery = loggedQuery.Replace("@Email", $"'{email}'");
-                                }
-                                if (!string.IsNullOrWhiteSpace(customerName))
-                                {
-                                    var nameParts = customerName.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                                    for (int i = 0; i < nameParts.Length; i++)
-                                    {
-                                        loggedQuery = loggedQuery.Replace($"@NamePart{i}", $"'%{nameParts[i]}%'");
-                                    }
-                                }
-                                Info($"{loggedQuery}", "SubiektService");
-                                
-                                using (var reader = command.ExecuteReader())
-                                {
-                                    while (reader.Read())
-                                    {
-                                        var kontrahent = new KontrahentItem
-                                        {
-                                            Id = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetValue(8)), // kh_Id
-                                            Symbol = reader.IsDBNull(9) ? "" : reader.GetValue(9)?.ToString() ?? "",
-                                            NazwaPelna = reader.IsDBNull(3) ? "" : reader.GetValue(3)?.ToString() ?? "",
-                                            Email = reader.IsDBNull(10) ? "" : reader.GetValue(10)?.ToString() ?? "",
-                                            NIP = reader.IsDBNull(4) ? "" : reader.GetValue(4)?.ToString() ?? "",
-                                            Adres = reader.IsDBNull(1) ? "" : reader.GetValue(1)?.ToString() ?? "",
-                                            Miejscowosc = reader.IsDBNull(6) ? "" : reader.GetValue(6)?.ToString() ?? "",
-                                            Kod = reader.IsDBNull(7) ? "" : reader.GetValue(7)?.ToString() ?? ""
-                                        };
-                                        
-                                        kontrahenci.Add(kontrahent);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception sqlEx)
-                {
-                    Error(sqlEx, "SubiektService", "Błąd podczas wyszukiwania kontrahenta przez SQL");
-                    // Kontynuujemy, aby wyświetlić dialog nawet z pustą listą lub błędami
-                }
 
-                // Zawsze pokaż dialog wyboru, nawet jeśli nie znaleziono żadnych kontrahentów
-                // Użytkownik może zdecydować czy wybrać kontrahenta, dodać nowego, czy kontynuować bez kontrahenta
-                if (kontrahenci.Count > 0)
+                var kontrahenci = new ObservableCollection<KontrahentItem>();
+
+                if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName) && string.IsNullOrWhiteSpace(nip))
                 {
-                    Info($"Znaleziono {kontrahenci.Count} kontrahentów przez SQL.", "SubiektService");
+                    Debug("Brak adresu email, nazwy klienta i NIP - pomijam wyszukiwanie przez API.", "SubiektService");
                 }
                 else
                 {
-                    Info("Nie znaleziono kontrahentów przez SQL - wyświetlam dialog z pustą listą.", "SubiektService");
+                    try
+                    {
+                        Info($"Wyszukiwanie kontrahenta przez API (email: {email}, customerName: {customerName}, nip: {nip})...", "SubiektService");
+                        var found = _apiService.RunSync(() => _apiService.SearchKontrahenciAsync(email, customerName, nip));
+                        foreach (var item in found)
+                        {
+                            kontrahenci.Add(item);
+                        }
+                    }
+                    catch (Exception apiEx)
+                    {
+                        Error(apiEx, "SubiektService", "Błąd podczas wyszukiwania kontrahenta przez API");
+                    }
+                }
+
+                if (kontrahenci.Count > 0)
+                {
+                    Info($"Znaleziono {kontrahenci.Count} kontrahentów przez API.", "SubiektService");
+                }
+                else
+                {
+                    Info("Nie znaleziono kontrahentów przez API - wyświetlam dialog z pustą listą.", "SubiektService");
                 }
                 
                 Info($"Wyświetlam dialog wyboru kontrahenta ({kontrahenci.Count} wyników)...", "SubiektService");
                 
-                // Użyj synchronicznego Invoke, aby upewnić się że dialog jest wyświetlony
                 bool shouldAddNew = false;
                 bool shouldCancel = false;
                 Application.Current?.Dispatcher.Invoke(() =>
@@ -432,8 +293,6 @@ AND (
                         Info("Tworzę dialog SelectKontrahentDialog...", "SubiektService");
                         var dialog = new SelectKontrahentDialog(kontrahenci, customerName, email, phone, company, nip, address);
                         
-                        // Ustaw właściciela dialogu PO utworzeniu okna ale PRZED ShowDialog
-                        // W WPF można ustawić Owner tylko jeśli okno główne jest już wyświetlone
                         bool hasOwner = false;
                         try
                         {
@@ -446,28 +305,22 @@ AND (
                         catch (Exception ownerEx)
                         {
                             Warning($"Nie można ustawić Owner dla dialogu: {ownerEx.Message}", "SubiektService");
-                            // Kontynuuj bez Owner - okno będzie wycentrowane na ekranie
                             hasOwner = false;
                         }
                         
-                        // Ustaw lokalizację okna PRZED wyświetleniem (ale PO ustawieniu Owner)
                         dialog.WindowStartupLocation = hasOwner ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
-                        
-                        // Ustaw dialog na wierzchu, aby był widoczny
                         dialog.Topmost = true;
                         
                         Info("Wyświetlam dialog ShowDialog()...", "SubiektService");
                         bool? result = dialog.ShowDialog();
                         
-                        // Wyłącz Topmost po zamknięciu dialogu
                         dialog.Topmost = false;
                         Info($"Dialog ShowDialog() zakończył się z wynikiem: {result}", "SubiektService");
                         
-                        // Sprawdź najpierw specjalne akcje (kolejność ma znaczenie!)
                         if (dialog.ShouldOpenEmpty)
                         {
                             Info("Użytkownik wybrał 'Pusty' - ZK zostanie otwarte bez kontrahenta.", "SubiektService");
-                            selectedId = null; // Explicitnie ustaw na null aby otworzyć ZK bez kontrahenta
+                            selectedId = null;
                         }
                         else if (dialog.ShouldAddNew)
                         {
@@ -481,9 +334,8 @@ AND (
                         }
                         else
                         {
-                            // Użytkownik kliknął Anuluj lub zamknął okno - nie otwieraj ZK
                             Info("Użytkownik anulował wybór kontrahenta - dialog zostanie zamknięty bez otwierania ZK.", "SubiektService");
-                            shouldCancel = true; // Anuluj całkowicie - nie otwieraj ZK
+                            shouldCancel = true;
                         }
                     }
                     catch (Exception dialogEx)
@@ -492,21 +344,17 @@ AND (
                     }
                 }, System.Windows.Threading.DispatcherPriority.Normal);
                 
-                // Jeśli użytkownik anulował, zakończ bez otwierania ZK
-                // Używamy -1 jako specjalnej wartości oznaczającej anulowanie
                 if (shouldCancel)
                 {
                     Info("Anulowano otwieranie ZK - zwracam -1 (specjalna wartość dla anulowania)", "SubiektService");
                     return -1;
                 }
                 
-                // Jeśli użytkownik chce dodać nowego kontrahenta, otwórz okno Subiekta GT
                 if (shouldAddNew)
                 {
                     Info("Otwieram okno dodawania kontrahenta...", "SubiektService");
                     try
                     {
-                        // Przekaż dane z API do metody DodajKontrahenta
                         DodajKontrahenta(customerName, nip, company, email, phone, address1, address2, postcode, city, country, isoCode2, useEuVatRate);
                     }
                     catch (Exception addEx)
@@ -514,7 +362,6 @@ AND (
                         Error(addEx, "SubiektService", "Błąd podczas otwierania okna dodawania kontrahenta");
                     }
                     
-                    // Po zamknięciu okna Subiekta GT, wywołaj rekurencyjnie wyszukiwanie, aby ponownie pokazać dialog
                     Info("Okno Subiekta GT zostało zamknięte - ponownie wyświetlam dialog wyboru kontrahenta...", "SubiektService");
                     return WyszukajKontrahentaPrzezSQLInternal(nip, email, customerName, phone, company, address, address1, address2, postcode, city, country, isoCode2, true, useEuVatRate);
                 }
@@ -524,11 +371,11 @@ AND (
             }
             catch (Exception ex)
             {
-                Error(ex, "SubiektService", "Błąd podczas wyszukiwania kontrahenta przez SQL");
+                Error(ex, "SubiektService", "Błąd podczas wyszukiwania kontrahenta przez API");
                 return null;
             }
         }
-        
+
         /// <summary>
         /// Otwiera okno Subiekta GT do dodawania nowego kontrahenta
         /// </summary>
@@ -757,7 +604,7 @@ AND (
         }
         
         /// <summary>
-        /// Wyszukuje ID kraju w słowniku państw Subiekta GT po nazwie
+        /// Wyszukuje ID kraju w słowniku państw Subiekta GT po nazwie (REST API)
         /// </summary>
         private int? WyszukajKrajWgNazwy(string countryName)
         {
@@ -766,61 +613,17 @@ AND (
                 
             try
             {
-                var subiektConfig = _configService.LoadSubiektConfig();
-                string serverAddress = subiektConfig.ServerAddress ?? "";
-                string username = subiektConfig.ServerUsername ?? "";
-                string password = subiektConfig.ServerPassword ?? "";
-                
-                if (string.IsNullOrWhiteSpace(serverAddress))
+                if (!_apiService.IsConfigured())
                 {
-                    Info("Brak adresu serwera MSSQL - pomijam wyszukiwanie kraju.", "SubiektService");
+                    Info("Brak URL API Subiekt - pomijam wyszukiwanie kraju.", "SubiektService");
                     return null;
                 }
-                
-                var builder = new SqlConnectionStringBuilder
+
+                var countryId = _apiService.RunSync(() => _apiService.FindCountryIdByNameAsync(countryName));
+                if (countryId.HasValue)
                 {
-                    DataSource = serverAddress,
-                    InitialCatalog = subiektConfig.DatabaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10,
-                    Encrypt = false
-                };
-                
-                if (string.IsNullOrWhiteSpace(username))
-                {
-                    builder.IntegratedSecurity = true;
-                }
-                
-                string connectionString = builder.ConnectionString;
-                
-                using (var connection = new SqlConnection(connectionString))
-                {
-                    connection.Open();
-                    
-                    // Szukaj kraju w słowniku państw
-                    string sqlQuery = @"
-SELECT TOP(1) pa_Id
-FROM dbo.sl_Panstwo
-WHERE pa_Nazwa = @CountryName";
-                    
-                    using (var command = new SqlCommand(sqlQuery, connection))
-                    {
-                        command.Parameters.AddWithValue("@CountryName", countryName);
-                        
-                        using (var reader = command.ExecuteReader())
-                        {
-                            if (reader.Read())
-                            {
-                                var countryId = reader.IsDBNull(0) ? null : (int?)Convert.ToInt32(reader.GetValue(0));
-                                if (countryId.HasValue)
-                                {
-                                    Info($"Znaleziono kraj '{countryName}' w słowniku: ID={countryId.Value}", "SubiektService");
-                                    return countryId.Value;
-                                }
-                            }
-                        }
-                    }
+                    Info($"Znaleziono kraj '{countryName}' w słowniku: ID={countryId.Value}", "SubiektService");
+                    return countryId.Value;
                 }
                 
                 Info($"Nie znaleziono kraju '{countryName}' w słowniku państw.", "SubiektService");
@@ -832,92 +635,45 @@ WHERE pa_Nazwa = @CountryName";
                 return null;
             }
         }
-        
+
         /// <summary>
-        /// Pobiera słownik stawek VAT z bazy danych i przechowuje w cache
+        /// Pobiera słownik stawek VAT z API i przechowuje w cache
         /// </summary>
         private void WczytajSlownikStawekVAT()
         {
-            // Sprawdź czy cache już istnieje
             lock (_vatRatesCacheLock)
             {
                 if (_vatRatesCache != null)
                 {
-                    return; // Cache już załadowany
+                    return;
                 }
 
                 try
                 {
-                    var subiektConfig = _configService.LoadSubiektConfig();
-                    string serverAddress = subiektConfig.ServerAddress ?? "";
-                    string username = subiektConfig.ServerUsername ?? "";
-                    string password = subiektConfig.ServerPassword ?? "";
-
-                    if (string.IsNullOrWhiteSpace(serverAddress))
+                    if (!_apiService.IsConfigured())
                     {
-                        Debug("Brak adresu serwera MSSQL - pomijam wczytywanie słownika stawek VAT.", "SubiektService");
-                        _vatRatesCache = new Dictionary<string, Models.VatRate>(); // Pusty słownik
+                        Warning("Brak URL API Subiekt - nie można załadować słownika VAT.", "SubiektService");
+                        _vatRatesCache = new Dictionary<string, Models.VatRate>(StringComparer.OrdinalIgnoreCase);
                         return;
                     }
 
-                    var builder = new SqlConnectionStringBuilder
+                    var list = _apiService.RunSync(() => _apiService.GetVatRatesAsync());
+                    var vatRates = new Dictionary<string, Models.VatRate>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var vatRate in list)
                     {
-                        DataSource = serverAddress,
-                        InitialCatalog = subiektConfig.DatabaseName,
-                        UserID = username,
-                        Password = password,
-                        ConnectTimeout = 10,
-                        Encrypt = false
-                    };
-
-                    if (string.IsNullOrWhiteSpace(username))
-                    {
-                        builder.IntegratedSecurity = true;
-                    }
-
-                    string connectionString = builder.ConnectionString;
-
-                    // Wykonaj zapytanie SQL
-                    using (var connection = new SqlConnection(connectionString))
-                    {
-                        connection.Open();
-
-                        string sqlQuery = @"
-SELECT vat_id, vat_Symbol, vat_Stawka
-FROM [dbo].[sl_StawkaVAT];";
-
-                        using (var command = new SqlCommand(sqlQuery, connection))
+                        if (!string.IsNullOrWhiteSpace(vatRate.VatSymbol))
                         {
-                            using (var reader = command.ExecuteReader())
-                            {
-                                var vatRates = new Dictionary<string, Models.VatRate>(StringComparer.OrdinalIgnoreCase);
-
-                                while (reader.Read())
-                                {
-                                    var vatRate = new Models.VatRate
-                                    {
-                                        VatId = reader.GetInt32(0),
-                                        VatSymbol = reader.IsDBNull(1) ? "" : reader.GetString(1),
-                                        VatStawka = reader.IsDBNull(2) ? 0 : reader.GetDecimal(2)
-                                    };
-
-                                    // Dodaj do słownika używając vat_Symbol jako klucza
-                                    if (!string.IsNullOrWhiteSpace(vatRate.VatSymbol))
-                                    {
-                                        vatRates[vatRate.VatSymbol] = vatRate;
-                                    }
-                                }
-
-                                _vatRatesCache = vatRates;
-                                Info($"Załadowano {vatRates.Count} stawek VAT do cache.", "SubiektService");
-                            }
+                            vatRates[vatRate.VatSymbol] = vatRate;
                         }
                     }
+
+                    _vatRatesCache = vatRates;
+                    Info($"Załadowano {vatRates.Count} stawek VAT do cache (API).", "SubiektService");
                 }
                 catch (Exception ex)
                 {
-                    Error(ex, "SubiektService", "Błąd podczas wczytywania słownika stawek VAT");
-                    _vatRatesCache = new Dictionary<string, Models.VatRate>(); // Pusty słownik w przypadku błędu
+                    Error(ex, "SubiektService", "Błąd podczas ładowania słownika VAT z API");
+                    _vatRatesCache = new Dictionary<string, Models.VatRate>(StringComparer.OrdinalIgnoreCase);
                 }
             }
         }
@@ -966,61 +722,17 @@ FROM [dbo].[sl_StawkaVAT];";
             
             try
             {
-                var subiektConfig = _configService.LoadSubiektConfig();
-                string serverAddress = subiektConfig.ServerAddress ?? "";
-                string username = subiektConfig.ServerUsername ?? "";
-                string password = subiektConfig.ServerPassword ?? "";
-                
-                if (string.IsNullOrWhiteSpace(serverAddress))
+                if (!_apiService.IsConfigured())
                 {
-                    Info("Brak adresu serwera MSSQL - pomijam sprawdzanie istnienia dokumentu.", "SubiektService");
+                    Info("Brak URL API Subiekt - pomijam sprawdzanie istnienia dokumentu.", "SubiektService");
                     return null;
                 }
-                
-                var builder = new SqlConnectionStringBuilder
+
+                var dokId = _apiService.RunSync(() => _apiService.GetZkIdByNumerOryginalnyAsync(numerOryginalny));
+                if (dokId.HasValue)
                 {
-                    DataSource = serverAddress,
-                    InitialCatalog = subiektConfig.DatabaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10,
-                    Encrypt = false
-                };
-                
-                if (string.IsNullOrWhiteSpace(username))
-                {
-                    builder.IntegratedSecurity = true;
-                }
-                
-                string connectionString = builder.ConnectionString;
-                
-                using (var connection = new SqlConnection(connectionString))
-                {
-                    connection.Open();
-                    
-                    string sqlQuery = $@"
-SELECT 
-    [dok_Id],
-    [dok_NrPelnyOryg]
-FROM [dbo].[dok__Dokument]
-WHERE dok_NrPelnyOryg = @NumerOryginalny
-AND dok_Typ = {dokTypZK}";
-                    
-                    using (var command = new SqlCommand(sqlQuery, connection))
-                    {
-                        command.Parameters.AddWithValue("@NumerOryginalny", numerOryginalny);
-                        
-                        using (var reader = command.ExecuteReader())
-                        {
-                            if (reader.Read())
-                            {
-                                var dokId = reader.IsDBNull(0) ? null : (int?)Convert.ToInt32(reader.GetValue(0));
-                                var nrPelnyOryg = reader.IsDBNull(1) ? null : reader.GetString(1);
-                                Info($"Znaleziono istniejący dokument z numerem oryginalnym '{numerOryginalny}' (dok_Id={dokId})", "SubiektService");
-                                return dokId;
-                            }
-                        }
-                    }
+                    Info($"Znaleziono istniejący dokument z numerem oryginalnym '{numerOryginalny}' (dok_Id={dokId})", "SubiektService");
+                    return dokId;
                 }
                 
                 Info($"Nie znaleziono dokumentu z numerem oryginalnym '{numerOryginalny}'", "SubiektService");
@@ -1029,11 +741,10 @@ AND dok_Typ = {dokTypZK}";
             catch (Exception ex)
             {
                 Error(ex, "SubiektService", "Błąd podczas sprawdzania istnienia dokumentu");
-                // W przypadku błędu zwracamy null, aby nie blokować otwierania ZK
                 return null;
             }
         }
-        
+
         /// <summary>
         /// Sprawdza istnienie dokumentów ZK w Subiekcie GT dla listy numerów zamówień
         /// Zwraca słownik gdzie klucz to numer zamówienia (dok_NrPelnyOryg), a wartość to numer dokumentu ZK (dok_NrPelny)
@@ -1050,25 +761,12 @@ AND dok_Typ = {dokTypZK}";
             
             try
             {
-                var subiektConfig = _configService.LoadSubiektConfig();
-                string serverAddress = subiektConfig.ServerAddress ?? "";
-                string databaseName = subiektConfig.DatabaseName ?? "";
-                string username = subiektConfig.ServerUsername ?? "";
-                string password = subiektConfig.ServerPassword ?? "";
-                
-                if (string.IsNullOrWhiteSpace(serverAddress))
+                if (!_apiService.IsConfigured())
                 {
-                    Debug("Brak adresu serwera MSSQL - pomijam sprawdzanie dokumentów ZK", "SubiektService");
+                    Debug("Brak URL API Subiekt - pomijam sprawdzanie dokumentów ZK", "SubiektService");
                     return wynik;
                 }
                 
-                if (string.IsNullOrWhiteSpace(databaseName))
-                {
-                    Debug("Brak nazwy bazy danych - pomijam sprawdzanie dokumentów ZK", "SubiektService");
-                    return wynik;
-                }
-                
-                // Filtruj puste i null wartości, trim każdego numeru
                 var numeryDoSprawdzenia = numeryZamowien
                     .Where(n => !string.IsNullOrWhiteSpace(n))
                     .Select(n => n.Trim())
@@ -1081,131 +779,18 @@ AND dok_Typ = {dokTypZK}";
                     return wynik;
                 }
                 
-                Debug($"=========================================", "SubiektService");
-                Debug($"SPRAWDZANIE ISTNIENIA DOKUMENTÓW ZK", "SubiektService");
-                Debug($"=========================================", "SubiektService");
-                Debug($"Liczba numerów zamówień do sprawdzenia: {numeryDoSprawdzenia.Count}", "SubiektService");
-                
-                var builder = new SqlConnectionStringBuilder
-                {
-                    DataSource = serverAddress,
-                    InitialCatalog = databaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10,
-                    Encrypt = false
-                };
-                
-                if (string.IsNullOrWhiteSpace(username))
-                {
-                    builder.IntegratedSecurity = true;
-                }
-                
-                string connectionString = builder.ConnectionString;
-                
-                using (var connection = new SqlConnection(connectionString))
-                {
-                    connection.Open();
-                    
-                    // Buduj zapytanie SQL z parametrami
-                    var parameters = new List<string>();
-                    for (int i = 0; i < numeryDoSprawdzenia.Count; i++)
-                    {
-                        parameters.Add($"@Numer{i}");
-                    }
-                    
-                    string sqlQuery = $@"
-SELECT DISTINCT
-    [dok_NrPelny],
-    [dok_NrPelnyOryg]
-FROM [dbo].[dok__Dokument]
-WHERE [dok_NrPelnyOryg] IN ({string.Join(", ", parameters)})
-AND [dok_Typ] = {dokTypZK}";
-                    
-                    // Loguj zapytanie SQL z wartościami
-                    var loggedQuery = new System.Text.StringBuilder();
-                    loggedQuery.AppendLine("SELECT DISTINCT");
-                    loggedQuery.AppendLine("    [dok_NrPelny],");
-                    loggedQuery.AppendLine("    [dok_NrPelnyOryg]");
-                    loggedQuery.AppendLine("FROM [dbo].[dok__Dokument]");
-                    loggedQuery.AppendLine("WHERE [dok_NrPelnyOryg] IN (");
-                    for (int i = 0; i < numeryDoSprawdzenia.Count; i++)
-                    {
-                        loggedQuery.Append($"'{numeryDoSprawdzenia[i]}'");
-                        if (i < numeryDoSprawdzenia.Count - 1)
-                        {
-                            loggedQuery.Append(", ");
-                        }
-                    }
-                    loggedQuery.AppendLine(")");
-                    loggedQuery.AppendLine($"AND [dok_Typ] = {dokTypZK}");
-                    
-                    Debug($"Zapytanie SQL:", "SubiektService");
-                    Debug(loggedQuery.ToString(), "SubiektService");
-                    
-                    using (var command = new SqlCommand(sqlQuery, connection))
-                    {
-                        // Dodaj parametry
-                        for (int i = 0; i < numeryDoSprawdzenia.Count; i++)
-                        {
-                            command.Parameters.AddWithValue($"@Numer{i}", numeryDoSprawdzenia[i]);
-                        }
-                        
-                        var wynikiLista = new List<string>();
-                        
-                        using (var reader = command.ExecuteReader())
-                        {
-                            while (reader.Read())
-                            {
-                                string? nrPelny = reader.IsDBNull(0) ? null : reader.GetString(0);
-                                string? numerOryginalny = reader.IsDBNull(1) ? null : reader.GetString(1);
-                                
-                                if (!string.IsNullOrWhiteSpace(numerOryginalny))
-                                {
-                                    string numerOryginalnyTrimmed = numerOryginalny.Trim();
-                                    string nrPelnyValue = !string.IsNullOrWhiteSpace(nrPelny) ? nrPelny.Trim() : "";
-                                    
-                                    if (!wynik.ContainsKey(numerOryginalnyTrimmed))
-                                    {
-                                        wynik[numerOryginalnyTrimmed] = nrPelnyValue;
-                                        wynikiLista.Add($"  '{numerOryginalnyTrimmed}' -> '{nrPelnyValue}'");
-                                        Debug($"Dodano do Dictionary: '{numerOryginalnyTrimmed}' -> '{nrPelnyValue}'", "SubiektService");
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // Loguj odpowiedź SQL
-                        Debug($"Odpowiedź SQL ({wynik.Count} wyników):", "SubiektService");
-                        if (wynikiLista.Count > 0)
-                        {
-                            foreach (var wiersz in wynikiLista)
-                            {
-                                Debug(wiersz, "SubiektService");
-                            }
-                        }
-                        else
-                        {
-                            Debug("  Brak wyników", "SubiektService");
-                        }
-                    }
-                }
-                
-                Debug($"Znaleziono {wynik.Count} istniejących dokumentów ZK z {numeryDoSprawdzenia.Count} sprawdzanych.", "SubiektService");
-                Debug($"=========================================", "SubiektService");
-                
+                Debug($"SPRAWDZANIE ISTNIENIA DOKUMENTÓW ZK przez API ({numeryDoSprawdzenia.Count} numerów)", "SubiektService");
+                wynik = _apiService.RunSync(() => _apiService.GetZkByNumerOryginalnyInAsync(numeryDoSprawdzenia));
+                Debug($"Znaleziono {wynik.Count} dokumentów ZK przez API", "SubiektService");
                 return wynik;
             }
             catch (Exception ex)
             {
-                Error(ex, "SubiektService", "Błąd podczas sprawdzania istnienia dokumentów ZK");
+                Error(ex, "SubiektService", "Błąd podczas sprawdzania istnienia dokumentów ZK przez API");
                 return wynik;
             }
         }
-        
-        /// <summary>
-        /// Wypełnia dane kontrahenta w obiekcie Subiekta GT
-        /// </summary>
+
         private void WypelnijDaneKontrahenta(dynamic kontrahent, string? customerName, string? nip, string? company, string? email, string? phone, string? address1, string? address2, string? postcode, string? city, string? country, string? isoCode2 = null, bool useEuVatRate = false)
         {
             try
@@ -3230,55 +2815,20 @@ AND [dok_Typ] = {dokTypZK}";
             var towary = new List<TowarPLUInfo>();
             try
             {
-                var subiektConfig = _configService.LoadSubiektConfig();
-                string serverAddress = subiektConfig.ServerAddress ?? "";
-                string databaseName = subiektConfig.DatabaseName ?? "";
-                string username = subiektConfig.ServerUsername ?? "";
-                string password = subiektConfig.ServerPassword ?? "";
-
-                if (string.IsNullOrWhiteSpace(serverAddress) || string.IsNullOrWhiteSpace(databaseName))
+                if (!_apiService.IsConfigured())
                 {
                     return towary;
                 }
 
-                var builder = new SqlConnectionStringBuilder
+                var list = _apiService.RunSync(() => _apiService.GetPluMismatchProductsAsync());
+                foreach (var item in list)
                 {
-                    DataSource = serverAddress,
-                    InitialCatalog = databaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10,
-                    Encrypt = false
-                };
-
-                if (string.IsNullOrWhiteSpace(username))
-                {
-                    builder.IntegratedSecurity = true;
-                }
-
-                using (var connection = new SqlConnection(builder.ConnectionString))
-                {
-                    connection.Open();
-                    string sqlQuery = "SELECT tw_Id, tw_Nazwa FROM tw__Towar WHERE tw_PLU <> tw_Id OR tw_PLU IS NULL OR tw_PodstKodKresk <> CAST(tw_Id AS varchar) OR tw_PodstKodKresk IS NULL OR tw_SWW <> CAST(tw_Id AS varchar) OR tw_SWW IS NULL ORDER BY tw_Id";
-                    using (var command = new SqlCommand(sqlQuery, connection))
-                    {
-                        using (var reader = command.ExecuteReader())
-                        {
-                            while (reader.Read())
-                            {
-                                towary.Add(new TowarPLUInfo 
-                                { 
-                                    Id = reader.GetInt32(0),
-                                    Nazwa = reader.IsDBNull(1) ? "" : reader.GetString(1)
-                                });
-                            }
-                        }
-                    }
+                    towary.Add(new TowarPLUInfo { Id = item.Id, Nazwa = item.Nazwa });
                 }
             }
             catch (Exception ex)
             {
-                Error(ex, "SubiektService", "Błąd podczas pobierania towarów");
+                Error(ex, "SubiektService", "Błąd podczas pobierania towarów (PLU) z API");
             }
             return towary;
         }
@@ -3287,42 +2837,13 @@ AND [dok_Typ] = {dokTypZK}";
         {
             try
             {
-                var subiektConfig = _configService.LoadSubiektConfig();
-                string serverAddress = subiektConfig.ServerAddress ?? "";
-                string databaseName = subiektConfig.DatabaseName ?? "";
-                string username = subiektConfig.ServerUsername ?? "";
-                string password = subiektConfig.ServerPassword ?? "";
-
-                var builder = new SqlConnectionStringBuilder
+                if (!_apiService.IsConfigured())
                 {
-                    DataSource = serverAddress,
-                    InitialCatalog = databaseName,
-                    UserID = username,
-                    Password = password,
-                    ConnectTimeout = 10,
-                    Encrypt = false
-                };
-
-                if (string.IsNullOrWhiteSpace(username))
-                {
-                    builder.IntegratedSecurity = true;
+                    return false;
                 }
 
-                using (var connection = new SqlConnection(builder.ConnectionString))
-                {
-                    connection.Open();
-                    string sqlQuery = "UPDATE tw__Towar SET tw_PLU = tw_Id, tw_PodstKodKresk = tw_Id, tw_SWW = tw_Id WHERE tw_Id = @twId";
-                    
-                    // Logowanie zapytania SQL
-                    Debug($"SQL WyPLUwacz: UPDATE tw__Towar SET tw_PLU = tw_Id, tw_PodstKodKresk = tw_Id, tw_SWW = tw_Id WHERE tw_Id = {twId}", "SubiektService");
-                    
-                    using (var command = new SqlCommand(sqlQuery, connection))
-                    {
-                        command.Parameters.AddWithValue("@twId", twId);
-                        int rows = command.ExecuteNonQuery();
-                        return rows > 0;
-                    }
-                }
+                Debug($"API WyPLUwacz: POST products/fix-plu id={twId}", "SubiektService");
+                return _apiService.RunSync(() => _apiService.FixPluAsync(twId));
             }
             catch (Exception ex)
             {
@@ -3332,5 +2853,3 @@ AND [dok_Typ] = {dokTypZK}";
         }
     }
 }
-
-

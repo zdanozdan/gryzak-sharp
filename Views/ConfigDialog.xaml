@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="⚙️ Konfiguracja API" 
+        Title="⚙️ Ustawienia sklepu" 
         Height="550" Width="600"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
@@ -35,26 +35,26 @@
 
         <!-- Nagłówek -->
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
-            <TextBlock Text="⚙️ Konfiguracja API" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
-            <TextBlock Text="Ustawienia połączenia z API" FontSize="12" Foreground="Gray"/>
+            <TextBlock Text="⚙️ Ustawienia sklepu" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
+            <TextBlock Text="Połączenie z API zamówień sklepu internetowego" FontSize="12" Foreground="Gray"/>
         </StackPanel>
 
         <!-- Formularz -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <TextBlock Text="Ustawienia API" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <TextBlock Text="API zamówień (sklep)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
 
-                <TextBlock Text="URL API:" FontWeight="SemiBold"/>
+                <TextBlock Text="URL API sklepu:" FontWeight="SemiBold"/>
                 <TextBox Name="ApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
-                <TextBlock Text="Wprowadź pełny URL do API zamówień" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+                <TextBlock Text="Pełny URL do API zamówień sklepu (nie Subiekt)" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
 
                 <TextBlock Text="Token API:" FontWeight="SemiBold"/>
                 <PasswordBox Name="ApiTokenPasswordBox" PasswordChanged="ApiToken_PasswordChanged"/>
-                <TextBlock Text="Token autoryzacji do API" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+                <TextBlock Text="Token autoryzacji do API sklepu" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
 
                 <TextBlock Text="Timeout (sekundy):" FontWeight="SemiBold"/>
                 <TextBox Name="ApiTimeoutTextBox" TextChanged="ApiTimeout_TextChanged"/>
-                <TextBlock Text="Maksymalny czas oczekiwania na odpowiedź API (5-300)" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+                <TextBlock Text="Maksymalny czas oczekiwania na odpowiedź API sklepu (5-300)" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
 
                 <TextBlock Text="Endpoint listy zamówień:" FontWeight="SemiBold"/>
                 <TextBox Name="OrderListEndpointTextBox" TextChanged="OrderListEndpoint_TextChanged"/>

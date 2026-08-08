@@ -96,7 +96,7 @@ namespace Gryzak.Views
 
         private void SetupKeyBindings()
         {
-            // Ctrl+K - Konfiguracja API
+            // Ctrl+K - Ustawienia sklepu
             if (DataContext is MainViewModel vm)
             {
                 var configBinding = new KeyBinding(

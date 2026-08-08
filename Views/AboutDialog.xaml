@@ -92,7 +92,7 @@
                     <TextBlock Text="• 📈 Statystyki zamówień"/>
                     <TextBlock Text="• 👁️ Szczegółowy widok zamówienia"/>
                     <TextBlock Text="• 🔄 Automatyczne odświeżanie danych"/>
-                    <TextBlock Text="• ⚙️ Konfiguracja API"/>
+                    <TextBlock Text="• ⚙️ Ustawienia sklepu"/>
                     <TextBlock Text="• 📱 Responsywny design"/>
                     <TextBlock Text="• 🎨 Nowoczesny interfejs z ikonami"/>
                 </StackPanel>

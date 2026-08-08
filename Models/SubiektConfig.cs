@@ -4,6 +4,12 @@ namespace Gryzak.Models
 {
     public class SubiektConfig
     {
+        /// <summary>Base URL Subiekt REST API, np. http://192.168.0.140:5082/api/v1</summary>
+        public string ApiBaseUrl { get; set; } = "";
+
+        /// <summary>Opcjonalny klucz API (nagłówek X-Api-Key). Może być wymagany w przyszłości.</summary>
+        public string ApiKey { get; set; } = "";
+
         public string ServerAddress { get; set; } = "";
         public string DatabaseName { get; set; } = "";
         public string ServerUsername { get; set; } = "";
@@ -20,4 +26,3 @@ namespace Gryzak.Models
         public string DiscountRoundingMode { get; set; } = "percent"; // "none" = bez zaokrąglania, "percent" = do pełnych procentów (1%), "tens" = do dziesiątek procentów (10%)
     }
 }
-
