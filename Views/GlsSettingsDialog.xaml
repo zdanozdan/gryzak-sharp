@@ -1,0 +1,133 @@
+<Window x:Class="Gryzak.Views.GlsSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="⚙️ Ustawienia GLS" 
+        Height="620" Width="560"
+        MinHeight="520" MinWidth="500"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Icon="pack://application:,,,/gryzak_icon.png">
+    
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="0,5,0,15"/>
+            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="0,5,0,15"/>
+            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Background" Value="#2196F3"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,0,20,0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="⚙️ Ustawienia GLS ADE" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
+            <TextBlock Text="Logowanie do GLS ADE-Plus WebAPI 2" FontSize="12" Foreground="Gray"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Środowisko" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <RadioButton Name="TestEnvironmentRadio"
+                                         Content="Test"
+                                         GroupName="GlsEnvironment"
+                                         Checked="Environment_Changed"/>
+                            <RadioButton Name="ProductionEnvironmentRadio"
+                                         Content="Produkcja"
+                                         GroupName="GlsEnvironment"
+                                         Checked="Environment_Changed"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Aktywny URL:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBlock Name="ActiveUrlPreview"
+                                   FontSize="12"
+                                   Foreground="#1565C0"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,5"/>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Adresy API" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+
+                        <TextBlock Text="URL API (test):" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="TestApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
+
+                        <TextBlock Text="URL API (produkcja):" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="ProductionApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Dane logowania" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+
+                        <TextBlock Text="Login:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="UserNameTextBox"/>
+
+                        <TextBlock Text="Hasło:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <PasswordBox Name="PasswordBox"/>
+
+                        <TextBlock Text="Timeout (sekundy):" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="TimeoutTextBox"/>
+                        <TextBlock Text="Czas oczekiwania na odpowiedź API (5–300)."
+                                   FontSize="11"
+                                   Foreground="Gray"
+                                   Margin="0,-10,0,10"
+                                   TextWrapping="Wrap"/>
+
+                        <Button Name="TestConnectionButton"
+                                Content="🧪 Testuj logowanie"
+                                Click="TestConnectionButton_Click"
+                                HorizontalAlignment="Left"
+                                Margin="0,5,0,0"
+                                Background="#4CAF50"
+                                Foreground="White"
+                                Padding="12,8"/>
+
+                        <TextBlock Name="TestStatusText"
+                                   Margin="0,12,0,0"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="💾 Zapisz" Click="SaveButton_Click" IsDefault="True"/>
+            <Button Content="Anuluj" Click="CancelButton_Click" IsCancel="True" Background="#E0E0E0" Foreground="Black"/>
+        </StackPanel>
+    </Grid>
+</Window>
