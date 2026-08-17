@@ -11,6 +11,7 @@ namespace Gryzak.Services
     {
         private readonly string _configPath;
         private readonly string _subiektConfigPath;
+        private readonly string _glsConfigPath;
         private readonly string _historyPath;
 
         public ConfigService()
@@ -25,6 +26,7 @@ namespace Gryzak.Services
             
             _configPath = Path.Combine(gryzakPath, "config.json");
             _subiektConfigPath = Path.Combine(gryzakPath, "subiekt_config.json");
+            _glsConfigPath = Path.Combine(gryzakPath, "gls_config.json");
             _historyPath = Path.Combine(gryzakPath, "order_history.json");
         }
 
@@ -141,6 +143,59 @@ namespace Gryzak.Services
                 AutoReleaseLicenseTimeoutMinutes = 0,
                 DiscountCalculationMode = "percent"
             };
+        }
+
+        public GlsConfig LoadGlsConfig()
+        {
+            try
+            {
+                if (File.Exists(_glsConfigPath))
+                {
+                    var json = File.ReadAllText(_glsConfigPath);
+                    var config = JsonSerializer.Deserialize<GlsConfig>(json);
+                    if (config != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(config.TestApiUrl))
+                        {
+                            config.TestApiUrl = GlsConfig.DefaultTestApiUrl;
+                        }
+                        if (string.IsNullOrWhiteSpace(config.ProductionApiUrl))
+                        {
+                            config.ProductionApiUrl = GlsConfig.DefaultProductionApiUrl;
+                        }
+                        if (config.TimeoutSeconds < 5 || config.TimeoutSeconds > 300)
+                        {
+                            config.TimeoutSeconds = 30;
+                        }
+                        return config;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd ładowania konfiguracji GLS: {ex.Message}");
+            }
+
+            return GetDefaultGlsConfig();
+        }
+
+        public void SaveGlsConfig(GlsConfig config)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_glsConfigPath, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd zapisywania konfiguracji GLS: {ex.Message}");
+                throw;
+            }
+        }
+
+        private GlsConfig GetDefaultGlsConfig()
+        {
+            return new GlsConfig();
         }
 
         public List<string> LoadOrderHistory()

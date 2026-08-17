@@ -50,6 +50,7 @@
             <MenuItem Header="_Plik">
                 <MenuItem Header="Konfiguracja API" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
                 <MenuItem Header="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}"/>
+                <MenuItem Header="Ustawienia GLS" Command="{Binding OpenGlsSettingsCommand}"/>
                 <Separator/>
                 <MenuItem Header="Debug" Click="DebugMenuItem_Click"/>
                 <Separator/>

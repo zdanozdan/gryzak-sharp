@@ -237,6 +237,7 @@ namespace Gryzak.ViewModels
         public ICommand RefreshCommand { get; }
         public ICommand ConfigureApiCommand { get; }
         public ICommand OpenSubiektSettingsCommand { get; }
+        public ICommand OpenGlsSettingsCommand { get; }
         public ICommand OrderSelectedCommand { get; }
         public ICommand DodajZKCommand { get; }
         public ICommand NoweZKCommand { get; }
@@ -266,6 +267,7 @@ namespace Gryzak.ViewModels
             RefreshCommand = new RelayCommand(async () => await LoadOrdersAsync(true));
             ConfigureApiCommand = new RelayCommand(() => OpenConfigDialog());
             OpenSubiektSettingsCommand = new RelayCommand(() => OpenSubiektSettingsDialog());
+            OpenGlsSettingsCommand = new RelayCommand(() => OpenGlsSettingsDialog());
             OrderSelectedCommand = new RelayCommand<Order>(order => OnOrderSelected(order));
             DodajZKCommand = new RelayCommand(() => DodajZK());
             NoweZKCommand = new RelayCommand(() => DodajNoweZK());
@@ -787,6 +789,12 @@ namespace Gryzak.ViewModels
         private void OpenSubiektSettingsDialog()
         {
             var settingsWindow = new Views.SubiektSettingsDialog(_configService);
+            settingsWindow.ShowDialog();
+        }
+
+        private void OpenGlsSettingsDialog()
+        {
+            var settingsWindow = new Views.GlsSettingsDialog(_configService);
             settingsWindow.ShowDialog();
         }
 
