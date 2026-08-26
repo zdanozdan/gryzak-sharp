@@ -9,6 +9,9 @@ namespace Gryzak.Models
         public int ApiTimeout { get; set; } = 30;
         public string OrderListEndpoint { get; set; } = "/orders";
         public string OrderDetailsEndpoint { get; set; } = "/index.php?route=extension/module/orders&token=strefalicencji&order_id={order_id}&format=json";
+
+        /// <summary>Ostatnio wybrana zakładka główna (0 = zamówienia, 1 = Nadania GLS).</summary>
+        public int SelectedMainTabIndex { get; set; } = 0;
     }
 }
 

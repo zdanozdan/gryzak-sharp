@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -11,7 +12,9 @@ namespace Gryzak.Views
     public partial class GlsSettingsDialog : Window
     {
         private readonly ConfigService _configService;
-        private GlsConfig _currentConfig;
+        private readonly GlsConfig _currentConfig;
+        private bool _uiIsProduction;
+        private bool _suppressEnvironmentChange;
 
         public GlsSettingsDialog(ConfigService configService)
         {
@@ -23,24 +26,54 @@ namespace Gryzak.Views
 
         private void LoadConfig()
         {
-            UserNameTextBox.Text = _currentConfig.UserName ?? "";
-            PasswordBox.Password = _currentConfig.Password ?? "";
-            TestApiUrlTextBox.Text = string.IsNullOrWhiteSpace(_currentConfig.TestApiUrl)
-                ? GlsConfig.DefaultTestApiUrl
-                : _currentConfig.TestApiUrl;
-            ProductionApiUrlTextBox.Text = string.IsNullOrWhiteSpace(_currentConfig.ProductionApiUrl)
-                ? GlsConfig.DefaultProductionApiUrl
-                : _currentConfig.ProductionApiUrl;
-            TimeoutTextBox.Text = _currentConfig.TimeoutSeconds.ToString();
+            _suppressEnvironmentChange = true;
+            try
+            {
+                _uiIsProduction = _currentConfig.UseProduction;
+                TestEnvironmentRadio.IsChecked = !_uiIsProduction;
+                ProductionEnvironmentRadio.IsChecked = _uiIsProduction;
+                GlsPanelEnabledCheckBox.IsChecked = _currentConfig.GlsPanelEnabled;
+                LoadUiFromCurrentEnvironment();
+                UpdateEnvironmentLabels();
+                UpdateActiveUrlPreview();
+                LoadPrinters();
+            }
+            finally
+            {
+                _suppressEnvironmentChange = false;
+            }
+        }
 
-            TestEnvironmentRadio.IsChecked = !_currentConfig.UseProduction;
-            ProductionEnvironmentRadio.IsChecked = _currentConfig.UseProduction;
-            UpdateActiveUrlPreview();
+        private void LoadPrinters()
+        {
+            var printers = RawPrinterHelper.GetInstalledPrinterNames().ToList();
+            if (!string.IsNullOrWhiteSpace(_currentConfig.LabelPrinterName)
+                && !printers.Contains(_currentConfig.LabelPrinterName, StringComparer.OrdinalIgnoreCase))
+            {
+                printers.Insert(0, _currentConfig.LabelPrinterName);
+            }
+
+            LabelPrinterComboBox.ItemsSource = printers;
+            var preferred = RawPrinterHelper.PickPreferredPrinter(_currentConfig.LabelPrinterName, printers);
+            if (preferred != null)
+            {
+                LabelPrinterComboBox.SelectedItem = preferred;
+            }
         }
 
         private void Environment_Changed(object sender, RoutedEventArgs e)
         {
+            if (_suppressEnvironmentChange || ApiUrlTextBox == null)
+            {
+                return;
+            }
+
+            FlushUiToCurrentEnvironment();
+            _uiIsProduction = ProductionEnvironmentRadio.IsChecked == true;
+            LoadUiFromCurrentEnvironment();
+            UpdateEnvironmentLabels();
             UpdateActiveUrlPreview();
+            SetTestStatus("", Brushes.Gray);
         }
 
         private void ApiUrl_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
@@ -48,15 +81,41 @@ namespace Gryzak.Views
             UpdateActiveUrlPreview();
         }
 
-        private void UpdateActiveUrlPreview()
+        private void UpdateEnvironmentLabels()
         {
-            if (ActiveUrlPreview == null)
+            if (EnvironmentConfigHeader == null || ApiUrlLabel == null)
             {
                 return;
             }
 
-            var config = GetConfigFromUI();
-            ActiveUrlPreview.Text = config.GetActiveApiUrl();
+            if (_uiIsProduction)
+            {
+                EnvironmentConfigHeader.Text = "Konfiguracja: Produkcja";
+                ApiUrlLabel.Text = "URL API (produkcja):";
+            }
+            else
+            {
+                EnvironmentConfigHeader.Text = "Konfiguracja: Test";
+                ApiUrlLabel.Text = "URL API (test):";
+            }
+        }
+
+        private void UpdateActiveUrlPreview()
+        {
+            if (ActiveUrlPreview == null || ApiUrlTextBox == null)
+            {
+                return;
+            }
+
+            var url = ApiUrlTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                url = ProductionEnvironmentRadio.IsChecked == true
+                    ? GlsConfig.DefaultProductionApiUrl
+                    : GlsConfig.DefaultTestApiUrl;
+            }
+
+            ActiveUrlPreview.Text = url;
         }
 
         private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
@@ -66,7 +125,7 @@ namespace Gryzak.Views
             if (string.IsNullOrWhiteSpace(config.UserName) || string.IsNullOrWhiteSpace(config.Password))
             {
                 SetTestStatus("Login i hasło są wymagane.", Brushes.Red);
-                MessageBox.Show("Proszę podać login i hasło GLS.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Proszę podać login i hasło GLS dla wybranego środowiska.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -124,20 +183,21 @@ namespace Gryzak.Views
         {
             var config = GetConfigFromUI();
 
-            if (config.TimeoutSeconds < 5 || config.TimeoutSeconds > 300)
+            if (config.Test.TimeoutSeconds < 5 || config.Test.TimeoutSeconds > 300
+                || config.Production.TimeoutSeconds < 5 || config.Production.TimeoutSeconds > 300)
             {
                 MessageBox.Show("Timeout musi być między 5 a 300 sekundami.", "Błąd walidacji", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(config.TestApiUrl))
+            if (string.IsNullOrWhiteSpace(config.Test.ApiUrl))
             {
-                config.TestApiUrl = GlsConfig.DefaultTestApiUrl;
+                config.Test.ApiUrl = GlsConfig.DefaultTestApiUrl;
             }
 
-            if (string.IsNullOrWhiteSpace(config.ProductionApiUrl))
+            if (string.IsNullOrWhiteSpace(config.Production.ApiUrl))
             {
-                config.ProductionApiUrl = GlsConfig.DefaultProductionApiUrl;
+                config.Production.ApiUrl = GlsConfig.DefaultProductionApiUrl;
             }
 
             try
@@ -161,15 +221,37 @@ namespace Gryzak.Views
 
         private GlsConfig GetConfigFromUI()
         {
-            return new GlsConfig
-            {
-                UserName = UserNameTextBox.Text.Trim(),
-                Password = PasswordBox.Password,
-                UseProduction = ProductionEnvironmentRadio.IsChecked == true,
-                TestApiUrl = TestApiUrlTextBox.Text.Trim(),
-                ProductionApiUrl = ProductionApiUrlTextBox.Text.Trim(),
-                TimeoutSeconds = int.TryParse(TimeoutTextBox.Text.Trim(), out var timeout) ? timeout : 30
-            };
+            FlushUiToCurrentEnvironment();
+            _currentConfig.UseProduction = ProductionEnvironmentRadio.IsChecked == true;
+            _currentConfig.GlsPanelEnabled = GlsPanelEnabledCheckBox.IsChecked == true;
+            _currentConfig.LabelPrinterName = (LabelPrinterComboBox.SelectedItem as string)?.Trim()
+                ?? LabelPrinterComboBox.Text?.Trim()
+                ?? "";
+            return _currentConfig;
+        }
+
+        private void FlushUiToCurrentEnvironment()
+        {
+            var env = GetUiEnvironment();
+            env.ApiUrl = ApiUrlTextBox.Text.Trim();
+            env.UserName = UserNameTextBox.Text.Trim();
+            env.Password = PasswordBox.Password;
+            env.TimeoutSeconds = int.TryParse(TimeoutTextBox.Text.Trim(), out var timeout) ? timeout : 30;
+        }
+
+        private void LoadUiFromCurrentEnvironment()
+        {
+            var env = GetUiEnvironment();
+            var defaultUrl = _uiIsProduction ? GlsConfig.DefaultProductionApiUrl : GlsConfig.DefaultTestApiUrl;
+            ApiUrlTextBox.Text = string.IsNullOrWhiteSpace(env.ApiUrl) ? defaultUrl : env.ApiUrl;
+            UserNameTextBox.Text = env.UserName ?? "";
+            PasswordBox.Password = env.Password ?? "";
+            TimeoutTextBox.Text = env.TimeoutSeconds.ToString();
+        }
+
+        private GlsEnvironmentSettings GetUiEnvironment()
+        {
+            return _uiIsProduction ? _currentConfig.Production : _currentConfig.Test;
         }
 
         private void SetTestStatus(string message, Brush color)

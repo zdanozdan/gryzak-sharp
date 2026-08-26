@@ -5,8 +5,8 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="⚙️ Ustawienia GLS" 
-        Height="620" Width="560"
-        MinHeight="520" MinWidth="500"
+        Height="680" Width="560"
+        MinHeight="540" MinWidth="500"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         Icon="pack://application:,,,/gryzak_icon.png">
@@ -56,6 +56,20 @@
             <StackPanel>
                 <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
                     <StackPanel>
+                        <TextBlock Text="Panel GLS" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" Foreground="#2196F3"/>
+                        <CheckBox Name="GlsPanelEnabledCheckBox"
+                                  Content="Włącz panel GLS (przygotowalnia i nadania)"
+                                  FontSize="13"
+                                  Margin="0,0,0,6"/>
+                        <TextBlock Text="Po włączeniu pojawia się zakładka „Nadania GLS”, kolumny Przygotowalnia i Nadania na liście dokumentów oraz sekcja GLS w oknie szczegółów."
+                                   FontSize="11"
+                                   Foreground="Gray"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
                         <TextBlock Text="Środowisko" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
@@ -69,6 +83,12 @@
                                          Checked="Environment_Changed"/>
                         </StackPanel>
 
+                        <TextBlock Text="Każde środowisko ma osobny URL, login, hasło i timeout."
+                                   FontSize="11"
+                                   Foreground="Gray"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,10"/>
+
                         <TextBlock Text="Aktywny URL:" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBlock Name="ActiveUrlPreview"
                                    FontSize="12"
@@ -80,19 +100,15 @@
 
                 <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
                     <StackPanel>
-                        <TextBlock Text="Adresy API" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+                        <TextBlock Name="EnvironmentConfigHeader"
+                                   Text="Konfiguracja: Test"
+                                   FontSize="16"
+                                   FontWeight="Bold"
+                                   Margin="0,0,0,15"
+                                   Foreground="#2196F3"/>
 
-                        <TextBlock Text="URL API (test):" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                        <TextBox Name="TestApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
-
-                        <TextBlock Text="URL API (produkcja):" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                        <TextBox Name="ProductionApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
-                    </StackPanel>
-                </Border>
-
-                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
-                    <StackPanel>
-                        <TextBlock Text="Dane logowania" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+                        <TextBlock Name="ApiUrlLabel" Text="URL API (test):" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Name="ApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
 
                         <TextBlock Text="Login:" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBox Name="UserNameTextBox"/>
@@ -119,6 +135,19 @@
 
                         <TextBlock Name="TestStatusText"
                                    Margin="0,12,0,0"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Druk etykiet" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+
+                        <TextBlock Text="Domyślna drukarka (Zebra / ZPL):" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox Name="LabelPrinterComboBox" MinHeight="32" Margin="0,0,0,8"/>
+                        <TextBlock Text="Używana przy Drukuj w oknie etykiety. Jeśli puste — wybierana jest pierwsza drukarka z „zebra” w nazwie."
+                                   FontSize="11"
+                                   Foreground="Gray"
                                    TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>

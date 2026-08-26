@@ -31,15 +31,16 @@
             <!-- Tytuł -->
             <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,20">
                 <TextBlock Text="Gryzak" 
-                           FontSize="36" 
+                           FontSize="32" 
                            FontWeight="Bold" 
                            Foreground="#2196F3"
                            HorizontalAlignment="Center"
-                           Margin="0,0,0,5"/>
-                <TextBlock Text="Menedżer Zamówień" 
-                           FontSize="18" 
+                           Margin="0,0,0,2"/>
+                <TextBlock Text="Centrum Kontroli Lotów" 
+                           FontSize="16" 
                            Foreground="#666"
-                           HorizontalAlignment="Center"/>
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"/>
             </StackPanel>
 
             <!-- Wskaźnik ładowania -->

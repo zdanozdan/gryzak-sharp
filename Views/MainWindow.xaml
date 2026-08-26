@@ -7,7 +7,7 @@
         xmlns:models="clr-namespace:Gryzak.Models"
         xmlns:converters="clr-namespace:Gryzak.Converters"
         mc:Ignorable="d"
-        Title="Gryzak - Menedżer Zamówień" 
+        Title="Gryzak — Centrum Kontroli Lotów" 
         Height="600" Width="1200"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="True"
@@ -23,6 +23,8 @@
         <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <converters:NullToBoolConverter x:Key="NullToBoolConverter"/>
         <converters:ZKNumberFormatter x:Key="ZKNumberFormatter"/>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+        <converters:MinDoubleConverter x:Key="MinDoubleConverter"/>
         <Style TargetType="Button">
             <Setter Property="Padding" Value="10,5"/>
             <Setter Property="Margin" Value="5"/>
@@ -35,18 +37,112 @@
             <Setter Property="Padding" Value="5"/>
             <Setter Property="Margin" Value="5"/>
         </Style>
+        <Style x:Key="MainTabItemStyle" TargetType="TabItem">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="18,10"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="0,0,0,3"
+                                Padding="{TemplateBinding Padding}"
+                                Margin="4,0,4,0"
+                                CornerRadius="4,4,0,0"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter x:Name="HeaderContent"
+                                              ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.FontSize="13"
+                                              TextElement.FontWeight="SemiBold"
+                                              TextElement.Foreground="#616161"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#E3F2FD"/>
+                                <Setter TargetName="HeaderContent" Property="TextElement.Foreground" Value="#1565C0"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="White"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#2196F3"/>
+                                <Setter TargetName="HeaderContent" Property="TextElement.Foreground" Value="#1565C0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="MainTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource MainTabItemStyle}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0"
+                                    Background="#F7F9FC"
+                                    BorderBrush="#E0E0E0"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="8,6,12,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TabPanel Grid.Column="0" IsItemsHost="True" HorizontalAlignment="Left" VerticalAlignment="Bottom"/>
+                                    <StackPanel Grid.Column="1"
+                                                Orientation="Horizontal"
+                                                VerticalAlignment="Center"
+                                                Margin="16,0,0,6">
+                                        <Image Source="pack://application:,,,/gryzak_icon.png"
+                                               Width="28" Height="28" Margin="0,0,8,0"
+                                               MouseDown="LogoImage_MouseDown"
+                                               Cursor="Hand"
+                                               ToolTip="Kliknij, aby zobaczyć duże logo"
+                                               VerticalAlignment="Center"/>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Gryzak"
+                                                       FontSize="14"
+                                                       FontWeight="Bold"
+                                                       Foreground="#1565C0"
+                                                       LineHeight="16"/>
+                                            <TextBlock Text="Centrum Kontroli Lotów"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="#546E7A"
+                                                       LineHeight="14"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <ContentPresenter x:Name="PART_SelectedContentHost"
+                                              Grid.Row="1"
+                                              ContentSource="SelectedContent"
+                                              Margin="0"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Menu -->
-        <Menu Grid.Row="0" Background="#F5F5F5">
+        <Menu Grid.Row="0" Background="#F5F5F5" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
             <MenuItem Header="_Plik">
                 <MenuItem Header="Ustawienia sklepu" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
                 <MenuItem Header="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}"/>
@@ -92,6 +188,7 @@
             </MenuItem>
             <MenuItem Header="_Narzędzia">
                 <MenuItem Header="WyPLUwacz" Command="{Binding WyPLUwaczCommand}"/>
+                <MenuItem Header="Szukaj przesyłki" Command="{Binding SearchShipmentCommand}"/>
             </MenuItem>
             <MenuItem Header="_Pomoc">
                 <MenuItem Header="O aplikacji" Click="AboutMenuItem_Click"/>
@@ -99,21 +196,26 @@
             </MenuItem>
         </Menu>
 
+        <TabControl Grid.Row="1"
+                    Style="{StaticResource MainTabControlStyle}"
+                    SelectedIndex="{Binding SelectedMainTabIndex, Mode=TwoWay}"
+                    Margin="0,8,0,0">
+            <TabItem Header="Zamówienia internetowe">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
         <!-- Nagłówek -->
-        <Border Grid.Row="1" Background="White" Padding="15" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Background="White" Padding="15" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Image Source="pack://application:,,,/gryzak_icon.png" Width="32" Height="32" Margin="0,0,10,0" MouseDown="LogoImage_MouseDown" Cursor="Hand" ToolTip="Kliknij, aby zobaczyć duże logo"/>
-                    <TextBlock Text="Gryzak - Menedżer Zamówień" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,20,0"/>
-                </StackPanel>
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                     <TextBox Name="SearchTextBox" Width="300" Padding="10,8" 
                              Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Filtruj listę lub wpisz numer zamówienia i kliknij lupę, aby pobrać z API.">
@@ -144,7 +246,7 @@
                     <Button Content="Wyczyść" Command="{Binding ClearSearchCommand}" Margin="8,0,0,0"/>
                 </StackPanel>
                 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
                     <ComboBox Name="StatusFilterComboBox" Width="200" SelectionChanged="StatusFilter_SelectionChanged">
                         <ComboBoxItem Content="Wszystkie statusy"/>
                         <ComboBoxItem Content="Nowe"/>
@@ -160,7 +262,7 @@
         </Border>
 
         <!-- Tabela zamówień -->
-        <Grid Grid.Row="2" Margin="15">
+        <Grid Grid.Row="1" Margin="15">
             <Grid.Resources>
                 <DataTemplate DataType="{x:Type models:Order}">
                     <Border BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="10" Background="White" Margin="0,0,0,2">
@@ -176,13 +278,13 @@
                         </Border.Style>
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="100"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="100" MinWidth="100"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="*" MinWidth="200"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="100" MinWidth="100"/>
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Column="0" TextWrapping="Wrap">
@@ -191,11 +293,20 @@
                                 <Run Text="{Binding SubiektDocumentNumber, Converter={StaticResource ZKNumberFormatter}}" FontSize="10" Foreground="#666666"/>
                             </TextBlock>
                             <TextBlock Grid.Column="1" Text="{Binding Date, StringFormat='dd.MM.yyyy'}"/>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="{Binding Customer}" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding Email}" FontSize="11" Foreground="Gray"/>
-                                <TextBlock Text="{Binding Phone}" FontSize="11" Foreground="Gray"/>
-                                <TextBlock Text="{Binding Company, StringFormat='Firma: {0}'}" FontSize="11" Foreground="Gray">
+                            <Grid Grid.Column="2" ClipToBounds="True">
+                                <StackPanel>
+                                <TextBlock Text="{Binding Customer}" FontWeight="SemiBold"
+                                           ToolTip="{Binding Customer}"
+                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                <TextBlock Text="{Binding Email}" FontSize="11" Foreground="Gray"
+                                           ToolTip="{Binding Email}"
+                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                <TextBlock Text="{Binding Phone}" FontSize="11" Foreground="Gray"
+                                           ToolTip="{Binding Phone}"
+                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                <TextBlock Text="{Binding Company, StringFormat='Firma: {0}'}" FontSize="11" Foreground="Gray"
+                                           ToolTip="{Binding Company}"
+                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -210,7 +321,8 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                             <TextBlock Grid.Column="3" Text="{Binding Status}"/>
                             <TextBlock Grid.Column="4" Text="{Binding PaymentStatus}"/>
                             <TextBlock Grid.Column="5" Text="{Binding CountryWithIso3}"/>
@@ -227,7 +339,9 @@
                 </DataTemplate>
             </Grid.Resources>
 
-            <ScrollViewer Name="OrdersScrollViewer" ScrollChanged="OrdersScrollViewer_ScrollChanged">
+            <ScrollViewer Name="OrdersScrollViewer"
+                          ScrollChanged="OrdersScrollViewer_ScrollChanged"
+                          HorizontalScrollBarVisibility="Auto">
                 <ScrollViewer.Style>
                     <Style TargetType="ScrollViewer">
                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -243,7 +357,7 @@
                     </Style>
                 </ScrollViewer.Style>
                 
-                <Grid>
+                <Grid Width="{Binding ViewportWidth, ElementName=OrdersScrollViewer, Converter={StaticResource MinDoubleConverter}, ConverterParameter=900}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -253,13 +367,13 @@
                     <Border Grid.Row="0" Background="#2196F3" Padding="10,8" BorderBrush="#1976D2" BorderThickness="0,0,0,2">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="100"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="100" MinWidth="100"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="*" MinWidth="200"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="120" MinWidth="120"/>
+                                <ColumnDefinition Width="100" MinWidth="100"/>
                             </Grid.ColumnDefinitions>
                             
                             <TextBlock Grid.Column="0" Text="ID Zamówienia" FontWeight="Bold" Foreground="White"/>
@@ -541,9 +655,439 @@
                 </StackPanel>
             </StackPanel>
         </Grid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Nadania GLS"
+                      Visibility="{Binding IsGlsPanelEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="White" Padding="15" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                <TextBox Name="SubiektSearchTextBox" Width="360" Padding="10,8"
+                                         Text="{Binding SubiektSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Filtruje tylko dokumenty już załadowane na liście (nr FS/WZ/ZK, nazwa, symbol, NIP, e-mail, wystawił, kwota brutto, nr listu). Przewiń listę, aby załadować więcej dokumentów do przeszukania.">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsFocused" Value="True">
+                                                    <Setter Property="BorderBrush" Value="#2196F3"/>
+                                                    <Setter Property="BorderThickness" Value="2"/>
+                                                </Trigger>
+                                                <Trigger Property="Text" Value="">
+                                                    <Setter Property="Background">
+                                                        <Setter.Value>
+                                                            <VisualBrush Stretch="None" AlignmentX="Left">
+                                                                <VisualBrush.Transform>
+                                                                    <TranslateTransform X="12" Y="0"/>
+                                                                </VisualBrush.Transform>
+                                                                <VisualBrush.Visual>
+                                                                    <TextBlock Text="Filtruj listę (nr, nazwa, NIP, wystawił, kwota…)"
+                                                                               Foreground="#999999"
+                                                                               FontStyle="Italic"
+                                                                               Margin="0,8,0,0"/>
+                                                                </VisualBrush.Visual>
+                                                            </VisualBrush>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                </TextBox>
+                                <Button Content="Wyczyść" Command="{Binding ClearSubiektSearchCommand}" Margin="8,0,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="Pobierz przygotowalnię" Command="{Binding FetchGlsPreparingBoxCommand}"
+                                            Height="35" Margin="0,0,0,0"
+                                            ToolTip="Pobiera przygotowalnię GLS i synchronizuje kolumnę Przygotowalnia oraz pole Przesylka"/>
+                                </StackPanel>
+
+                                <Border Width="1" Background="#D0D0D0" Margin="12,4" VerticalAlignment="Stretch"/>
+
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ComboBox Width="140" Height="35"
+                                              SelectedIndex="{Binding GlsPickupRangeModeIndex}"
+                                              ToolTip="Zakres dat potwierdzeń nadania GLS">
+                                        <ComboBoxItem Content="Z dzisiaj"/>
+                                        <ComboBoxItem Content="2 dni"/>
+                                        <ComboBoxItem Content="3 dni"/>
+                                        <ComboBoxItem Content="Tydzień"/>
+                                        <ComboBoxItem Content="30 dni"/>
+                                        <ComboBoxItem Content="Dowolny dzień"/>
+                                        <ComboBoxItem Content="Dowolny zakres"/>
+                                    </ComboBox>
+                                    <DatePicker Width="120" Margin="5,0,0,0" Height="35"
+                                                SelectedDate="{Binding GlsPickupCustomDate}"
+                                                ToolTip="Dzień nadania GLS"
+                                                Visibility="{Binding IsGlsPickupCustomDateVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                    <DatePicker Width="120" Margin="5,0,0,0" Height="35"
+                                                SelectedDate="{Binding GlsPickupCustomFromDate}"
+                                                ToolTip="Początek zakresu nadań GLS"
+                                                Visibility="{Binding IsGlsPickupCustomRangeVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                    <DatePicker Width="120" Margin="5,0,0,0" Height="35"
+                                                SelectedDate="{Binding GlsPickupCustomToDate}"
+                                                ToolTip="Koniec zakresu nadań GLS"
+                                                Visibility="{Binding IsGlsPickupCustomRangeVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                    <Button Content="Pobierz nadania" Command="{Binding FetchGlsPickupsCommand}"
+                                            Height="35" Margin="5,0,0,0"
+                                            ToolTip="Pobiera nadania GLS w wybranym zakresie i synchronizuje nr_listu z listą dokumentów"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1" Margin="15">
+                        <ScrollViewer Name="SubiektDocumentsScrollViewer"
+                                      ScrollChanged="SubiektDocumentsScrollViewer_ScrollChanged"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <ScrollViewer.Style>
+                                <Style TargetType="ScrollViewer">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding IsSubiektLoading}" Value="False"/>
+                                                <Condition Binding="{Binding HasSubiektLoadedDocuments}" Value="True"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ScrollViewer.Style>
+
+                            <!-- Width = max(ViewportWidth, 1080): wąskie okno → scroll, bez ściskania kolumn. -->
+                            <Grid Width="{Binding ViewportWidth, ElementName=SubiektDocumentsScrollViewer, Converter={StaticResource MinDoubleConverter}, ConverterParameter=1080}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <Border Grid.Row="0" Background="#2196F3" Padding="10,6" BorderBrush="#1976D2" BorderThickness="0,0,0,2">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150" MinWidth="150"/>
+                                            <ColumnDefinition Width="90" MinWidth="90"/>
+                                            <ColumnDefinition Width="*" MinWidth="220"/>
+                                            <ColumnDefinition Width="120" MinWidth="120"/>
+                                            <ColumnDefinition Width="140" MinWidth="140"/>
+                                            <ColumnDefinition Width="130" MinWidth="130"/>
+                                            <ColumnDefinition Width="110" MinWidth="110"/>
+                                            <ColumnDefinition Width="100" MinWidth="100"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="FS" FontSize="12" FontWeight="Bold" Cursor="Hand" Tag="fs"
+                                                       VerticalAlignment="Center" Margin="0,0,6,0"
+                                                       ToolTip="Faktura sprzedaży"
+                                                       MouseLeftButtonDown="SubiektDocumentTypeChip_Click">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#90CAF9"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding SubiektDocumentType}" Value="fs">
+                                                                <Setter Property="Foreground" Value="White"/>
+                                                                <Setter Property="TextDecorations" Value="Underline"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="WZ" FontSize="12" FontWeight="Bold" Cursor="Hand" Tag="wz"
+                                                       VerticalAlignment="Center" Margin="0,0,6,0"
+                                                       ToolTip="Wydanie zewnętrzne"
+                                                       MouseLeftButtonDown="SubiektDocumentTypeChip_Click">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#90CAF9"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding SubiektDocumentType}" Value="wz">
+                                                                <Setter Property="Foreground" Value="White"/>
+                                                                <Setter Property="TextDecorations" Value="Underline"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="ZK" FontSize="12" FontWeight="Bold" Cursor="Hand" Tag="zk"
+                                                       VerticalAlignment="Center" Margin="0,0,4,0"
+                                                       ToolTip="Zamówienie od klienta"
+                                                       MouseLeftButtonDown="SubiektDocumentTypeChip_Click">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#90CAF9"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding SubiektDocumentType}" Value="zk">
+                                                                <Setter Property="Foreground" Value="White"/>
+                                                                <Setter Property="TextDecorations" Value="Underline"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Button Command="{Binding RefreshCommand}"
+                                                    Width="16" Height="16" Margin="2,0,0,0" Padding="0"
+                                                    ToolTip="Odśwież listę dokumentów (F5)"
+                                                    Background="Transparent" BorderThickness="0"
+                                                    Cursor="Hand" VerticalAlignment="Center">
+                                                <TextBlock Text="&#xE72C;"
+                                                           FontFamily="Segoe MDL2 Assets"
+                                                           FontSize="11"
+                                                           Foreground="White"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"/>
+                                            </Button>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="Data" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="Kontrahent" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="3" Text="Przygotowalnia" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"
+                                                   Visibility="{Binding IsGlsPanelEnabled, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        <TextBlock Grid.Column="4" Text="Nadania" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"
+                                                   Visibility="{Binding IsGlsPanelEnabled, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        <TextBlock Grid.Column="5" Text="Płatność" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="6" Text="Wystawił" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="7" Text="Wartość brutto" FontWeight="Bold" Foreground="White" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Grid.Row="1">
+                                    <TextBlock Margin="10,20,10,10" HorizontalAlignment="Center" TextWrapping="Wrap" Width="420"
+                                               Text="Brak pasujących dokumentów na załadowanej liście. Wyczyść filtr lub przewiń listę, aby załadować więcej pozycji z API."
+                                               Visibility="{Binding EmptySubiektShowsNoSearchMatches, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                                    <ItemsControl ItemsSource="{Binding SubiektDocumentsView}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type models:SubiektDocument}">
+                                                <Border BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="10" Margin="0,0,0,2"
+                                                        MouseDown="SubiektDocumentItem_MouseDown">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="White"/>
+                                                            <Setter Property="BorderBrush" Value="#E0E0E0"/>
+                                                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                                            <Setter Property="Cursor" Value="Hand"/>
+                                                            <Style.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter Property="Background" Value="#F0F0F0"/>
+                                                                </Trigger>
+                                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                    <Setter Property="Background" Value="#E3F2FD"/>
+                                                                    <Setter Property="BorderBrush" Value="#64B5F6"/>
+                                                                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="150" MinWidth="150"/>
+                                                            <ColumnDefinition Width="90" MinWidth="90"/>
+                                                            <ColumnDefinition Width="*" MinWidth="220"/>
+                                                            <ColumnDefinition Width="120" MinWidth="120"/>
+                                                            <ColumnDefinition Width="140" MinWidth="140"/>
+                                                            <ColumnDefinition Width="130" MinWidth="130"/>
+                                                            <ColumnDefinition Width="110" MinWidth="110"/>
+                                                            <ColumnDefinition Width="100" MinWidth="100"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <TextBlock Grid.Column="0" Text="{Binding NrPelny}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding DataWyst, StringFormat='dd.MM.yyyy'}"/>
+                                                        <Grid Grid.Column="2" ClipToBounds="True">
+                                                            <StackPanel>
+                                                            <TextBlock Text="{Binding KontrahentNazwa}" FontWeight="SemiBold"
+                                                                       ToolTip="{Binding KontrahentNazwa}"
+                                                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                                            <TextBlock Text="{Binding KontrahentSymbol}" FontSize="11" Foreground="#666666"
+                                                                       ToolTip="{Binding KontrahentSymbol}"
+                                                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                                            <TextBlock Text="{Binding KontrahentEmail}" FontSize="11" Foreground="Gray"
+                                                                       ToolTip="{Binding KontrahentEmail}"
+                                                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                            <TextBlock FontSize="11" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
+                                                                <Run Text="NIP: " Foreground="#4CAF50"/>
+                                                                <Run>
+                                                                    <Run.Style>
+                                                                        <Style TargetType="Run">
+                                                                            <Setter Property="Text" Value="{Binding KontrahentNip}"/>
+                                                                            <Setter Property="Foreground" Value="#4CAF50"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding KontrahentNip}" Value="{x:Null}">
+                                                                                    <Setter Property="Text" Value="Brak NIP"/>
+                                                                                    <Setter Property="Foreground" Value="#F44336"/>
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding KontrahentNip}" Value="">
+                                                                                    <Setter Property="Text" Value="Brak NIP"/>
+                                                                                    <Setter Property="Foreground" Value="#F44336"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Run.Style>
+                                                                </Run>
+                                                            </TextBlock>
+                                                            <TextBlock Text="{Binding KontrahentAdres}" FontSize="11" Foreground="Gray"
+                                                                       ToolTip="{Binding KontrahentAdres}"
+                                                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding KontrahentAdres}" Value="{x:Null}">
+                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding KontrahentAdres}" Value="">
+                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                            </StackPanel>
+                                                        </Grid>
+                                                        <TextBlock Grid.Column="3" Text="{Binding PrzygotowalniaDisplay}"
+                                                                   TextWrapping="Wrap" FontWeight="SemiBold"
+                                                                   FontSize="11" LineHeight="16"
+                                                                   ToolTip="{Binding PrzygotowalniaTooltip}"
+                                                                   VerticalAlignment="Center"
+                                                                   Visibility="{Binding DataContext.IsGlsPanelEnabled, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#4CAF50"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsInGlsPreparingBox}" Value="False">
+                                                                            <Setter Property="Foreground" Value="#9E9E9E"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                        <TextBlock Grid.Column="4" Text="{Binding NadaniaDisplay}"
+                                                                   TextWrapping="Wrap" FontWeight="SemiBold"
+                                                                   FontSize="11" LineHeight="16"
+                                                                   ToolTip="{Binding NadaniaTooltip}"
+                                                                   VerticalAlignment="Center"
+                                                                   Visibility="{Binding DataContext.IsGlsPanelEnabled, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#4CAF50"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsGlsPickedUp}" Value="False">
+                                                                            <Setter Property="Foreground" Value="#9E9E9E"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                        <TextBlock Grid.Column="5" Text="{Binding PlatnoscDisplay}" TextWrapping="Wrap"/>
+                                                        <TextBlock Grid.Column="6" Text="{Binding Wystawil}" TextWrapping="Wrap"/>
+                                                        <TextBlock Grid.Column="7" Text="{Binding WartBruttoDisplay}" HorizontalAlignment="Right"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Border Visibility="{Binding IsSubiektLoadingMore, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                            Background="#F5F5F5" Padding="15" Margin="10">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="Ładowanie więcej dokumentów..." FontSize="12" Foreground="Gray"/>
+                                            <ProgressBar IsIndeterminate="True" Width="100" Height="15" Margin="10,0,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+
+                        <Grid>
+                            <Grid.Style>
+                                <Style TargetType="Grid">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSubiektLoading}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Grid.Style>
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock Text="Ładowanie dokumentów..." FontSize="16" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                <ProgressBar IsIndeterminate="True" Width="200" Height="20"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding IsSubiektLoading}" Value="False"/>
+                                                <Condition Binding="{Binding HasSubiektLoadedDocuments}" Value="False"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+
+                            <StackPanel>
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSubiektApiConfigured}" Value="False">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+                                <TextBlock Text="Konfiguracja wymagana" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                <TextBlock Text="API Subiekt nie jest skonfigurowane. Ustaw URL API, aby zobaczyć dokumenty ZK/WZ/FS."
+                                           HorizontalAlignment="Center" TextWrapping="Wrap" Width="420" Margin="0,0,0,15"/>
+                                <Button Content="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}" HorizontalAlignment="Center"/>
+                            </StackPanel>
+
+                            <StackPanel HorizontalAlignment="Center"
+                                        Visibility="{Binding EmptySubiektShowsNoDocuments, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="Brak dokumentów" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                <TextBlock Text="Nie znaleziono dokumentów wybranego typu." HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
 
         <!-- Pasek statusu -->
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -558,8 +1102,9 @@
                     Visibility="{Binding IsProgressVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="220"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" 
                                Text="{Binding ProgressText}" 
@@ -567,11 +1112,19 @@
                                Foreground="#1976D2" 
                                FontWeight="SemiBold"
                                VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
                                Margin="0,0,10,0"/>
-                    <ProgressBar Grid.Column="1" 
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding ProgressValue, StringFormat={}{0:0.#}%}"
+                               FontSize="11"
+                               Foreground="#1976D2"
+                               FontWeight="Bold"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"/>
+                    <ProgressBar Grid.Column="2" 
                                  Value="{Binding ProgressValue}" 
                                  Maximum="100"
-                                 Height="8"
+                                 Height="10"
                                  VerticalAlignment="Center"/>
                 </Grid>
             </Border>
@@ -585,8 +1138,8 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,20,0">
-                        <TextBlock Text="Łączna liczba zamówień: " FontSize="12" Margin="0,0,5,0"/>
-                        <TextBlock Text="{Binding TotalOrdersText}" FontWeight="Bold" FontSize="12" Margin="0,0,15,0"/>
+                        <TextBlock Text="{Binding StatusCountLabel}" FontSize="12" Margin="0,0,5,0"/>
+                        <TextBlock Text="{Binding StatusCountValue}" FontWeight="Bold" FontSize="12" Margin="0,0,15,0"/>
                         <TextBlock Text="{Binding SubiektStatusText}" FontSize="12" Foreground="#4CAF50" FontWeight="SemiBold">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
@@ -604,24 +1157,20 @@
                                FontSize="12" 
                                Foreground="#2196F3"
                                FontWeight="SemiBold"
-                               HorizontalAlignment="Center">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="Zaznaczono zamówienie: {0}">
-                                <Binding Path="SelectedOrder.Id"/>
-                            </MultiBinding>
-                        </TextBlock.Text>
+                               HorizontalAlignment="Center"
+                               Text="{Binding StatusSelectedCaption}">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding SelectedOrder, Converter={StaticResource NullToBoolConverter}}" Value="True">
+                                    <DataTrigger Binding="{Binding HasStatusSelection}" Value="True">
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <TextBlock Grid.Column="2" Text="Gryzak v1.6.7" FontSize="11" Foreground="Gray"/>
+                    <TextBlock Grid.Column="2" Text="{Binding AppVersionText}" FontSize="11" Foreground="Gray"/>
                 </Grid>
             </Border>
         </Grid>

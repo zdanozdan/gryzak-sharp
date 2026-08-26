@@ -103,10 +103,20 @@ namespace Gryzak
                     // Przekaż splash screen do MainViewModel aby mógł aktualizować postęp
                     mainViewModel.SetSplashWindow(_splashWindow);
                     
-                    // Załaduj zamówienia (to zajmie trochę czasu)
+                    // Załaduj dane aktywnego panelu (i zamówienia — potrzebne przy przełączaniu)
                     // MainViewModel będzie aktualizował splash screen wewnątrz LoadOrdersAsync
-                    _splashWindow.UpdateProgress(20, "Ładowanie zamówień z API...");
-                    await mainViewModel.LoadOrdersAsync(false);
+                    if (mainViewModel.IsSubiektTabSelected)
+                    {
+                        _splashWindow.UpdateProgress(20, "Ładowanie dokumentów Nadania GLS...");
+                        await mainViewModel.EnsureSubiektDocumentsLoadedAsync();
+                        _splashWindow.UpdateProgress(60, "Ładowanie zamówień z API...");
+                        await mainViewModel.LoadOrdersAsync(false);
+                    }
+                    else
+                    {
+                        _splashWindow.UpdateProgress(20, "Ładowanie zamówień z API...");
+                        await mainViewModel.LoadOrdersAsync(false);
+                    }
                     
                     // Sprawdź czy zamówienia zostały załadowane
                     _splashWindow.UpdateProgress(90, "Finalizacja...");

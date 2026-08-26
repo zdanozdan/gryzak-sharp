@@ -1,0 +1,196 @@
+<Window x:Class="Gryzak.Views.GlsWaybillDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Przygotowalnia GLS"
+        Height="700" Width="620"
+        MinHeight="560" MinWidth="540"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Icon="pack://application:,,,/gryzak_icon.png">
+
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="MinWidth" Value="110"/>
+            <Setter Property="Background" Value="#2196F3"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#2196F3" Padding="20,15">
+            <StackPanel>
+                <TextBlock Name="TitleText"
+                           Text="Nowa przesyłka w przygotowalni GLS"
+                           FontSize="20"
+                           FontWeight="Bold"
+                           Foreground="White"/>
+                <TextBlock Name="SubtitleText"
+                           FontSize="12"
+                           Foreground="#E3F2FD"
+                           Margin="0,4,0,0"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20">
+            <StackPanel>
+                <Border Name="IssuedLabelNotice"
+                        Background="#FFF3E0"
+                        BorderBrush="#FFB74D"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="12"
+                        Margin="0,0,0,16"
+                        Visibility="Collapsed">
+                    <TextBlock Text="Dla tej przesyłki został już nadany numer listu. Edycja formularza jest zablokowana."
+                               Foreground="#E65100"
+                               FontWeight="SemiBold"
+                               TextWrapping="Wrap"/>
+                </Border>
+
+                <StackPanel Name="FormPanel">
+                <TextBlock Text="Odbiorca" FontSize="16" FontWeight="Bold" Foreground="#2196F3" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Nazwa 1:" Style="{StaticResource FieldLabel}"/>
+                <TextBox Name="Name1TextBox" LostFocus="Name1TextBox_LostFocus"/>
+
+                <TextBlock Text="Nazwa 2 (opcjonalnie):" Style="{StaticResource FieldLabel}"/>
+                <TextBox Name="Name2TextBox" MaxLength="40"/>
+
+                <TextBlock Text="Nazwa 3 (opcjonalnie):" Style="{StaticResource FieldLabel}"/>
+                <TextBox Name="Name3TextBox" MaxLength="40"/>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="140"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Ulica:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="StreetTextBox" MaxLength="40"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Kraj:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="CountryTextBox" MaxLength="2"/>
+                    </StackPanel>
+                </Grid>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Kod pocztowy:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="ZipCodeTextBox" MaxLength="10"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Miejscowość:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="CityTextBox" MaxLength="40"/>
+                    </StackPanel>
+                </Grid>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Telefon:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="PhoneTextBox" MaxLength="25"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Kontakt / e-mail:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="ContactTextBox" MaxLength="40"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Przesyłka" FontSize="16" FontWeight="Bold" Foreground="#2196F3" Margin="0,8,0,12"/>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="120"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Referencje:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="ReferencesTextBox" MaxLength="25"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Ilość paczek:" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="ParcelCountTextBox" MaxLength="2"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Text="Waga (kg):" Style="{StaticResource FieldLabel}"/>
+                        <TextBox Name="WeightTextBox" MaxLength="8"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Uwagi:" Style="{StaticResource FieldLabel}"/>
+                <TextBox Name="NotesTextBox" MaxLength="40"/>
+
+                <TextBlock Text="Płatność" FontSize="16" FontWeight="Bold" Foreground="#2196F3" Margin="0,8,0,12"/>
+                <CheckBox Name="CashOnDeliveryCheckBox"
+                          Content="Za pobraniem (CashService)"
+                          FontWeight="SemiBold"
+                          Margin="0,0,0,4"
+                          Checked="CashOnDeliveryCheckBox_Changed"
+                          Unchecked="CashOnDeliveryCheckBox_Changed"/>
+                <TextBlock Name="CodAmountHintText"
+                           FontSize="12"
+                           Foreground="#666666"
+                           Margin="24,0,0,10"
+                           TextWrapping="Wrap"
+                           Visibility="Collapsed"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Background="#F5F5F5" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="20,15">
+            <Grid>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Name="DeleteButton"
+                            Content="Usuń"
+                            Click="DeleteButton_Click"
+                            Background="#E53935"
+                            Visibility="Collapsed"/>
+                    <Button Name="LabelButton"
+                            Content="Etykieta"
+                            Click="LabelButton_Click"
+                            Background="#00897B"
+                            Visibility="Collapsed"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Name="SubmitButton" Content="Dodaj" Click="SubmitButton_Click" IsDefault="True"/>
+                    <Button Content="Anuluj" Click="CancelButton_Click" IsCancel="True" Background="#E0E0E0" Foreground="Black"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

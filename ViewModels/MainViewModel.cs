@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -9,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows;
 using System.Windows.Threading;
+using System.Windows.Data;
 using System.Text.Json;
 using System.Text.Encodings.Web;
 using System.IO;
@@ -45,11 +47,41 @@ namespace Gryzak.ViewModels
         private bool _isReleasingLicense = false; // Flaga zapobiegająca wielokrotnemu zwolnieniu
         private List<string> _orderHistory = new List<string>();
         private RelayCommand? _fetchOrderFromApiRelayCommand;
+        private RelayCommand? _fetchGlsPreparingBoxRelayCommand;
+        private RelayCommand? _fetchGlsPickupsRelayCommand;
         private bool _isSearchApiBusy;
+        private readonly SubiektApiService _subiektApiService;
+        private int _selectedMainTabIndex;
+        private bool _isSubiektApiConfigured;
+        private bool _isSubiektLoading;
+        private bool _isSubiektLoadingMore;
+        private bool _subiektHasMorePages = true;
+        private bool _subiektEverLoaded;
+        private int _subiektCurrentPage = 1;
+        private string _subiektDocumentType = "fs";
+        private string _subiektSearchText = "";
+        private string _totalSubiektDocumentsText = "0";
+        private SubiektDocument? _selectedSubiektDocument;
+        private CancellationTokenSource? _subiektLoadCts;
+        private DispatcherTimer? _subiektFilterDebounceTimer;
+        private bool _isGlsPreparingBoxLoading;
+        private bool _isGlsPickupLoading;
+        private bool _isGlsPanelEnabled;
+        private List<GlsPreparingBoxItem> _glsPreparingBoxItems = new();
+        private List<GlsPickupItem> _glsPickupItems = new();
+        private bool _glsListsFetched;
+        private CancellationTokenSource? _glsPreparingBoxCts;
+        private CancellationTokenSource? _glsPickupCts;
+        private GlsPickupRangeMode _glsPickupRangeMode = GlsPickupRangeMode.Today;
+        private DateTime? _glsPickupCustomDate = DateTime.Today;
+        private DateTime? _glsPickupCustomFromDate = DateTime.Today.AddDays(-6);
+        private DateTime? _glsPickupCustomToDate = DateTime.Today;
 
         public ObservableCollection<Order> AllOrders { get; } = new ObservableCollection<Order>();
         public ObservableCollection<Order> FilteredOrders { get; } = new ObservableCollection<Order>();
         public ObservableCollection<string> RecentOrders { get; } = new ObservableCollection<string>();
+        public ObservableCollection<SubiektDocument> SubiektDocuments { get; } = new ObservableCollection<SubiektDocument>();
+        public ICollectionView SubiektDocumentsView { get; }
 
         public Order? SelectedOrder
         {
@@ -58,6 +90,7 @@ namespace Gryzak.ViewModels
             {
                 _selectedOrder = value;
                 OnPropertyChanged();
+                NotifyStatusBarChanged();
             }
         }
 
@@ -157,6 +190,292 @@ namespace Gryzak.ViewModels
             FilteredOrders.Count == 0 &&
             !EmptyListShowsFetchByNumberHint;
 
+        public int SelectedMainTabIndex
+        {
+            get => _selectedMainTabIndex;
+            set
+            {
+                // Gdy wyłączony jest panel GLS, nie pozwalamy użytkownikowi
+                // utrzymać (ani włączyć) zakładki "Nadania GLS".
+                if (value == 1 && !_isGlsPanelEnabled)
+                {
+                    value = 0;
+                }
+
+                if (_selectedMainTabIndex == value) return;
+                _selectedMainTabIndex = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsSubiektTabSelected));
+                NotifyStatusBarChanged();
+                PersistSelectedMainTabIndex(value);
+                if (IsSubiektTabSelected)
+                {
+                    if (_isGlsPanelEnabled)
+                    {
+                        _ = EnsureSubiektDocumentsLoadedAsync();
+                    }
+                }
+            }
+        }
+
+        public bool IsSubiektTabSelected => SelectedMainTabIndex == 1;
+
+        public bool IsSubiektApiConfigured
+        {
+            get => _isSubiektApiConfigured;
+            set
+            {
+                if (_isSubiektApiConfigured == value) return;
+                _isSubiektApiConfigured = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EmptySubiektShowsNoDocuments));
+            }
+        }
+
+        public bool IsSubiektLoading
+        {
+            get => _isSubiektLoading;
+            set
+            {
+                if (_isSubiektLoading == value) return;
+                _isSubiektLoading = value;
+                OnPropertyChanged();
+                NotifySubiektListChanged();
+            }
+        }
+
+        public bool IsSubiektLoadingMore
+        {
+            get => _isSubiektLoadingMore;
+            set
+            {
+                if (_isSubiektLoadingMore == value) return;
+                _isSubiektLoadingMore = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsGlsPreparingBoxLoading
+        {
+            get => _isGlsPreparingBoxLoading;
+            private set
+            {
+                if (_isGlsPreparingBoxLoading == value) return;
+                _isGlsPreparingBoxLoading = value;
+                OnPropertyChanged();
+                _fetchGlsPreparingBoxRelayCommand?.RaiseCanExecuteChanged();
+            }
+        }
+
+        public bool IsGlsPickupLoading
+        {
+            get => _isGlsPickupLoading;
+            private set
+            {
+                if (_isGlsPickupLoading == value) return;
+                _isGlsPickupLoading = value;
+                OnPropertyChanged();
+                _fetchGlsPickupsRelayCommand?.RaiseCanExecuteChanged();
+            }
+        }
+
+        public int GlsPickupRangeModeIndex
+        {
+            get => (int)_glsPickupRangeMode;
+            set
+            {
+                var clamped = Math.Clamp(value, 0, (int)GlsPickupRangeMode.CustomRange);
+                var mode = (GlsPickupRangeMode)clamped;
+                if (_glsPickupRangeMode == mode) return;
+                _glsPickupRangeMode = mode;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsGlsPickupCustomDateVisible));
+                OnPropertyChanged(nameof(IsGlsPickupCustomRangeVisible));
+            }
+        }
+
+        public bool IsGlsPickupCustomDateVisible =>
+            _glsPickupRangeMode == GlsPickupRangeMode.CustomDay;
+
+        public bool IsGlsPickupCustomRangeVisible =>
+            _glsPickupRangeMode == GlsPickupRangeMode.CustomRange;
+
+        public DateTime? GlsPickupCustomDate
+        {
+            get => _glsPickupCustomDate;
+            set
+            {
+                if (_glsPickupCustomDate == value) return;
+                _glsPickupCustomDate = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public DateTime? GlsPickupCustomFromDate
+        {
+            get => _glsPickupCustomFromDate;
+            set
+            {
+                if (_glsPickupCustomFromDate == value) return;
+                _glsPickupCustomFromDate = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public DateTime? GlsPickupCustomToDate
+        {
+            get => _glsPickupCustomToDate;
+            set
+            {
+                if (_glsPickupCustomToDate == value) return;
+                _glsPickupCustomToDate = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsGlsPanelEnabled
+        {
+            get => _isGlsPanelEnabled;
+            private set
+            {
+                if (_isGlsPanelEnabled == value) return;
+                _isGlsPanelEnabled = value;
+                OnPropertyChanged();
+
+                if (!_isGlsPanelEnabled && _selectedMainTabIndex == 1)
+                {
+                    // Nie wywołujemy SelectedMainTabIndex setterem, żeby nie startować ładowania danych.
+                    _selectedMainTabIndex = 0;
+                    OnPropertyChanged(nameof(SelectedMainTabIndex));
+                    OnPropertyChanged(nameof(IsSubiektTabSelected));
+                    NotifyStatusBarChanged();
+                }
+            }
+        }
+
+        public bool HasMoreSubiektPages => _subiektHasMorePages;
+
+        public string SubiektDocumentType
+        {
+            get => _subiektDocumentType;
+            set
+            {
+                var normalized = SubiektApiService.NormalizeDocumentType(value);
+                if (_subiektDocumentType == normalized) return;
+                ResetActivityTimer();
+                _subiektDocumentType = normalized;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SubiektDocumentTypeLabel));
+                if (IsSubiektTabSelected)
+                {
+                    _ = LoadSubiektDocumentsAsync(true);
+                }
+            }
+        }
+
+        public string SubiektDocumentTypeLabel => _subiektDocumentType.ToUpperInvariant();
+
+        public string SubiektSearchText
+        {
+            get => _subiektSearchText;
+            set
+            {
+                if (_subiektSearchText == value) return;
+                ResetActivityTimer();
+                _subiektSearchText = value;
+                OnPropertyChanged();
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    RefreshSubiektFilter();
+                }
+                else
+                {
+                    ScheduleSubiektFilterRefresh();
+                }
+            }
+        }
+
+        public string TotalSubiektDocumentsText
+        {
+            get => _totalSubiektDocumentsText;
+            set
+            {
+                if (_totalSubiektDocumentsText == value) return;
+                _totalSubiektDocumentsText = value;
+                OnPropertyChanged();
+                NotifyStatusBarChanged();
+            }
+        }
+
+        public bool HasSubiektDocuments => !IsSubiektLoading && GetFilteredSubiektCount() > 0;
+
+        public bool HasSubiektLoadedDocuments => !IsSubiektLoading && SubiektDocuments.Count > 0;
+
+        public bool EmptySubiektShowsNoDocuments =>
+            IsSubiektApiConfigured &&
+            !IsSubiektLoading &&
+            SubiektDocuments.Count == 0;
+
+        public bool EmptySubiektShowsNoSearchMatches =>
+            IsSubiektApiConfigured &&
+            !IsSubiektLoading &&
+            SubiektDocuments.Count > 0 &&
+            GetFilteredSubiektCount() == 0 &&
+            !string.IsNullOrWhiteSpace(SubiektSearchText);
+
+        public SubiektDocument? SelectedSubiektDocument
+        {
+            get => _selectedSubiektDocument;
+            set
+            {
+                _selectedSubiektDocument = value;
+                OnPropertyChanged();
+                NotifyStatusBarChanged();
+            }
+        }
+
+        public string StatusCountLabel =>
+            IsSubiektTabSelected ? "Załadowane dokumenty: " : "Łączna liczba zamówień: ";
+
+        public string StatusCountValue =>
+            IsSubiektTabSelected ? TotalSubiektDocumentsText : TotalOrdersText;
+
+        public string AppVersionText
+        {
+            get
+            {
+                var assembly = typeof(MainViewModel).Assembly;
+                var info = assembly
+                    .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                    .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                    .FirstOrDefault()?.InformationalVersion;
+                var version = !string.IsNullOrWhiteSpace(info)
+                    ? info.Split('+')[0].Trim()
+                    : assembly.GetName().Version?.ToString(3);
+                return string.IsNullOrWhiteSpace(version) ? "Gryzak" : $"Gryzak v{version}";
+            }
+        }
+
+        public string StatusSelectedCaption
+        {
+            get
+            {
+                if (IsSubiektTabSelected)
+                {
+                    return SelectedSubiektDocument == null
+                        ? ""
+                        : $"Zaznaczono dokument: {SelectedSubiektDocument.NrPelny}";
+                }
+
+                return SelectedOrder == null
+                    ? ""
+                    : $"Zaznaczono zamówienie: {SelectedOrder.Id}";
+            }
+        }
+
+        public bool HasStatusSelection =>
+            IsSubiektTabSelected ? SelectedSubiektDocument != null : SelectedOrder != null;
+
         public bool IsSubiektActive
         {
             get => _isSubiektActive;
@@ -243,9 +562,14 @@ namespace Gryzak.ViewModels
         public ICommand NoweZKCommand { get; }
         public ICommand ZwolnijLicencjeCommand { get; }
         public ICommand ClearSearchCommand { get; }
+        public ICommand ClearSubiektSearchCommand { get; }
         public ICommand FetchOrderFromApiCommand { get; }
         public ICommand OpenOrderFromHistoryCommand { get; }
         public ICommand WyPLUwaczCommand { get; }
+        public ICommand SearchShipmentCommand { get; }
+        public ICommand SubiektDocumentSelectedCommand { get; }
+        public ICommand FetchGlsPreparingBoxCommand { get; }
+        public ICommand FetchGlsPickupsCommand { get; }
 
         public bool IsSearchApiBusy
         {
@@ -263,22 +587,36 @@ namespace Gryzak.ViewModels
         {
             _configService = new ConfigService();
             _apiService = new ApiService(_configService);
+            _subiektApiService = new SubiektApiService(_configService);
+            SubiektDocumentsView = CollectionViewSource.GetDefaultView(SubiektDocuments);
+            SubiektDocumentsView.Filter = FilterSubiektDocument;
 
-            RefreshCommand = new RelayCommand(async () => await LoadOrdersAsync(true));
+            RefreshCommand = new RelayCommand(async () => await RefreshActiveTabAsync());
             ConfigureApiCommand = new RelayCommand(() => OpenConfigDialog());
             OpenSubiektSettingsCommand = new RelayCommand(() => OpenSubiektSettingsDialog());
             OpenGlsSettingsCommand = new RelayCommand(() => OpenGlsSettingsDialog());
             OrderSelectedCommand = new RelayCommand<Order>(order => OnOrderSelected(order));
+            SubiektDocumentSelectedCommand = new RelayCommand<SubiektDocument>(doc => OnSubiektDocumentSelected(doc));
             DodajZKCommand = new RelayCommand(() => DodajZK());
             NoweZKCommand = new RelayCommand(() => DodajNoweZK());
             ZwolnijLicencjeCommand = new RelayCommand(() => ZwolnijLicencje(), () => IsSubiektActive);
             ClearSearchCommand = new RelayCommand(() => { SearchText = ""; });
+            ClearSubiektSearchCommand = new RelayCommand(() => { SubiektSearchText = ""; });
             _fetchOrderFromApiRelayCommand = new RelayCommand(
                 async () => await FetchOrderFromApiAsync(),
                 () => IsApiConfigured && !IsSearchApiBusy && !IsLoading && !IsLoadingMore);
             FetchOrderFromApiCommand = _fetchOrderFromApiRelayCommand;
+            _fetchGlsPreparingBoxRelayCommand = new RelayCommand(
+                async () => await RefreshGlsListsAsync(showErrors: true),
+                () => !IsGlsPreparingBoxLoading);
+            FetchGlsPreparingBoxCommand = _fetchGlsPreparingBoxRelayCommand;
+            _fetchGlsPickupsRelayCommand = new RelayCommand(
+                async () => await FetchGlsPickupsAsync(),
+                () => !IsGlsPickupLoading);
+            FetchGlsPickupsCommand = _fetchGlsPickupsRelayCommand;
             OpenOrderFromHistoryCommand = new RelayCommand<string>(orderId => OpenOrderFromHistory(orderId));
             WyPLUwaczCommand = new RelayCommand(async () => await WyPLUwaczAsync());
+            SearchShipmentCommand = new RelayCommand(() => OpenGlsParcelSearchDialog());
 
             // Zapisz się na event zmiany instancji Subiekta
             Services.SubiektService.InstancjaZmieniona += SubiektService_InstancjaZmieniona;
@@ -295,8 +633,9 @@ namespace Gryzak.ViewModels
             }
 
             CheckApiConfiguration();
-            
-            // Upewnij się, że StatusFilter jest ustawione przed pierwszym ładowaniem
+            CheckSubiektApiConfiguration();
+            _isGlsPanelEnabled = _configService.LoadGlsConfig().GlsPanelEnabled;
+            RestoreSelectedMainTabIndex();
             StatusFilter = "Wszystkie statusy";
             
             LoadCountryMap();
@@ -390,6 +729,79 @@ namespace Gryzak.ViewModels
         {
             var config = _configService.LoadConfig();
             IsApiConfigured = !string.IsNullOrWhiteSpace(config.ApiUrl);
+        }
+
+        private void RestoreSelectedMainTabIndex()
+        {
+            try
+            {
+                var saved = _configService.LoadConfig().SelectedMainTabIndex;
+                if (saved != 0 && saved != 1)
+                {
+                    saved = 0;
+                }
+
+                if (saved == 1 && !_isGlsPanelEnabled)
+                {
+                    saved = 0;
+                }
+
+                _selectedMainTabIndex = saved;
+            }
+            catch (Exception ex)
+            {
+                Warning($"Nie udało się odtworzyć ostatniej zakładki: {ex.Message}", "MainViewModel");
+                _selectedMainTabIndex = 0;
+            }
+        }
+
+        private void PersistSelectedMainTabIndex(int index)
+        {
+            try
+            {
+                if (index != 0 && index != 1)
+                {
+                    return;
+                }
+
+                var config = _configService.LoadConfig();
+                if (config.SelectedMainTabIndex == index)
+                {
+                    return;
+                }
+
+                config.SelectedMainTabIndex = index;
+                _configService.SaveConfig(config);
+            }
+            catch (Exception ex)
+            {
+                Warning($"Nie udało się zapisać wybranej zakładki: {ex.Message}", "MainViewModel");
+            }
+        }
+
+        private void CheckSubiektApiConfiguration()
+        {
+            IsSubiektApiConfigured = _subiektApiService.IsConfigured();
+        }
+
+        private void NotifyStatusBarChanged()
+        {
+            OnPropertyChanged(nameof(StatusCountLabel));
+            OnPropertyChanged(nameof(StatusCountValue));
+            OnPropertyChanged(nameof(StatusSelectedCaption));
+            OnPropertyChanged(nameof(HasStatusSelection));
+        }
+
+        private async Task RefreshActiveTabAsync()
+        {
+            if (IsSubiektTabSelected)
+            {
+                await LoadSubiektDocumentsAsync(true);
+            }
+            else
+            {
+                await LoadOrdersAsync(true);
+            }
         }
 
         public async Task LoadOrdersAsync(bool reset = false)
@@ -592,6 +1004,850 @@ namespace Gryzak.ViewModels
             await LoadOrdersAsync(false);
         }
 
+        public async Task EnsureSubiektDocumentsLoadedAsync()
+        {
+            if (_subiektEverLoaded)
+            {
+                return;
+            }
+
+            await LoadSubiektDocumentsAsync(true);
+        }
+
+        public async Task LoadNextSubiektPageAsync()
+        {
+            if (!IsSubiektApiConfigured)
+            {
+                return;
+            }
+
+            await LoadSubiektDocumentsAsync(false);
+        }
+
+        public async Task LoadSubiektDocumentsAsync(bool reset = false)
+        {
+            ResetActivityTimer();
+
+            if (!IsSubiektApiConfigured)
+            {
+                SubiektDocuments.Clear();
+                SelectedSubiektDocument = null;
+                TotalSubiektDocumentsText = "0";
+                _subiektHasMorePages = false;
+                OnPropertyChanged(nameof(HasMoreSubiektPages));
+                NotifySubiektListChanged();
+                return;
+            }
+
+            if (reset)
+            {
+                IsSubiektLoading = true;
+                foreach (var doc in SubiektDocuments)
+                {
+                    doc.IsSelected = false;
+                }
+
+                SubiektDocuments.Clear();
+                SelectedSubiektDocument = null;
+                _subiektCurrentPage = 1;
+                _subiektHasMorePages = true;
+                OnPropertyChanged(nameof(HasMoreSubiektPages));
+            }
+            else if (!_subiektHasMorePages || _isSubiektLoadingMore || _isSubiektLoading)
+            {
+                return;
+            }
+
+            bool isFirstPage = _subiektCurrentPage == 1;
+            _subiektLoadCts?.Cancel();
+            var cts = _subiektLoadCts = new CancellationTokenSource();
+            var ct = cts.Token;
+
+            try
+            {
+                if (isFirstPage)
+                {
+                    IsSubiektLoading = true;
+                }
+                else
+                {
+                    IsSubiektLoadingMore = true;
+                }
+
+                var page = await _subiektApiService.GetDocumentsAsync(
+                    SubiektDocumentType,
+                    _subiektCurrentPage,
+                    200,
+                    cancellationToken: ct);
+
+                ct.ThrowIfCancellationRequested();
+
+                _subiektEverLoaded = true;
+                _subiektHasMorePages = page.Page < page.TotalPages && page.Items.Count > 0;
+                OnPropertyChanged(nameof(HasMoreSubiektPages));
+
+                Debug($"Załadowano stronę Subiekt {page.Page}/{page.TotalPages}: {page.Items.Count} dokumentów ({SubiektDocumentType})", "MainViewModel");
+
+                if (page.Items.Count > 0)
+                {
+                    foreach (var doc in page.Items)
+                    {
+                        if (!SubiektDocuments.Any(d => d.DokId == doc.DokId))
+                        {
+                            if (SelectedSubiektDocument != null && SelectedSubiektDocument.DokId == doc.DokId)
+                            {
+                                doc.IsSelected = true;
+                            }
+
+                            SubiektDocuments.Add(doc);
+                        }
+                    }
+
+                    _subiektCurrentPage = page.Page + 1;
+                }
+
+                await HydrateSubiektPrzesylkaAsync(ct);
+                ApplyGlsMatches();
+                RefreshSubiektFilter();
+            }
+            catch (OperationCanceledException)
+            {
+                Debug("Anulowano ładowanie dokumentów Subiekt", "MainViewModel");
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd ładowania dokumentów Subiekt");
+                _subiektEverLoaded = true;
+                if (isFirstPage)
+                {
+                    MessageBox.Show(
+                        $"Błąd ładowania dokumentów Subiekt: {ex.Message}",
+                        "Błąd",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+            }
+            finally
+            {
+                if (ReferenceEquals(_subiektLoadCts, cts))
+                {
+                    IsSubiektLoading = false;
+                    IsSubiektLoadingMore = false;
+                    NotifySubiektListChanged();
+                }
+            }
+        }
+
+        private bool FilterSubiektDocument(object item) =>
+            item is SubiektDocument doc && doc.MatchesSearch(_subiektSearchText);
+
+        private void ScheduleSubiektFilterRefresh()
+        {
+            _subiektFilterDebounceTimer ??= new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(150)
+            };
+            _subiektFilterDebounceTimer.Tick -= OnSubiektFilterDebounce;
+            _subiektFilterDebounceTimer.Tick += OnSubiektFilterDebounce;
+            _subiektFilterDebounceTimer.Stop();
+            _subiektFilterDebounceTimer.Start();
+        }
+
+        private void OnSubiektFilterDebounce(object? sender, EventArgs e)
+        {
+            _subiektFilterDebounceTimer?.Stop();
+            RefreshSubiektFilter();
+        }
+
+        private void RefreshSubiektFilter()
+        {
+            SubiektDocumentsView.Refresh();
+            NotifySubiektListChanged();
+            UpdateSubiektStatistics();
+        }
+
+        private int GetFilteredSubiektCount()
+        {
+            var count = 0;
+            foreach (var _ in SubiektDocumentsView)
+            {
+                count++;
+            }
+
+            return count;
+        }
+
+        private void UpdateSubiektStatistics()
+        {
+            var loadedCount = SubiektDocuments.Count;
+            var dateRange = FormatLoadedDocumentsDateRange(SubiektDocuments);
+
+            if (string.IsNullOrWhiteSpace(SubiektSearchText))
+            {
+                TotalSubiektDocumentsText = string.IsNullOrEmpty(dateRange)
+                    ? loadedCount.ToString(CultureInfo.InvariantCulture)
+                    : $"{loadedCount} ({dateRange})";
+            }
+            else
+            {
+                var filtered = GetFilteredSubiektCount();
+                TotalSubiektDocumentsText = string.IsNullOrEmpty(dateRange)
+                    ? $"{filtered} z {loadedCount}"
+                    : $"{filtered} z {loadedCount} ({dateRange})";
+            }
+
+            NotifyStatusBarChanged();
+        }
+
+        private static string FormatLoadedDocumentsDateRange(IEnumerable<SubiektDocument> documents)
+        {
+            DateTime? min = null;
+            DateTime? max = null;
+
+            foreach (var doc in documents)
+            {
+                if (doc.DataWyst is not DateTime date)
+                {
+                    continue;
+                }
+
+                var day = date.Date;
+                if (min is null || day < min)
+                {
+                    min = day;
+                }
+
+                if (max is null || day > max)
+                {
+                    max = day;
+                }
+            }
+
+            if (min is null || max is null)
+            {
+                return "";
+            }
+
+            const string format = "dd.MM.yyyy";
+            if (min.Value == max.Value)
+            {
+                return min.Value.ToString(format, CultureInfo.InvariantCulture);
+            }
+
+            return $"{min.Value.ToString(format, CultureInfo.InvariantCulture)} – {max.Value.ToString(format, CultureInfo.InvariantCulture)}";
+        }
+
+        private void NotifySubiektListChanged()
+        {
+            OnPropertyChanged(nameof(HasSubiektDocuments));
+            OnPropertyChanged(nameof(HasSubiektLoadedDocuments));
+            OnPropertyChanged(nameof(EmptySubiektShowsNoDocuments));
+            OnPropertyChanged(nameof(EmptySubiektShowsNoSearchMatches));
+        }
+
+        private async Task RefreshGlsListsAsync(bool showErrors)
+        {
+            var config = _configService.LoadGlsConfig();
+            config?.Normalize();
+            if (config == null
+                || string.IsNullOrWhiteSpace(config.UserName)
+                || string.IsNullOrWhiteSpace(config.Password))
+            {
+                _glsPreparingBoxItems = new List<GlsPreparingBoxItem>();
+                _glsPickupItems = new List<GlsPickupItem>();
+                ApplyGlsMatches();
+                if (showErrors)
+                {
+                    MessageBox.Show(
+                        "Brak loginu i hasła GLS. Uzupełnij je w Ustawieniach GLS, żeby odczytać przygotowalnię.",
+                        "GLS",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+
+                return;
+            }
+
+            _glsPreparingBoxCts?.Cancel();
+            var cts = _glsPreparingBoxCts = new CancellationTokenSource();
+            IsGlsPreparingBoxLoading = true;
+            var progress = CreateGlsProgressReporter();
+
+            try
+            {
+                using var gls = new GlsService(config);
+                UpdateProgress("GLS przygotowalnia · start…", 0);
+                var result = await gls.GetPreparingBoxListAsync(cts.Token, progress);
+                if (!ReferenceEquals(_glsPreparingBoxCts, cts) || cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (!result.Success)
+                {
+                    var message = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? "Nie udało się pobrać przygotowalni GLS."
+                        : result.ErrorMessage;
+                    Warning(message, "MainViewModel");
+                    if (showErrors)
+                    {
+                        MessageBox.Show(message, "GLS", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+
+                    return;
+                }
+
+                UpdateProgress("GLS przygotowalnia · synchronizacja z Subiektem…", 95);
+                _glsListsFetched = true;
+                _glsPreparingBoxItems = result.Items;
+                _glsPickupItems = new List<GlsPickupItem>();
+                Info(
+                    $"GLS ({result.EnvironmentName}): przygotowalnia {result.Items.Count} — dopasowanie do listy.",
+                    "MainViewModel");
+                ApplyGlsMatches();
+                await HydrateSubiektPrzesylkaAsync(cts.Token);
+                await SyncSubiektPrzesylkaFromGlsAsync(cts.Token, showErrors);
+                UpdateProgress($"GLS przygotowalnia · gotowe ({result.Items.Count})", 100);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug("Anulowano pobieranie przygotowalni GLS", "MainViewModel");
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd pobierania przygotowalni GLS");
+                if (showErrors)
+                {
+                    MessageBox.Show(
+                        $"Błąd pobierania przygotowalni GLS: {ex.Message}",
+                        "GLS",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+            }
+            finally
+            {
+                if (ReferenceEquals(_glsPreparingBoxCts, cts))
+                {
+                    IsGlsPreparingBoxLoading = false;
+                    HideProgress();
+                }
+            }
+        }
+
+        private void ApplyGlsMatches()
+        {
+            ApplyGlsPreparingBoxMatches();
+            ApplyGlsPickupMatches();
+            foreach (var doc in SubiektDocuments)
+            {
+                doc.GlsStatusChecked = _glsListsFetched;
+            }
+        }
+
+        private void ApplyGlsPreparingBoxMatches()
+        {
+            foreach (var doc in SubiektDocuments)
+            {
+                doc.GlsPreparingBoxId = null;
+                doc.GlsPreparingBoxParcelNumber = "";
+            }
+
+            var byDokId = new Dictionary<int, List<GlsPreparingBoxItem>>();
+            foreach (var item in _glsPreparingBoxItems)
+            {
+                var best = GlsConsignment.FindBestDocumentForReference(item.References, SubiektDocuments);
+                if (best == null)
+                {
+                    continue;
+                }
+
+                if (!byDokId.TryGetValue(best.DokId, out var list))
+                {
+                    list = new List<GlsPreparingBoxItem>();
+                    byDokId[best.DokId] = list;
+                }
+
+                list.Add(item);
+            }
+
+            foreach (var doc in SubiektDocuments)
+            {
+                if (!byDokId.TryGetValue(doc.DokId, out var matches) || matches.Count == 0)
+                {
+                    continue;
+                }
+
+                doc.GlsPreparingBoxId = matches[0].Id;
+                doc.GlsPreparingBoxParcelNumber = GlsSubiektSync.CombinedParcelNumbers(matches);
+            }
+        }
+
+        private void ApplyGlsPickupMatches()
+        {
+            foreach (var doc in SubiektDocuments)
+            {
+                var fromSubiekt = doc.Przesylka is { IsDeleted: false } p
+                    ? SubiektPrzesylka.NormalizeNrListu(p.NrListuNadane)
+                    : "";
+                var matches = GlsSubiektSync.MatchPickups(doc, _glsPickupItems);
+                if (matches.Count > 0)
+                {
+                    doc.GlsPickupConsignmentId = matches[0].Id is > 0 ? matches[0].Id : null;
+                    doc.GlsPickupParcelNumber = GlsSubiektSync.CombineNrListu(
+                        fromSubiekt,
+                        GlsSubiektSync.CombinedParcelNumbers(matches));
+                }
+                else
+                {
+                    doc.GlsPickupConsignmentId = null;
+                    doc.GlsPickupParcelNumber = fromSubiekt;
+                }
+            }
+        }
+
+        private static bool HasUsableSubiektPrzesylka(SubiektDocument document) =>
+            !GlsSubiektSync.NeedsGlsSync(document);
+
+        private async Task HydrateSubiektPrzesylkaAsync(CancellationToken cancellationToken)
+        {
+            foreach (var doc in SubiektDocuments.ToList())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (HasUsableSubiektPrzesylka(doc))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var (fsId, przesylka) = await _subiektApiService.ResolveInvoiceShipmentAsync(
+                        doc, cancellationToken: cancellationToken);
+                    if (przesylka == null && fsId is int fsDokId && fsDokId > 0)
+                    {
+                        var fsDoc = await _subiektApiService.GetDocumentByIdAsync(
+                            "fs", fsDokId, cancellationToken: cancellationToken);
+                        przesylka = fsDoc?.Przesylka;
+                    }
+
+                    if (przesylka != null)
+                    {
+                        doc.Przesylka = przesylka;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Warning(
+                        $"Nie udało się odczytać pola Przesylka dla {doc.NrPelny}: {ex.Message}",
+                        "MainViewModel");
+                }
+            }
+        }
+
+        private async Task SyncSubiektPrzesylkaFromGlsAsync(CancellationToken cancellationToken, bool showErrors)
+        {
+            var updated = 0;
+            var cleared = 0;
+            var failed = 0;
+            var liveBoxIds = _glsPreparingBoxItems
+                .Select(item => item.Id)
+                .Where(id => id > 0)
+                .ToHashSet();
+
+            foreach (var doc in SubiektDocuments.ToList())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!GlsSubiektSync.NeedsPreparingBoxReconcile(doc))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    // Osobne listy: przygotowalnia (przechowalnia) vs nadane.
+                    var przesylka = doc.Przesylka is { IsDeleted: false } live ? live : null;
+                    var preparingNr = GlsSubiektSync.CombineNrListu(
+                        doc.GlsPreparingBoxParcelNumber,
+                        przesylka?.NrListuPrzygotowalnia);
+                    var one = await GlsSubiektSync.ApplyToSubiektAsync(
+                        _subiektApiService,
+                        doc,
+                        liveBoxIds,
+                        doc.GlsPreparingBoxId,
+                        preparingNr,
+                        matchedPickupNrListu: null,
+                        cancellationToken);
+                    if (one.Cleared)
+                    {
+                        cleared++;
+                    }
+                    else if (one.Changed)
+                    {
+                        updated++;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    Warning(
+                        $"Nie udało się zsynchronizować Przesylka z GLS dla {doc.NrPelny}: {ex.Message}",
+                        "MainViewModel");
+                }
+            }
+
+            if (updated > 0 || cleared > 0 || failed > 0)
+            {
+                Info(
+                    $"Synchronizacja GLS→Subiekt: zapisano {updated}, wyczyszczono {cleared}, błędów {failed}.",
+                    "MainViewModel");
+            }
+
+            if (failed > 0 && showErrors)
+            {
+                MessageBox.Show(
+                    $"GLS jest źródłem prawdy, ale {failed} dokumentów nie udało się zapisać w Subiekcie. Szczegóły w logu.",
+                    "Subiekt",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+
+        private async Task FetchGlsPickupsAsync()
+        {
+            var config = _configService.LoadGlsConfig();
+            config?.Normalize();
+            if (config == null
+                || string.IsNullOrWhiteSpace(config.UserName)
+                || string.IsNullOrWhiteSpace(config.Password))
+            {
+                MessageBox.Show(
+                    "Brak loginu i hasła GLS. Uzupełnij je w Ustawieniach GLS, żeby pobrać nadania.",
+                    "GLS",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (_glsPickupRangeMode == GlsPickupRangeMode.CustomDay
+                && _glsPickupCustomDate is not DateTime)
+            {
+                MessageBox.Show(
+                    "Wybierz dzień dla opcji „Dowolny dzień”.",
+                    "GLS",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (_glsPickupRangeMode == GlsPickupRangeMode.CustomRange
+                && (_glsPickupCustomFromDate is not DateTime || _glsPickupCustomToDate is not DateTime))
+            {
+                MessageBox.Show(
+                    "Wybierz zakres dat „od” i „do” dla opcji „Dowolny zakres”.",
+                    "GLS",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var query = GlsPickupQuery.FromRangeMode(
+                _glsPickupRangeMode,
+                _glsPickupCustomDate,
+                _glsPickupCustomFromDate,
+                _glsPickupCustomToDate);
+            query.Normalize();
+
+            _glsPickupCts?.Cancel();
+            var cts = _glsPickupCts = new CancellationTokenSource();
+            IsGlsPickupLoading = true;
+            var progress = CreateGlsProgressReporter();
+
+            try
+            {
+                using var gls = new GlsService(config);
+                UpdateProgress("GLS nadania · start…", 0);
+                var result = await gls.GetPickupListAsync(query, cts.Token, progress);
+                if (!ReferenceEquals(_glsPickupCts, cts) || cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (!result.Success)
+                {
+                    var message = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? "Nie udało się pobrać nadań GLS."
+                        : result.ErrorMessage;
+                    Warning(message, "MainViewModel");
+                    MessageBox.Show(message, "GLS", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                UpdateProgress("GLS nadania · synchronizacja nr_listu…", 95);
+                _glsPickupItems = result.Items;
+                ApplyGlsPickupMatches();
+                await HydrateSubiektPrzesylkaAsync(cts.Token);
+                foreach (var doc in SubiektDocuments)
+                {
+                    if (_glsListsFetched)
+                    {
+                        doc.GlsStatusChecked = true;
+                    }
+                }
+
+                var synced = await SyncSubiektNrListuFromPickupsAsync(cts.Token, showErrors: false);
+                Info(
+                    $"GLS ({result.EnvironmentName}): nadania {result.Items.Count} " +
+                    $"({query.FromDate:yyyy-MM-dd}…{query.ToDate:yyyy-MM-dd}), " +
+                    $"dokumenty {synced.DocumentsUpdated}, nr_listu już {synced.NrListuAlreadyPresent}/dodane {synced.NrListuAdded}, błędów: {synced.Failed}.",
+                    "MainViewModel");
+                UpdateProgress(
+                    $"GLS nadania · gotowe ({result.Items.Count}), sync {synced.DocumentsUpdated} dok.",
+                    100);
+
+                if (result.HitPickupScanLimit)
+                {
+                    MessageBox.Show(
+                        "Osiągnięto limit skanu potwierdzeń nadania GLS. Zawęź zakres dat lub spróbuj ponownie później.",
+                        "GLS",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+
+                ShowGlsPickupSyncSummary(
+                    result.Items.Count,
+                    query.FromDate,
+                    query.ToDate,
+                    synced);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug("Anulowano pobieranie nadań GLS", "MainViewModel");
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd pobierania nadań GLS");
+                MessageBox.Show(
+                    $"Błąd pobierania nadań GLS: {ex.Message}",
+                    "GLS",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                if (ReferenceEquals(_glsPickupCts, cts))
+                {
+                    IsGlsPickupLoading = false;
+                    HideProgress();
+                }
+            }
+        }
+
+        private static void ShowGlsPickupSyncSummary(
+            int glsShipmentsFetched,
+            DateTime fromDate,
+            DateTime toDate,
+            GlsPickupSyncSummary synced)
+        {
+            var range = fromDate.Date == toDate.Date
+                ? fromDate.ToString("yyyy-MM-dd")
+                : $"{fromDate:yyyy-MM-dd} … {toDate:yyyy-MM-dd}";
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Zakres: {range}");
+            sb.AppendLine($"Pobrano z GLS: {glsShipmentsFetched} przesyłek");
+            sb.AppendLine($"Dopasowano do listy: {synced.DocumentsMatched} dokumentów");
+            sb.AppendLine($"Zapisano w Subiekcie: {synced.DocumentsUpdated} dokumentów");
+            sb.AppendLine($"Numery listu już w Subiekcie: {synced.NrListuAlreadyPresent}");
+            sb.AppendLine($"Numery listu nowo dodane: {synced.NrListuAdded}");
+            if (synced.Failed > 0)
+            {
+                sb.AppendLine($"Błędów zapisu: {synced.Failed}");
+            }
+
+            MessageBox.Show(
+                sb.ToString().TrimEnd(),
+                "GLS — podsumowanie nadań",
+                MessageBoxButton.OK,
+                synced.Failed > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+        }
+
+        private IProgress<GlsFetchProgress> CreateGlsProgressReporter() =>
+            new Progress<GlsFetchProgress>(p =>
+            {
+                if (p == null)
+                {
+                    return;
+                }
+
+                UpdateProgress(p.StatusText, p.Percent);
+            });
+
+        private sealed class GlsPickupSyncSummary
+        {
+            public int DocumentsMatched { get; set; }
+            public int DocumentsUpdated { get; set; }
+            public int NrListuAlreadyPresent { get; set; }
+            public int NrListuAdded { get; set; }
+            public int Failed { get; set; }
+        }
+
+        private async Task<GlsPickupSyncSummary> SyncSubiektNrListuFromPickupsAsync(
+            CancellationToken cancellationToken,
+            bool showErrors)
+        {
+            var summary = new GlsPickupSyncSummary();
+            var liveBoxIds = _glsPreparingBoxItems
+                .Select(item => item.Id)
+                .Where(id => id > 0)
+                .ToHashSet();
+
+            // Bez świeżej przygotowalni nie wolno traktować istniejących id jako „starych”.
+            // Po „Pobierz przygotowalnię” (_glsListsFetched) pusta lista = wszystkie id przygotowalni są nieaktualne.
+            if (!_glsListsFetched)
+            {
+                foreach (var doc in SubiektDocuments)
+                {
+                    if (doc.GlsPreparingBoxId is int boxId && boxId > 0)
+                    {
+                        liveBoxIds.Add(boxId);
+                    }
+
+                    if (doc.Przesylka is { IsDeleted: false, HasId: true } p)
+                    {
+                        liveBoxIds.Add(p.Id);
+                    }
+                }
+            }
+
+            foreach (var doc in SubiektDocuments.ToList())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(doc.GlsPickupParcelNumber))
+                {
+                    continue;
+                }
+
+                summary.DocumentsMatched++;
+
+                try
+                {
+                    var existingNadane = doc.Przesylka is { IsDeleted: false } p ? p.NrListuNadane : null;
+                    var before = SubiektPrzesylka.SplitNrListu(existingNadane)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var fromGls = SubiektPrzesylka.SplitNrListu(doc.GlsPickupParcelNumber);
+                    var alreadyCount = fromGls.Count(nr => before.Contains(nr));
+                    var addedCount = fromGls.Count(nr => !before.Contains(nr));
+                    summary.NrListuAlreadyPresent += alreadyCount;
+
+                    var combinedNadane = GlsSubiektSync.CombineNrListu(existingNadane, doc.GlsPickupParcelNumber);
+                    var preparingNr = GlsSubiektSync.CombineNrListu(
+                        doc.GlsPreparingBoxParcelNumber,
+                        doc.Przesylka is { IsDeleted: false } q ? q.NrListuPrzygotowalnia : null);
+                    var one = await GlsSubiektSync.ApplyToSubiektAsync(
+                        _subiektApiService,
+                        doc,
+                        liveBoxIds,
+                        doc.GlsPreparingBoxId,
+                        preparingNr,
+                        combinedNadane,
+                        cancellationToken);
+                    if (one.FsDokId is null or <= 0)
+                    {
+                        summary.Failed++;
+                        Warning(
+                            $"Brak powiązanego FS dla {doc.NrPelny} — numery nadań nie zapisano w Subiekcie.",
+                            "MainViewModel");
+                        continue;
+                    }
+
+                    if (one.Changed)
+                    {
+                        summary.DocumentsUpdated++;
+                        summary.NrListuAdded += addedCount;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    summary.Failed++;
+                    Warning(
+                        $"Nie udało się zapisać nr_listu z nadania GLS dla {doc.NrPelny}: {ex.Message}",
+                        "MainViewModel");
+                }
+            }
+
+            if (summary.DocumentsUpdated > 0 || summary.Failed > 0)
+            {
+                Info(
+                    $"Synchronizacja nadań GLS→Subiekt: dokumentów {summary.DocumentsUpdated}, " +
+                    $"nr_listu już {summary.NrListuAlreadyPresent}, dodane {summary.NrListuAdded}, " +
+                    $"błędów {summary.Failed}.",
+                    "MainViewModel");
+            }
+
+            if (summary.Failed > 0 && showErrors)
+            {
+                MessageBox.Show(
+                    $"{summary.Failed} dokumentów nie udało się zaktualizować nr_listu w Subiekcie. Szczegóły w logu.",
+                    "Subiekt",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+
+            return summary;
+        }
+
+        public async Task<SubiektDocument?> LoadSubiektDocumentDetailsAsync(SubiektDocument document)
+        {
+            if (document == null || document.DokId <= 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                var details = await _subiektApiService.GetDocumentByIdAsync(document.TypKod, document.DokId);
+                return details ?? document;
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd ładowania szczegółów dokumentu Subiekt");
+                MessageBox.Show(
+                    $"Błąd ładowania szczegółów dokumentu: {ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return null;
+            }
+        }
+
+        private void OnSubiektDocumentSelected(SubiektDocument? document)
+        {
+            ResetActivityTimer();
+            if (SelectedSubiektDocument != null)
+            {
+                SelectedSubiektDocument.IsSelected = false;
+            }
+
+            SelectedSubiektDocument = document;
+            if (document != null)
+            {
+                document.IsSelected = true;
+                Debug($"Zaznaczono dokument Subiekt: {document.NrPelny} (id={document.DokId})", "MainViewModel");
+            }
+        }
+
         /// <summary>
         /// Pobiera zamówienie po numerze z pola wyszukiwania (API szczegółów) i wstawia lub aktualizuje w liście.
         /// </summary>
@@ -754,6 +2010,7 @@ namespace Gryzak.ViewModels
         {
             var orders = FilteredOrders;
             TotalOrdersText = orders.Count.ToString();
+            NotifyStatusBarChanged();
         }
 
         public void UpdateProgress(string text, double value)
@@ -790,12 +2047,41 @@ namespace Gryzak.ViewModels
         {
             var settingsWindow = new Views.SubiektSettingsDialog(_configService);
             settingsWindow.ShowDialog();
+            CheckSubiektApiConfiguration();
+            if (IsSubiektTabSelected && IsSubiektApiConfigured)
+            {
+                _ = LoadSubiektDocumentsAsync(true);
+            }
         }
 
         private void OpenGlsSettingsDialog()
         {
             var settingsWindow = new Views.GlsSettingsDialog(_configService);
             settingsWindow.ShowDialog();
+            IsGlsPanelEnabled = _configService.LoadGlsConfig().GlsPanelEnabled;
+        }
+
+        private void OpenGlsParcelSearchDialog()
+        {
+            try
+            {
+                var dialog = new Views.GlsParcelSearchDialog(_configService);
+                if (Application.Current?.MainWindow != dialog)
+                {
+                    dialog.Owner = Application.Current?.MainWindow;
+                }
+
+                dialog.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd otwierania okna wyszukiwania GLS");
+                MessageBox.Show(
+                    $"Nie udało się otworzyć okna wyszukiwania przesyłki GLS.\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void DodajZK()

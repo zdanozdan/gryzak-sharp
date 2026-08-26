@@ -55,6 +55,13 @@ namespace Gryzak.Views
                 SearchTextBox.KeyDown += (s, e) => ResetActivityTimer();
                 SearchTextBox.MouseMove += (s, e) => ResetActivityTimer();
             }
+
+            if (SubiektSearchTextBox != null)
+            {
+                SubiektSearchTextBox.TextChanged += (s, e) => ResetActivityTimer();
+                SubiektSearchTextBox.KeyDown += (s, e) => ResetActivityTimer();
+                SubiektSearchTextBox.MouseMove += (s, e) => ResetActivityTimer();
+            }
             
             if (StatusFilterComboBox != null)
             {
@@ -104,9 +111,14 @@ namespace Gryzak.Views
                     Key.K,
                     ModifierKeys.Control);
                 this.InputBindings.Add(configBinding);
+
+                var refreshBinding = new KeyBinding(
+                    vm.RefreshCommand,
+                    Key.F5,
+                    ModifierKeys.None);
+                this.InputBindings.Add(refreshBinding);
             }
 
-            // Ctrl+Q - Zamknij
             var closeBinding = new KeyBinding(
                 new RelayCommand(() => CloseMenuItem_Click(null!, null!)),
                 Key.Q,
@@ -121,6 +133,116 @@ namespace Gryzak.Views
                 if (comboBox.SelectedItem is ComboBoxItem item)
                 {
                     vm.StatusFilter = item.Content?.ToString() ?? "Wszystkie statusy";
+                }
+            }
+        }
+
+        private void SubiektDocumentTypeChip_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (DataContext is not MainViewModel vm || sender is not FrameworkElement element)
+            {
+                return;
+            }
+
+            var type = element.Tag?.ToString();
+            if (string.IsNullOrWhiteSpace(type))
+            {
+                return;
+            }
+
+            vm.SubiektDocumentType = type;
+            e.Handled = true;
+        }
+
+        private async void SubiektDocumentItem_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is FrameworkElement element && element.DataContext is SubiektDocument document)
+            {
+                if (DataContext is MainViewModel vm)
+                {
+                    if (e.ClickCount == 2)
+                    {
+                        vm.SubiektDocumentSelectedCommand.Execute(document);
+                        await OpenSubiektDocumentDetailsDialog(document, vm);
+                    }
+                    else if (e.ClickCount == 1)
+                    {
+                        vm.SubiektDocumentSelectedCommand.Execute(document);
+                    }
+                }
+            }
+        }
+
+        public async System.Threading.Tasks.Task OpenSubiektDocumentDetailsDialog(SubiektDocument document, MainViewModel vm)
+        {
+            if (document == null)
+            {
+                return;
+            }
+
+            var details = await vm.LoadSubiektDocumentDetailsAsync(document);
+            if (details == null)
+            {
+                return;
+            }
+
+            details.GlsPreparingBoxId = document.GlsPreparingBoxId;
+            details.GlsPreparingBoxParcelNumber = document.GlsPreparingBoxParcelNumber;
+            details.GlsPickupConsignmentId = document.GlsPickupConsignmentId;
+            details.GlsPickupParcelNumber = document.GlsPickupParcelNumber;
+            details.GlsStatusChecked = document.GlsStatusChecked;
+            if (details.Przesylka == null)
+            {
+                details.Przesylka = document.Przesylka;
+            }
+
+            if (!details.HasDoDokNrPelny && document.HasDoDokNrPelny)
+            {
+                details.DoDokId = document.DoDokId;
+                details.DoDokNrPelny = document.DoDokNrPelny;
+                details.DoDokDataWyst = document.DoDokDataWyst;
+            }
+
+            var detailsDialog = new SubiektDocumentDetailsDialog(
+                details,
+                glsPanelEnabled: vm.IsGlsPanelEnabled)
+            {
+                Owner = this
+            };
+            detailsDialog.ShowDialog();
+
+            if (detailsDialog.Document.DokId == document.DokId)
+            {
+                document.Przesylka = detailsDialog.Document.Przesylka;
+                document.GlsPreparingBoxId = detailsDialog.Document.GlsPreparingBoxId;
+                document.GlsPreparingBoxParcelNumber = detailsDialog.Document.GlsPreparingBoxParcelNumber;
+                document.GlsPickupConsignmentId = detailsDialog.Document.GlsPickupConsignmentId;
+                document.GlsPickupParcelNumber = detailsDialog.Document.GlsPickupParcelNumber;
+                document.GlsStatusChecked = detailsDialog.Document.GlsStatusChecked;
+            }
+        }
+
+        private async void SubiektDocumentsScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (sender is ScrollViewer scrollViewer && DataContext is MainViewModel vm)
+            {
+                // Lokalny filtr skraca listę — bez tego ScrollChanged odpala doładowanie strony z API.
+                if (!string.IsNullOrWhiteSpace(vm.SubiektSearchText))
+                {
+                    return;
+                }
+
+                var scrollOffset = scrollViewer.VerticalOffset;
+                var scrollHeight = scrollViewer.ScrollableHeight;
+                var viewportHeight = scrollViewer.ViewportHeight;
+
+                if (scrollHeight - scrollOffset - viewportHeight <= 500)
+                {
+                    if (vm.HasMoreSubiektPages && !vm.IsSubiektLoadingMore && !vm.IsSubiektLoading)
+                    {
+                        Debug("Scroll Subiekt blisko końca, ładuję kolejną stronę", "MainWindow");
+                        await vm.LoadNextSubiektPageAsync();
+                    }
                 }
             }
         }
@@ -260,7 +382,7 @@ namespace Gryzak.Views
             // Otwórz okno z dużym logo
             var logoWindow = new Window
             {
-                Title = "Gryzak Logo",
+                Title = "Gryzak",
                 Width = 400,
                 Height = 400,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,

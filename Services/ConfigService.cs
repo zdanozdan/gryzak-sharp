@@ -155,18 +155,9 @@ namespace Gryzak.Services
                     var config = JsonSerializer.Deserialize<GlsConfig>(json);
                     if (config != null)
                     {
-                        if (string.IsNullOrWhiteSpace(config.TestApiUrl))
-                        {
-                            config.TestApiUrl = GlsConfig.DefaultTestApiUrl;
-                        }
-                        if (string.IsNullOrWhiteSpace(config.ProductionApiUrl))
-                        {
-                            config.ProductionApiUrl = GlsConfig.DefaultProductionApiUrl;
-                        }
-                        if (config.TimeoutSeconds < 5 || config.TimeoutSeconds > 300)
-                        {
-                            config.TimeoutSeconds = 30;
-                        }
+                        using var doc = JsonDocument.Parse(json);
+                        config.ApplyLegacy(doc.RootElement);
+                        config.Normalize();
                         return config;
                     }
                 }
