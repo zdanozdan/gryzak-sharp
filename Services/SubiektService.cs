@@ -252,16 +252,16 @@ namespace Gryzak.Services
 
                 var kontrahenci = new ObservableCollection<KontrahentItem>();
 
-                if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName) && string.IsNullOrWhiteSpace(nip))
+                if (string.IsNullOrWhiteSpace(email) && string.IsNullOrWhiteSpace(customerName) && string.IsNullOrWhiteSpace(nip) && string.IsNullOrWhiteSpace(company))
                 {
-                    Debug("Brak adresu email, nazwy klienta i NIP - pomijam wyszukiwanie przez API.", "SubiektService");
+                    Debug("Brak adresu email, nazwy klienta, firmy i NIP - pomijam wyszukiwanie przez API.", "SubiektService");
                 }
                 else
                 {
                     try
                     {
-                        Info($"Wyszukiwanie kontrahenta przez API (email: {email}, customerName: {customerName}, nip: {nip})...", "SubiektService");
-                        var found = _apiService.RunSync(() => _apiService.SearchKontrahenciAsync(email, customerName, nip));
+                        Info($"Wyszukiwanie kontrahenta przez API (email: {email}, customerName: {customerName}, nip: {nip}, company: {company})...", "SubiektService");
+                        var found = _apiService.RunSync(() => _apiService.SearchKontrahenciAsync(email, customerName, nip, company));
                         foreach (var item in found)
                         {
                             kontrahenci.Add(item);

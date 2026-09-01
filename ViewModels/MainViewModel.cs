@@ -76,6 +76,8 @@ namespace Gryzak.ViewModels
         private DateTime? _glsPickupCustomDate = DateTime.Today;
         private DateTime? _glsPickupCustomFromDate = DateTime.Today.AddDays(-6);
         private DateTime? _glsPickupCustomToDate = DateTime.Today;
+        private readonly GlsShipmentStore _glsShipmentStore = new();
+        private Dictionary<int, SubiektDocument> _glsRelatedOwnerByDokId = new();
 
         public ObservableCollection<Order> AllOrders { get; } = new ObservableCollection<Order>();
         public ObservableCollection<Order> FilteredOrders { get; } = new ObservableCollection<Order>();
@@ -566,7 +568,7 @@ namespace Gryzak.ViewModels
         public ICommand FetchOrderFromApiCommand { get; }
         public ICommand OpenOrderFromHistoryCommand { get; }
         public ICommand WyPLUwaczCommand { get; }
-        public ICommand SearchShipmentCommand { get; }
+        public ICommand OpenGlsShipmentsCommand { get; }
         public ICommand SubiektDocumentSelectedCommand { get; }
         public ICommand FetchGlsPreparingBoxCommand { get; }
         public ICommand FetchGlsPickupsCommand { get; }
@@ -616,7 +618,7 @@ namespace Gryzak.ViewModels
             FetchGlsPickupsCommand = _fetchGlsPickupsRelayCommand;
             OpenOrderFromHistoryCommand = new RelayCommand<string>(orderId => OpenOrderFromHistory(orderId));
             WyPLUwaczCommand = new RelayCommand(async () => await WyPLUwaczAsync());
-            SearchShipmentCommand = new RelayCommand(() => OpenGlsParcelSearchDialog());
+            OpenGlsShipmentsCommand = new RelayCommand(() => OpenGlsShipmentsDialog());
 
             // Zapisz się na event zmiany instancji Subiekta
             Services.SubiektService.InstancjaZmieniona += SubiektService_InstancjaZmieniona;
@@ -1032,6 +1034,7 @@ namespace Gryzak.ViewModels
             {
                 SubiektDocuments.Clear();
                 SelectedSubiektDocument = null;
+                _glsRelatedOwnerByDokId.Clear();
                 TotalSubiektDocumentsText = "0";
                 _subiektHasMorePages = false;
                 OnPropertyChanged(nameof(HasMoreSubiektPages));
@@ -1049,9 +1052,11 @@ namespace Gryzak.ViewModels
 
                 SubiektDocuments.Clear();
                 SelectedSubiektDocument = null;
+                _glsRelatedOwnerByDokId.Clear();
                 _subiektCurrentPage = 1;
                 _subiektHasMorePages = true;
                 OnPropertyChanged(nameof(HasMoreSubiektPages));
+                // Przełączenie FS/WZ/ZK nie kasuje listy GLS ani SQLite — tylko przeładowuje dokumenty Subiekta.
             }
             else if (!_subiektHasMorePages || _isSubiektLoadingMore || _isSubiektLoading)
             {
@@ -1106,8 +1111,15 @@ namespace Gryzak.ViewModels
                     _subiektCurrentPage = page.Page + 1;
                 }
 
-                await HydrateSubiektPrzesylkaAsync(ct);
-                ApplyGlsMatches();
+                await HydrateGlsShipmentCacheAsync(ct);
+                if (_glsListsFetched)
+                {
+                    ApplyGlsMatches();
+                }
+                else
+                {
+                    ClearGlsLiveOverlaysOnDocuments();
+                }
                 RefreshSubiektFilter();
             }
             catch (OperationCanceledException)
@@ -1297,17 +1309,33 @@ namespace Gryzak.ViewModels
                     return;
                 }
 
-                UpdateProgress("GLS przygotowalnia · synchronizacja z Subiektem…", 95);
+                UpdateProgress("GLS przygotowalnia · synchronizacja cache…", 95);
                 _glsListsFetched = true;
                 _glsPreparingBoxItems = result.Items;
                 _glsPickupItems = new List<GlsPickupItem>();
-                Info(
-                    $"GLS ({result.EnvironmentName}): przygotowalnia {result.Items.Count} — dopasowanie do listy.",
-                    "MainViewModel");
+                await HydrateGlsShipmentCacheAsync(cts.Token);
+                await BuildGlsRelatedOwnerIndexAsync(cts.Token).ConfigureAwait(true);
                 ApplyGlsMatches();
-                await HydrateSubiektPrzesylkaAsync(cts.Token);
-                await SyncSubiektPrzesylkaFromGlsAsync(cts.Token, showErrors);
-                UpdateProgress($"GLS przygotowalnia · gotowe ({result.Items.Count})", 100);
+                var synced = await SyncGlsPreparingBoxToCacheAsync(cts.Token, showErrors: false);
+                foreach (var doc in SubiektDocuments.Where(d => d.GlsPreparingBoxId is > 0))
+                {
+                    await PropagateGlsShipmentToRelatedOnListAsync(doc).ConfigureAwait(true);
+                }
+
+                RefreshSubiektFilter();
+                var matched = SubiektDocuments.Count(d => d.GlsPreparingBoxId is > 0);
+                Info(
+                    $"GLS ({result.EnvironmentName}): przygotowalnia {result.Items.Count}, " +
+                    $"dopasowano {matched}, zapisano {synced.DocumentsUpdated}, wyczyszczono {synced.DocumentsCleared}, błędów: {synced.Failed}.",
+                    "MainViewModel");
+                UpdateProgress(
+                    $"GLS przygotowalnia · gotowe ({result.Items.Count}), sync {synced.DocumentsUpdated} dok.",
+                    100);
+
+                if (showErrors)
+                {
+                    ShowGlsPreparingBoxSyncSummary(result.Items.Count, matched, synced);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -1335,6 +1363,26 @@ namespace Gryzak.ViewModels
             }
         }
 
+        private void ClearGlsLiveSession()
+        {
+            _glsPreparingBoxItems = new List<GlsPreparingBoxItem>();
+            _glsPickupItems = new List<GlsPickupItem>();
+            _glsListsFetched = false;
+            ClearGlsLiveOverlaysOnDocuments();
+        }
+
+        private void ClearGlsLiveOverlaysOnDocuments()
+        {
+            foreach (var doc in SubiektDocuments)
+            {
+                doc.GlsPreparingBoxId = null;
+                doc.GlsPreparingBoxParcelNumber = "";
+                doc.GlsPickupConsignmentId = null;
+                doc.GlsPickupParcelNumber = "";
+                doc.GlsStatusChecked = false;
+            }
+        }
+
         private void ApplyGlsMatches()
         {
             ApplyGlsPreparingBoxMatches();
@@ -1353,10 +1401,16 @@ namespace Gryzak.ViewModels
                 doc.GlsPreparingBoxParcelNumber = "";
             }
 
+            var cacheIndex = GlsShipmentCacheIndex.From(_glsShipmentStore.GetAllSnapshot());
             var byDokId = new Dictionary<int, List<GlsPreparingBoxItem>>();
             foreach (var item in _glsPreparingBoxItems)
             {
-                var best = GlsConsignment.FindBestDocumentForReference(item.References, SubiektDocuments);
+                var best = GlsSubiektSync.ResolveDocumentForGlsItem(
+                    item.References,
+                    item.Id,
+                    SubiektDocuments,
+                    cacheIndex,
+                    _glsRelatedOwnerByDokId);
                 if (best == null)
                 {
                     continue;
@@ -1385,54 +1439,68 @@ namespace Gryzak.ViewModels
 
         private void ApplyGlsPickupMatches()
         {
+            var cacheIndex = GlsShipmentCacheIndex.From(_glsShipmentStore.GetAllSnapshot());
             foreach (var doc in SubiektDocuments)
             {
-                var fromSubiekt = doc.Przesylka is { IsDeleted: false } p
-                    ? SubiektPrzesylka.NormalizeNrListu(p.NrListuNadane)
+                var fromCache = doc.GlsShipment is { IsEmpty: false } p
+                    ? GlsShipmentRecord.NormalizeNrListu(p.NrNad)
                     : "";
-                var matches = GlsSubiektSync.MatchPickups(doc, _glsPickupItems);
+                var matches = GlsSubiektSync.MatchPickups(doc, _glsPickupItems, cacheIndex);
                 if (matches.Count > 0)
                 {
+                    doc.GlsPreparingBoxId = null;
+                    doc.GlsPreparingBoxParcelNumber = "";
+                    // Tylko potwierdzenie z API GLS → kolumna Nadania na zielono.
                     doc.GlsPickupConsignmentId = matches[0].Id is > 0 ? matches[0].Id : null;
                     doc.GlsPickupParcelNumber = GlsSubiektSync.CombineNrListu(
-                        fromSubiekt,
+                        fromCache,
                         GlsSubiektSync.CombinedParcelNumbers(matches));
+                }
+                else if (string.IsNullOrWhiteSpace(fromCache))
+                {
+                    doc.GlsPickupConsignmentId = null;
+                    doc.GlsPickupParcelNumber = "";
                 }
                 else
                 {
+                    // Brak trafienia w bieżącym oknie GLS — zostaw nr z cache SQLite (szary).
                     doc.GlsPickupConsignmentId = null;
-                    doc.GlsPickupParcelNumber = fromSubiekt;
+                    doc.GlsPickupParcelNumber = fromCache;
                 }
             }
         }
 
-        private static bool HasUsableSubiektPrzesylka(SubiektDocument document) =>
-            !GlsSubiektSync.NeedsGlsSync(document);
-
-        private async Task HydrateSubiektPrzesylkaAsync(CancellationToken cancellationToken)
+        private static bool HasUsableGlsShipmentCache(SubiektDocument document)
         {
-            foreach (var doc in SubiektDocuments.ToList())
+            var shipment = document.GlsShipment;
+            if (shipment == null || shipment.IsEmpty)
+            {
+                return false;
+            }
+
+            // Tylko nr nadania w pamięci — dociągnij powiązany WZ/ZK/FS po id przygotowalni.
+            return shipment.HasBoxId || !string.IsNullOrWhiteSpace(shipment.NrPrzyg);
+        }
+
+        private async Task BuildGlsRelatedOwnerIndexAsync(CancellationToken cancellationToken)
+        {
+            var index = new Dictionary<int, SubiektDocument>();
+            foreach (var doc in SubiektDocuments)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (HasUsableSubiektPrzesylka(doc))
-                {
-                    continue;
-                }
+                index[doc.DokId] = doc;
 
                 try
                 {
-                    var (fsId, przesylka) = await _subiektApiService.ResolveInvoiceShipmentAsync(
-                        doc, cancellationToken: cancellationToken);
-                    if (przesylka == null && fsId is int fsDokId && fsDokId > 0)
+                    var related = await _subiektApiService
+                        .GetRelatedDocumentsExpandedAsync(doc.DokId, doc.TypKod, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                    foreach (var item in related)
                     {
-                        var fsDoc = await _subiektApiService.GetDocumentByIdAsync(
-                            "fs", fsDokId, cancellationToken: cancellationToken);
-                        przesylka = fsDoc?.Przesylka;
-                    }
-
-                    if (przesylka != null)
-                    {
-                        doc.Przesylka = przesylka;
+                        if (item.DokId > 0 && !index.ContainsKey(item.DokId))
+                        {
+                            index[item.DokId] = doc;
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -1442,17 +1510,324 @@ namespace Gryzak.ViewModels
                 catch (Exception ex)
                 {
                     Warning(
-                        $"Nie udało się odczytać pola Przesylka dla {doc.NrPelny}: {ex.Message}",
+                        $"Nie udało się zbudować indeksu powiązań GLS ({doc.NrPelny}): {ex.Message}",
                         "MainViewModel");
+                }
+            }
+
+            _glsRelatedOwnerByDokId = index;
+        }
+
+        private async Task HydrateGlsShipmentCacheAsync(CancellationToken cancellationToken)
+        {
+            if (!IsGlsPanelEnabled)
+            {
+                return;
+            }
+
+            try
+            {
+                await _glsShipmentStore.CleanupStalePreparingAsync(cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Warning(
+                    $"Nie udało się wyczyścić starego cache przygotowalni GLS: {ex.Message}",
+                    "MainViewModel");
+            }
+
+            await BuildGlsRelatedOwnerIndexAsync(cancellationToken).ConfigureAwait(false);
+
+            var allCache = _glsShipmentStore.GetAllSnapshot();
+
+            foreach (var doc in SubiektDocuments.ToList())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (HasUsableGlsShipmentCache(doc))
+                {
+                    if (doc.GlsShipmentDokId is not > 0 && doc.OwnsGlsShipmentCache)
+                    {
+                        doc.GlsShipmentDokId = doc.DokId;
+                        doc.GlsShipmentDokTyp = doc.DokTyp;
+                    }
+
+                    if (doc.GlsShipment is { IsEmpty: false } cached)
+                    {
+                        ApplyGlsNadaneDisplayFromCache(doc, cached);
+                    }
+
+                    continue;
+                }
+
+                var (record, sourceDokId, sourceDokTyp) = GlsSubiektSync.ResolveCacheForDocument(
+                    doc,
+                    allCache,
+                    _glsRelatedOwnerByDokId);
+
+                if (record == null && IsSubiektApiConfigured)
+                {
+                    List<SubiektRelatedDocument>? related = null;
+                    try
+                    {
+                        related = await _subiektApiService.GetRelatedDocumentsExpandedAsync(
+                            doc.DokId,
+                            doc.TypKod,
+                            cancellationToken: cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        Warning(
+                            $"Nie udało się pobrać powiązań dla cache GLS ({doc.NrPelny}): {ex.Message}",
+                            "MainViewModel");
+                    }
+
+                    try
+                    {
+                        var fromDb = await _glsShipmentStore
+                            .GetForDocumentAsync(doc, related, cancellationToken)
+                            .ConfigureAwait(false);
+                        record = fromDb.Record;
+                        sourceDokId = fromDb.SourceDokId;
+                        sourceDokTyp = fromDb.SourceDokTyp;
+                        if (record is { IsEmpty: false }
+                            && (record.DokId != doc.DokId || record.DokTyp != doc.DokTyp))
+                        {
+                            record = GlsSubiektSync.CopyCacheForDocument(doc, record);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        Warning(
+                            $"Nie udało się odczytać cache GLS dla {doc.NrPelny}: {ex.Message}",
+                            "MainViewModel");
+                    }
+                }
+
+                if (record is { IsEmpty: false })
+                {
+                    var capturedRecord = record;
+                    var capturedSourceDokId = sourceDokId;
+                    var capturedSourceDokTyp = sourceDokTyp;
+                    var apply = () =>
+                    {
+                        GlsSubiektSync.ApplyCacheToDocument(
+                            doc,
+                            capturedRecord,
+                            capturedSourceDokId,
+                            capturedSourceDokTyp);
+                        ApplyGlsNadaneDisplayFromCache(doc, capturedRecord);
+                    };
+
+                    if (Application.Current?.Dispatcher != null)
+                    {
+                        await Application.Current.Dispatcher.InvokeAsync(apply);
+                    }
+                    else
+                    {
+                        apply();
+                    }
                 }
             }
         }
 
-        private async Task SyncSubiektPrzesylkaFromGlsAsync(CancellationToken cancellationToken, bool showErrors)
+        private static void ApplyGlsNadaneDisplayFromCache(SubiektDocument doc, GlsShipmentRecord record)
         {
-            var updated = 0;
-            var cleared = 0;
-            var failed = 0;
+            if (string.IsNullOrWhiteSpace(record.NrNad))
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(doc.GlsPickupParcelNumber))
+            {
+                doc.GlsPickupParcelNumber = GlsShipmentRecord.NormalizeNrListu(record.NrNad);
+            }
+        }
+
+        /// <summary>
+        /// Po etykiecie / zapisie GLS z dialogu — od razu pokaż nr listu na powiązanych FS/WZ/ZK na liście.
+        /// </summary>
+        public async Task PropagateGlsShipmentToRelatedOnListAsync(SubiektDocument source)
+        {
+            if (source == null || source.DokId <= 0)
+            {
+                return;
+            }
+
+            List<SubiektRelatedDocument> related;
+            try
+            {
+                related = await _subiektApiService.GetRelatedDocumentsExpandedAsync(
+                        source.DokId,
+                        source.TypKod)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Warning(
+                    $"Nie udało się pobrać powiązań do propagacji cache GLS ({source.NrPelny}): {ex.Message}",
+                    "MainViewModel");
+                related = new List<SubiektRelatedDocument>();
+            }
+
+            var ids = new HashSet<int> { source.DokId };
+            foreach (var item in related)
+            {
+                if (item.DokId > 0)
+                {
+                    ids.Add(item.DokId);
+                }
+            }
+
+            var shipment = ResolveGlsShipmentForPropagation(source);
+            var persistedRows = new List<GlsShipmentRecord>();
+
+            foreach (var doc in SubiektDocuments)
+            {
+                if (!ids.Contains(doc.DokId))
+                {
+                    continue;
+                }
+
+                GlsShipmentRecord? forDoc = null;
+                if (shipment != null)
+                {
+                    // Każdy powiązany wiersz pokazuje ten sam cache; zapis SQLite poniżej.
+                    forDoc = doc.DokId == shipment.DokId && doc.DokTyp == shipment.DokTyp
+                        ? shipment
+                        : new GlsShipmentRecord
+                        {
+                            DokId = doc.DokId,
+                            DokTyp = doc.DokTyp,
+                            NrPelny = doc.NrPelny ?? "",
+                            Carrier = shipment.Carrier,
+                            BoxId = shipment.BoxId,
+                            NrPrzyg = shipment.NrPrzyg,
+                            NrNad = shipment.NrNad
+                        };
+                    GlsSubiektSync.ApplyCacheToDocument(
+                        doc,
+                        forDoc,
+                        shipment.DokId,
+                        shipment.DokTyp);
+                    ApplyGlsNadaneDisplayFromCache(doc, forDoc);
+                    persistedRows.Add(forDoc);
+                }
+                else if (doc.DokId == source.DokId)
+                {
+                    GlsSubiektSync.ApplyCacheToDocument(doc, null);
+                }
+
+                if (source.GlsPreparingBoxId is > 0)
+                {
+                    doc.GlsPreparingBoxId = source.GlsPreparingBoxId;
+                    doc.GlsPreparingBoxParcelNumber = source.GlsPreparingBoxParcelNumber ?? "";
+                    doc.GlsStatusChecked = true;
+                }
+                else
+                {
+                    doc.GlsPreparingBoxId = null;
+                    doc.GlsPreparingBoxParcelNumber = "";
+                }
+
+                if (!string.IsNullOrWhiteSpace(source.GlsPickupParcelNumber))
+                {
+                    doc.GlsPickupParcelNumber = source.GlsPickupParcelNumber;
+                    doc.GlsPickupConsignmentId = source.GlsPickupConsignmentId;
+                }
+                else if (shipment != null && !string.IsNullOrWhiteSpace(shipment.NrNad))
+                {
+                    doc.GlsPickupParcelNumber = shipment.NrNad;
+                    doc.GlsPickupConsignmentId = null;
+                }
+                else if (doc.DokId == source.DokId)
+                {
+                    doc.GlsPickupParcelNumber = "";
+                    doc.GlsPickupConsignmentId = null;
+                }
+            }
+
+            if (shipment != null)
+            {
+                try
+                {
+                    foreach (var row in persistedRows)
+                    {
+                        await _glsShipmentStore.UpsertAsync(row).ConfigureAwait(true);
+                    }
+
+                    var ownerDokId = source.GlsShipmentDokId ?? shipment.DokId;
+                    var ownerDokTyp = source.GlsShipmentDokTyp ?? shipment.DokTyp;
+                    var ownerRecord = shipment.DokId == ownerDokId && shipment.DokTyp == ownerDokTyp
+                        ? shipment
+                        : new GlsShipmentRecord
+                        {
+                            DokId = ownerDokId,
+                            DokTyp = ownerDokTyp,
+                            NrPelny = source.NrPelny ?? shipment.NrPelny,
+                            Carrier = shipment.Carrier,
+                            BoxId = shipment.BoxId,
+                            NrPrzyg = shipment.NrPrzyg,
+                            NrNad = shipment.NrNad
+                        };
+
+                    await _glsShipmentStore.UpsertAsync(ownerRecord).ConfigureAwait(true);
+                    await _glsShipmentStore
+                        .PropagateToRelatedAsync(ownerRecord, ownerDokId, ownerDokTyp, related)
+                        .ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    Warning(
+                        $"Nie udało się zapisać cache GLS po propagacji ({source.NrPelny}): {ex.Message}",
+                        "MainViewModel");
+                }
+            }
+
+            RefreshSubiektFilter();
+        }
+
+        private static GlsShipmentRecord? ResolveGlsShipmentForPropagation(SubiektDocument source)
+        {
+            if (source.GlsShipment is { IsEmpty: false } cached)
+            {
+                return cached;
+            }
+
+            if (source.GlsPreparingBoxId is not int boxId || boxId <= 0)
+            {
+                return null;
+            }
+
+            return new GlsShipmentRecord
+            {
+                DokId = source.GlsShipmentDokId ?? source.DokId,
+                DokTyp = source.GlsShipmentDokTyp ?? source.DokTyp,
+                NrPelny = source.NrPelny ?? "",
+                Carrier = "GLS",
+                BoxId = boxId,
+                NrPrzyg = source.GlsPreparingBoxParcelNumber ?? "",
+                NrNad = ""
+            };
+        }
+
+        private async Task<GlsPreparingBoxSyncSummary> SyncGlsPreparingBoxToCacheAsync(
+            CancellationToken cancellationToken,
+            bool showErrors)
+        {
+            var summary = new GlsPreparingBoxSyncSummary();
             var liveBoxIds = _glsPreparingBoxItems
                 .Select(item => item.Id)
                 .Where(id => id > 0)
@@ -1469,12 +1844,12 @@ namespace Gryzak.ViewModels
                 try
                 {
                     // Osobne listy: przygotowalnia (przechowalnia) vs nadane.
-                    var przesylka = doc.Przesylka is { IsDeleted: false } live ? live : null;
+                    var shipment = doc.GlsShipment is { IsEmpty: false } live ? live : null;
                     var preparingNr = GlsSubiektSync.CombineNrListu(
                         doc.GlsPreparingBoxParcelNumber,
-                        przesylka?.NrListuPrzygotowalnia);
-                    var one = await GlsSubiektSync.ApplyToSubiektAsync(
-                        _subiektApiService,
+                        shipment?.NrPrzyg);
+                    var one = await GlsSubiektSync.ApplyToLocalAsync(
+                        _glsShipmentStore,
                         doc,
                         liveBoxIds,
                         doc.GlsPreparingBoxId,
@@ -1483,11 +1858,43 @@ namespace Gryzak.ViewModels
                         cancellationToken);
                     if (one.Cleared)
                     {
-                        cleared++;
+                        summary.DocumentsCleared++;
                     }
                     else if (one.Changed)
                     {
-                        updated++;
+                        summary.DocumentsUpdated++;
+                    }
+
+                    if (one.Shipment is { IsEmpty: false } syncedShipment)
+                    {
+                        try
+                        {
+                            var related = await _subiektApiService
+                                .GetRelatedDocumentsExpandedAsync(
+                                    doc.DokId,
+                                    doc.TypKod,
+                                    cancellationToken: cancellationToken)
+                                .ConfigureAwait(false);
+                            await _glsShipmentStore
+                                .PropagateToRelatedAsync(
+                                    syncedShipment,
+                                    doc.DokId,
+                                    doc.DokTyp,
+                                    related,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            summary.Failed++;
+                            Warning(
+                                $"Przygotowalnia GLS zapisano dla {doc.NrPelny}, ale nie udało się skopiować cache na powiązane WZ/ZK/FS: {ex.Message}",
+                                "MainViewModel");
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -1496,28 +1903,31 @@ namespace Gryzak.ViewModels
                 }
                 catch (Exception ex)
                 {
-                    failed++;
+                    summary.Failed++;
                     Warning(
-                        $"Nie udało się zsynchronizować Przesylka z GLS dla {doc.NrPelny}: {ex.Message}",
+                        $"Nie udało się zsynchronizować cache GLS dla {doc.NrPelny}: {ex.Message}",
                         "MainViewModel");
                 }
             }
 
-            if (updated > 0 || cleared > 0 || failed > 0)
+            if (summary.DocumentsUpdated > 0 || summary.DocumentsCleared > 0 || summary.Failed > 0)
             {
                 Info(
-                    $"Synchronizacja GLS→Subiekt: zapisano {updated}, wyczyszczono {cleared}, błędów {failed}.",
+                    $"Synchronizacja GLS→cache: zapisano {summary.DocumentsUpdated}, " +
+                    $"wyczyszczono {summary.DocumentsCleared}, błędów {summary.Failed}.",
                     "MainViewModel");
             }
 
-            if (failed > 0 && showErrors)
+            if (summary.Failed > 0 && showErrors)
             {
                 MessageBox.Show(
-                    $"GLS jest źródłem prawdy, ale {failed} dokumentów nie udało się zapisać w Subiekcie. Szczegóły w logu.",
-                    "Subiekt",
+                    $"GLS jest źródłem prawdy, ale {summary.Failed} dokumentów nie udało się zapisać w lokalnym cache. Szczegóły w logu.",
+                    "GLS",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
+
+            return summary;
         }
 
         private async Task FetchGlsPickupsAsync()
@@ -1592,8 +2002,8 @@ namespace Gryzak.ViewModels
 
                 UpdateProgress("GLS nadania · synchronizacja nr_listu…", 95);
                 _glsPickupItems = result.Items;
+                await HydrateGlsShipmentCacheAsync(cts.Token);
                 ApplyGlsPickupMatches();
-                await HydrateSubiektPrzesylkaAsync(cts.Token);
                 foreach (var doc in SubiektDocuments)
                 {
                     if (_glsListsFetched)
@@ -1603,6 +2013,10 @@ namespace Gryzak.ViewModels
                 }
 
                 var synced = await SyncSubiektNrListuFromPickupsAsync(cts.Token, showErrors: false);
+                foreach (var doc in SubiektDocuments.Where(d => !string.IsNullOrWhiteSpace(d.GlsPickupParcelNumber)))
+                {
+                    await PropagateGlsShipmentToRelatedOnListAsync(doc).ConfigureAwait(true);
+                }
                 Info(
                     $"GLS ({result.EnvironmentName}): nadania {result.Items.Count} " +
                     $"({query.FromDate:yyyy-MM-dd}…{query.ToDate:yyyy-MM-dd}), " +
@@ -1664,8 +2078,8 @@ namespace Gryzak.ViewModels
             sb.AppendLine($"Zakres: {range}");
             sb.AppendLine($"Pobrano z GLS: {glsShipmentsFetched} przesyłek");
             sb.AppendLine($"Dopasowano do listy: {synced.DocumentsMatched} dokumentów");
-            sb.AppendLine($"Zapisano w Subiekcie: {synced.DocumentsUpdated} dokumentów");
-            sb.AppendLine($"Numery listu już w Subiekcie: {synced.NrListuAlreadyPresent}");
+            sb.AppendLine($"Zapisano w cache: {synced.DocumentsUpdated} dokumentów");
+            sb.AppendLine($"Numery listu już w cache: {synced.NrListuAlreadyPresent}");
             sb.AppendLine($"Numery listu nowo dodane: {synced.NrListuAdded}");
             if (synced.Failed > 0)
             {
@@ -1675,6 +2089,28 @@ namespace Gryzak.ViewModels
             MessageBox.Show(
                 sb.ToString().TrimEnd(),
                 "GLS — podsumowanie nadań",
+                MessageBoxButton.OK,
+                synced.Failed > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+        }
+
+        private static void ShowGlsPreparingBoxSyncSummary(
+            int glsShipmentsFetched,
+            int documentsMatched,
+            GlsPreparingBoxSyncSummary synced)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Pobrano z GLS: {glsShipmentsFetched} przesyłek");
+            sb.AppendLine($"Dopasowano do listy: {documentsMatched} dokumentów");
+            sb.AppendLine($"Zapisano w cache: {synced.DocumentsUpdated} dokumentów");
+            sb.AppendLine($"Wyczyszczono z cache: {synced.DocumentsCleared} dokumentów");
+            if (synced.Failed > 0)
+            {
+                sb.AppendLine($"Błędów zapisu: {synced.Failed}");
+            }
+
+            MessageBox.Show(
+                sb.ToString().TrimEnd(),
+                "GLS — podsumowanie przygotowalni",
                 MessageBoxButton.OK,
                 synced.Failed > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
         }
@@ -1689,6 +2125,13 @@ namespace Gryzak.ViewModels
 
                 UpdateProgress(p.StatusText, p.Percent);
             });
+
+        private sealed class GlsPreparingBoxSyncSummary
+        {
+            public int DocumentsUpdated { get; set; }
+            public int DocumentsCleared { get; set; }
+            public int Failed { get; set; }
+        }
 
         private sealed class GlsPickupSyncSummary
         {
@@ -1720,9 +2163,9 @@ namespace Gryzak.ViewModels
                         liveBoxIds.Add(boxId);
                     }
 
-                    if (doc.Przesylka is { IsDeleted: false, HasId: true } p)
+                    if (doc.GlsShipment is { HasBoxId: true } p)
                     {
-                        liveBoxIds.Add(p.Id);
+                        liveBoxIds.Add(p.BoxId);
                     }
                 }
             }
@@ -1739,10 +2182,10 @@ namespace Gryzak.ViewModels
 
                 try
                 {
-                    var existingNadane = doc.Przesylka is { IsDeleted: false } p ? p.NrListuNadane : null;
-                    var before = SubiektPrzesylka.SplitNrListu(existingNadane)
+                    var existingNadane = doc.GlsShipment is { IsEmpty: false } p ? p.NrNad : null;
+                    var before = GlsShipmentRecord.SplitNrListu(existingNadane)
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    var fromGls = SubiektPrzesylka.SplitNrListu(doc.GlsPickupParcelNumber);
+                    var fromGls = GlsShipmentRecord.SplitNrListu(doc.GlsPickupParcelNumber);
                     var alreadyCount = fromGls.Count(nr => before.Contains(nr));
                     var addedCount = fromGls.Count(nr => !before.Contains(nr));
                     summary.NrListuAlreadyPresent += alreadyCount;
@@ -1750,20 +2193,20 @@ namespace Gryzak.ViewModels
                     var combinedNadane = GlsSubiektSync.CombineNrListu(existingNadane, doc.GlsPickupParcelNumber);
                     var preparingNr = GlsSubiektSync.CombineNrListu(
                         doc.GlsPreparingBoxParcelNumber,
-                        doc.Przesylka is { IsDeleted: false } q ? q.NrListuPrzygotowalnia : null);
-                    var one = await GlsSubiektSync.ApplyToSubiektAsync(
-                        _subiektApiService,
+                        doc.GlsShipment is { IsEmpty: false } q ? q.NrPrzyg : null);
+                    var one = await GlsSubiektSync.ApplyToLocalAsync(
+                        _glsShipmentStore,
                         doc,
                         liveBoxIds,
                         doc.GlsPreparingBoxId,
                         preparingNr,
                         combinedNadane,
                         cancellationToken);
-                    if (one.FsDokId is null or <= 0)
+                    if (one.CacheDokId is null or <= 0)
                     {
                         summary.Failed++;
                         Warning(
-                            $"Brak powiązanego FS dla {doc.NrPelny} — numery nadań nie zapisano w Subiekcie.",
+                            $"Brak dokumentu do zapisu cache GLS dla {doc.NrPelny} — numery nadań nie zapisano.",
                             "MainViewModel");
                         continue;
                     }
@@ -1772,6 +2215,38 @@ namespace Gryzak.ViewModels
                     {
                         summary.DocumentsUpdated++;
                         summary.NrListuAdded += addedCount;
+
+                        try
+                        {
+                            var related = await _subiektApiService
+                                .GetRelatedDocumentsExpandedAsync(
+                                    doc.DokId,
+                                    doc.TypKod,
+                                    cancellationToken: cancellationToken)
+                                .ConfigureAwait(false);
+                            if (one.Shipment is { IsEmpty: false } shipment)
+                            {
+                                await _glsShipmentStore
+                                    .PropagateToRelatedAsync(
+                                        shipment,
+                                        doc.DokId,
+                                        doc.DokTyp,
+                                        related,
+                                        cancellationToken)
+                                    .ConfigureAwait(false);
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            summary.Failed++;
+                            Warning(
+                                $"Nadanie GLS zapisano dla {doc.NrPelny}, ale nie udało się skopiować cache na powiązane WZ/ZK/FS: {ex.Message}",
+                                "MainViewModel");
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -1790,7 +2265,7 @@ namespace Gryzak.ViewModels
             if (summary.DocumentsUpdated > 0 || summary.Failed > 0)
             {
                 Info(
-                    $"Synchronizacja nadań GLS→Subiekt: dokumentów {summary.DocumentsUpdated}, " +
+                    $"Synchronizacja nadań GLS→cache: dokumentów {summary.DocumentsUpdated}, " +
                     $"nr_listu już {summary.NrListuAlreadyPresent}, dodane {summary.NrListuAdded}, " +
                     $"błędów {summary.Failed}.",
                     "MainViewModel");
@@ -1799,8 +2274,8 @@ namespace Gryzak.ViewModels
             if (summary.Failed > 0 && showErrors)
             {
                 MessageBox.Show(
-                    $"{summary.Failed} dokumentów nie udało się zaktualizować nr_listu w Subiekcie. Szczegóły w logu.",
-                    "Subiekt",
+                    $"{summary.Failed} dokumentów nie udało się zaktualizować nr_listu w lokalnym cache. Szczegóły w logu.",
+                    "GLS",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
@@ -2061,11 +2536,11 @@ namespace Gryzak.ViewModels
             IsGlsPanelEnabled = _configService.LoadGlsConfig().GlsPanelEnabled;
         }
 
-        private void OpenGlsParcelSearchDialog()
+        private void OpenGlsShipmentsDialog()
         {
             try
             {
-                var dialog = new Views.GlsParcelSearchDialog(_configService);
+                var dialog = new Views.GlsShipmentsDialog(_glsShipmentStore, _configService);
                 if (Application.Current?.MainWindow != dialog)
                 {
                     dialog.Owner = Application.Current?.MainWindow;
@@ -2075,9 +2550,9 @@ namespace Gryzak.ViewModels
             }
             catch (Exception ex)
             {
-                Error(ex, "MainViewModel", "Błąd otwierania okna wyszukiwania GLS");
+                Error(ex, "MainViewModel", "Błąd otwierania okna cache przesyłek GLS");
                 MessageBox.Show(
-                    $"Nie udało się otworzyć okna wyszukiwania przesyłki GLS.\n\n{ex.Message}",
+                    $"Nie udało się otworzyć listy przesyłek GLS.\n\n{ex.Message}",
                     "Błąd",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -2887,61 +3362,10 @@ namespace Gryzak.ViewModels
                     Debug($"Zaktualizowano telefon: {order.Phone}", "MainViewModel");
                 }
                 
-                // Aktualizuj nazwę firmy (payment_company)
-                if (root.TryGetProperty("payment_company", out var companyProp) && companyProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                {
-                    var companyValue = companyProp.GetString();
-                    if (!string.IsNullOrWhiteSpace(companyValue))
-                    {
-                        // Decoduj HTML entities dwukrotnie (bo API zwraca podwójnie zakodowane encje)
-                        companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
-                        companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
-                        order.Company = companyValue;
-                        Debug($"Zaktualizowano firmę: {order.Company}", "MainViewModel");
-                    }
-                }
-                
-                // Aktualizuj adres
-                if (root.TryGetProperty("payment_address_1", out var addr1Prop) && addr1Prop.ValueKind == System.Text.Json.JsonValueKind.String)
-                {
-                    var addressParts = new List<string>();
-                    var addr1Raw = addr1Prop.GetString() ?? "";
-                    var addr1 = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(addr1Raw));
-                    addressParts.Add(addr1);
-                    
-                    // Dodaj address_2 jeśli istnieje
-                    if (root.TryGetProperty("payment_address_2", out var addr2Prop) && addr2Prop.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var addr2Raw = addr2Prop.GetString();
-                        if (!string.IsNullOrWhiteSpace(addr2Raw))
-                        {
-                            var addr2 = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(addr2Raw));
-                            addressParts.Add(addr2);
-                        }
-                    }
-                    
-                    // Dodaj postcode i city
-                    var postcode = "";
-                    var city = "";
-                    if (root.TryGetProperty("payment_postcode", out var pcProp) && pcProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var pcRaw = pcProp.GetString() ?? "";
-                        postcode = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(pcRaw));
-                    }
-                    if (root.TryGetProperty("payment_city", out var cityProp) && cityProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var cityRaw = cityProp.GetString() ?? "";
-                        city = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(cityRaw));
-                    }
-                    
-                    if (!string.IsNullOrWhiteSpace(postcode) || !string.IsNullOrWhiteSpace(city))
-                    {
-                        addressParts.Add($"{postcode} {city}".Trim());
-                    }
-                    
-                    order.Address = string.Join(", ", addressParts.Where(s => !string.IsNullOrWhiteSpace(s)));
-                    Debug($"Zaktualizowano adres: {order.Address}", "MainViewModel");
-                }
+                // Adres płatności + adres wysyłki (payment_* / shipping_* z OpenCart)
+                order.ApplyAddressesFromApi(root);
+                Debug($"Zaktualizowano adres płatności: {order.Address}", "MainViewModel");
+                Debug($"Adres wysyłki: {order.ShippingDisplayAddress} (różny={order.IsShippingDifferentFromPayment})", "MainViewModel");
                 
                 // Aktualizuj NIP (vat)
                 if (root.TryGetProperty("vat", out var vatProp) && vatProp.ValueKind == System.Text.Json.JsonValueKind.String)

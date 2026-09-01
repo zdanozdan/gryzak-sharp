@@ -188,7 +188,7 @@
             </MenuItem>
             <MenuItem Header="_Narzędzia">
                 <MenuItem Header="WyPLUwacz" Command="{Binding WyPLUwaczCommand}"/>
-                <MenuItem Header="Szukaj przesyłki" Command="{Binding SearchShipmentCommand}"/>
+                <MenuItem Header="Przesyłki" Command="{Binding OpenGlsShipmentsCommand}"/>
             </MenuItem>
             <MenuItem Header="_Pomoc">
                 <MenuItem Header="O aplikacji" Click="AboutMenuItem_Click"/>

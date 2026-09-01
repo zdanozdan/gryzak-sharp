@@ -330,7 +330,7 @@
                         BorderBrush="#4CAF50" BorderThickness="4,0,0,0" Padding="10,0,0,0"
                         Visibility="{Binding HasShippingAddress, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel>
-                        <TextBlock Text="Adres dostawy" FontWeight="Bold" Foreground="#2E7D32"/>
+                        <TextBlock Text="Adres wysyłki" FontWeight="Bold" Foreground="#2E7D32"/>
                         <TextBlock Text="{Binding ShippingAddressName}"
                                    Visibility="{Binding ShippingAddressName, Converter={StaticResource StringToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding ShippingAddress}" TextWrapping="Wrap"/>

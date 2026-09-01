@@ -191,6 +191,9 @@ namespace Gryzak.Views
             details.GlsPickupConsignmentId = document.GlsPickupConsignmentId;
             details.GlsPickupParcelNumber = document.GlsPickupParcelNumber;
             details.GlsStatusChecked = document.GlsStatusChecked;
+            details.GlsShipment = document.GlsShipment;
+            details.GlsShipmentDokId = document.GlsShipmentDokId;
+            details.GlsShipmentDokTyp = document.GlsShipmentDokTyp;
             if (details.Przesylka == null)
             {
                 details.Przesylka = document.Przesylka;
@@ -211,15 +214,23 @@ namespace Gryzak.Views
             };
             detailsDialog.ShowDialog();
 
-            if (detailsDialog.Document.DokId == document.DokId)
+            var updated = detailsDialog.Document;
+            if (updated.DokId == document.DokId)
             {
-                document.Przesylka = detailsDialog.Document.Przesylka;
-                document.GlsPreparingBoxId = detailsDialog.Document.GlsPreparingBoxId;
-                document.GlsPreparingBoxParcelNumber = detailsDialog.Document.GlsPreparingBoxParcelNumber;
-                document.GlsPickupConsignmentId = detailsDialog.Document.GlsPickupConsignmentId;
-                document.GlsPickupParcelNumber = detailsDialog.Document.GlsPickupParcelNumber;
-                document.GlsStatusChecked = detailsDialog.Document.GlsStatusChecked;
+                document.Przesylka = updated.Przesylka;
+                document.PrzesylkaOwnerDokId = updated.PrzesylkaOwnerDokId;
+                document.PrzesylkaOwnerTypKod = updated.PrzesylkaOwnerTypKod;
+                document.GlsShipment = updated.GlsShipment;
+                document.GlsShipmentDokId = updated.GlsShipmentDokId;
+                document.GlsShipmentDokTyp = updated.GlsShipmentDokTyp;
+                document.GlsPreparingBoxId = updated.GlsPreparingBoxId;
+                document.GlsPreparingBoxParcelNumber = updated.GlsPreparingBoxParcelNumber;
+                document.GlsPickupConsignmentId = updated.GlsPickupConsignmentId;
+                document.GlsPickupParcelNumber = updated.GlsPickupParcelNumber;
+                document.GlsStatusChecked = updated.GlsStatusChecked;
             }
+
+            await vm.PropagateGlsShipmentToRelatedOnListAsync(updated);
         }
 
         private async void SubiektDocumentsScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)

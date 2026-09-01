@@ -66,8 +66,9 @@
                          Margin="0,0,0,10"/>
 
             <!-- Informacja o wersji -->
-            <TextBlock Grid.Row="4" 
-                       Text="Wersja 1.6.7" 
+            <TextBlock x:Name="VersionText"
+                       Grid.Row="4" 
+                       Text="" 
                        FontSize="11" 
                        Foreground="#999"
                        HorizontalAlignment="Center"/>

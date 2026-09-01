@@ -18,6 +18,11 @@ namespace Gryzak.Models
         public const string DefaultParcelWeightKg = "1";
         public const int NameFieldMaxLength = 40;
         public const int MaxParcelCount = 99;
+        public const int GlsReferenceMaxLength = 25;
+
+        private static readonly Regex ReferenceDokIdRegex = new(
+            @"\(#\s*(\d+)\s*\)",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         public string Name1 { get; set; } = "";
         public string Name2 { get; set; } = "";
@@ -134,7 +139,7 @@ namespace Gryzak.Models
             if (useDelivery
                 && (string.IsNullOrWhiteSpace(street) || string.IsNullOrWhiteSpace(zip) || string.IsNullOrWhiteSpace(city)))
             {
-                // Niepełny adres dostawy — dopełnij z adresu podstawowego kontrahenta.
+                // Niepełny adres wysyłki — dopełnij z adresu podstawowego kontrahenta.
                 if (string.IsNullOrWhiteSpace(street))
                 {
                     street = Truncate((document.KontrahentUlica ?? "").Trim(), 40);
@@ -156,9 +161,7 @@ namespace Gryzak.Models
                 }
             }
 
-            var references = Truncate(
-                !string.IsNullOrWhiteSpace(document.NrPelny) ? document.NrPelny.Trim() : document.NrPelnyOryg,
-                25);
+            var references = BuildGlsReference(document);
 
             var phone = useDelivery && !string.IsNullOrWhiteSpace(document.AdresDostawyTelefon)
                 ? document.AdresDostawyTelefon.Trim()
@@ -179,8 +182,8 @@ namespace Gryzak.Models
             consignment.References = references;
             consignment.Notes = Truncate(
                 string.IsNullOrWhiteSpace(document.NrPelnyOryg)
-                    ? "Gryzak"
-                    : $"Gryzak {document.NrPelnyOryg.Trim()}",
+                    ? ""
+                    : document.NrPelnyOryg.Trim(),
                 40);
             consignment.CodAmount = document.WartBrutto > 0 ? document.WartBrutto : 0;
             consignment.CashOnDelivery = document.IsGlsPobranie;
@@ -292,7 +295,7 @@ namespace Gryzak.Models
             Street = Truncate(Street, 40);
             Phone = Truncate(Phone, 25);
             Contact = Truncate(Contact, 40);
-            References = Truncate(References, 25);
+            References = Truncate(References, GlsReferenceMaxLength);
             Notes = Truncate(Notes, 40);
 
             EnsureParcel();
@@ -303,7 +306,7 @@ namespace Gryzak.Models
 
             foreach (var parcel in Parcels)
             {
-                parcel.Reference = Truncate(parcel.Reference, 25);
+                parcel.Reference = Truncate(parcel.Reference, GlsReferenceMaxLength);
                 if (string.IsNullOrWhiteSpace(parcel.Weight))
                 {
                     parcel.Weight = DefaultParcelWeightKg;
@@ -456,107 +459,116 @@ namespace Gryzak.Models
             return text.Length <= maxLength ? text : text[..maxLength].Trim();
         }
 
-        public static bool MatchesDocumentReference(string? references, SubiektDocument? document) =>
-            ScoreDocumentReferenceMatch(references, document) > 0;
-
         /// <summary>
-        /// Wyższy wynik = lepsze dopasowanie. 0 = brak.
-        /// Preferuje dokładne trafienie nad prefiks, dłuższy kandydat nad krótszy.
+        /// Referencja GLS: skrócony numer dokumentu + stabilny sufiks <c>(#dok_id)</c>.
         /// </summary>
-        public static int ScoreDocumentReferenceMatch(string? references, SubiektDocument? document)
+        public static string BuildGlsReference(SubiektDocument? document)
         {
-            var glsRef = (references ?? "").Trim();
-            if (string.IsNullOrEmpty(glsRef) || document == null)
+            if (document == null)
             {
-                return 0;
+                return "";
             }
 
-            var best = 0;
-            foreach (var candidate in DocumentReferenceCandidates(document))
+            var nr = !string.IsNullOrWhiteSpace(document.NrPelny)
+                ? document.NrPelny.Trim()
+                : (document.NrPelnyOryg ?? "").Trim();
+            if (document.DokId <= 0)
             {
-                if (string.Equals(glsRef, candidate, StringComparison.OrdinalIgnoreCase))
-                {
-                    best = Math.Max(best, 1_000_000 + candidate.Length);
-                    continue;
-                }
-
-                if (candidate.Length >= 5
-                    && glsRef.StartsWith(candidate, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Prefiks musi kończyć się na granicy (koniec albo nie-cyfra po stronie GLS),
-                    // żeby „FS 1/…” nie zjadało „FS 10/…”.
-                    if (glsRef.Length > candidate.Length)
-                    {
-                        var next = glsRef[candidate.Length];
-                        if (char.IsLetterOrDigit(next))
-                        {
-                            continue;
-                        }
-                    }
-
-                    best = Math.Max(best, 100_000 + candidate.Length);
-                }
+                return "";
             }
 
-            if (best == 0
-                && document.DokId > 0
-                && Regex.IsMatch(
-                    glsRef,
-                    $@"\(#\s*{document.DokId}\s*\)",
-                    RegexOptions.CultureInvariant))
+            var suffix = $" (#{document.DokId})";
+            var maxNrLen = GlsReferenceMaxLength - suffix.Length;
+            if (maxNrLen < 1)
             {
-                return 10_000;
+                return Truncate(suffix, GlsReferenceMaxLength);
             }
 
-            return best;
+            return Truncate(nr, maxNrLen) + suffix;
         }
 
-        public static SubiektDocument? FindBestDocumentForReference(
+        public static bool TryParseReferenceDokId(string? references, out int dokId)
+        {
+            dokId = 0;
+            var match = ReferenceDokIdRegex.Match(references ?? "");
+            if (!match.Success)
+            {
+                return false;
+            }
+
+            return int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out dokId)
+                   && dokId > 0;
+        }
+
+        public static bool MatchesDocumentReference(string? references, SubiektDocument? document)
+        {
+            if (document == null || !TryParseReferenceDokId(references, out var refDokId))
+            {
+                return false;
+            }
+
+            if (document.DokId > 0 && refDokId == document.DokId)
+            {
+                return true;
+            }
+
+            return document.GlsShipmentDokId is int owner && owner == refDokId;
+        }
+
+        public static SubiektDocument? FindDocumentForReferenceDokId(
             string? references,
             IEnumerable<SubiektDocument> documents)
         {
-            SubiektDocument? bestDoc = null;
-            var bestScore = 0;
+            if (!TryParseReferenceDokId(references, out var refDokId))
+            {
+                return null;
+            }
+
             foreach (var doc in documents)
             {
-                var score = ScoreDocumentReferenceMatch(references, doc);
-                if (score > bestScore)
+                if (doc.DokId == refDokId)
                 {
-                    bestScore = score;
-                    bestDoc = doc;
+                    return doc;
+                }
+
+                if (doc.GlsShipmentDokId is int owner && owner == refDokId)
+                {
+                    return doc;
                 }
             }
 
-            return bestDoc;
+            return null;
         }
 
-        private static IEnumerable<string> DocumentReferenceCandidates(SubiektDocument document)
+        /// <summary>Dopasowanie po fragmencie numeru dokumentu w referencji GLS (gdy brak trafienia po dok_id).</summary>
+        public static SubiektDocument? FindDocumentForReferenceNrPelny(
+            string? references,
+            IEnumerable<SubiektDocument> documents)
         {
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var raw in new[]
-                     {
-                         document.NrPelny,
-                         document.NrPelnyOryg,
-                         SubiektDocumentNumber.Sanitize(document.DoDokNrPelny)
-                     })
+            var refs = (references ?? "").Trim();
+            if (refs.Length == 0)
             {
-                var value = (raw ?? "").Trim();
-                if (string.IsNullOrEmpty(value))
+                return null;
+            }
+
+            SubiektDocument? best = null;
+            var bestLen = 0;
+            foreach (var doc in documents)
+            {
+                var nr = (doc.NrPelny ?? "").Trim();
+                if (nr.Length == 0 || bestLen >= nr.Length)
                 {
                     continue;
                 }
 
-                if (seen.Add(value))
+                if (refs.Contains(nr, StringComparison.OrdinalIgnoreCase))
                 {
-                    yield return value;
-                }
-
-                var truncated = Truncate(value, 25);
-                if (seen.Add(truncated))
-                {
-                    yield return truncated;
+                    best = doc;
+                    bestLen = nr.Length;
                 }
             }
+
+            return best;
         }
     }
 

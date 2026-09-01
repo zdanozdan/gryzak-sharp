@@ -118,6 +118,7 @@ namespace Gryzak.Services
             string? email = null,
             string? customerName = null,
             string? nip = null,
+            string? company = null,
             int pageSize = 20,
             SubiektConfig? config = null,
             CancellationToken cancellationToken = default)
@@ -127,7 +128,7 @@ namespace Gryzak.Services
 
             var byId = new Dictionary<int, KontrahentItem>();
 
-            async Task FetchAsync(string query)
+            async Task<int> FetchAsync(string query, Action<KontrahentItem> markMatch)
             {
                 using var client = CreateClient(config);
                 using var response = await client.GetAsync($"kontrahenci?{query}", cancellationToken).ConfigureAwait(false);
@@ -137,44 +138,87 @@ namespace Gryzak.Services
                 var envelope = JsonSerializer.Deserialize<ApiEnvelope<List<KontrahentDto>>>(body, JsonOptions);
                 if (envelope?.Data == null)
                 {
-                    return;
+                    return 0;
                 }
 
+                var added = 0;
                 foreach (var row in envelope.Data)
                 {
-                    if (row.Kh_Id <= 0 || byId.ContainsKey(row.Kh_Id))
+                    if (row.Kh_Id <= 0)
                     {
                         continue;
                     }
 
-                    byId[row.Kh_Id] = new KontrahentItem
+                    if (!byId.TryGetValue(row.Kh_Id, out var item))
                     {
-                        Id = row.Kh_Id,
-                        Symbol = row.Kh_Symbol ?? "",
-                        NazwaPelna = row.Adr_NazwaPelna ?? row.Adr_Nazwa ?? "",
-                        Email = row.Kh_EMail ?? "",
-                        NIP = row.Adr_NIP ?? "",
-                        Adres = row.Adr_Adres ?? row.Adr_Ulica ?? "",
-                        Miejscowosc = row.Adr_Miejscowosc ?? "",
-                        Kod = row.Adr_Kod ?? ""
-                    };
+                        item = new KontrahentItem
+                        {
+                            Id = row.Kh_Id,
+                            Symbol = row.Kh_Symbol ?? "",
+                            NazwaPelna = row.Adr_NazwaPelna ?? row.Adr_Nazwa ?? "",
+                            Email = row.Kh_EMail ?? "",
+                            NIP = row.Adr_NIP ?? "",
+                            Adres = row.Adr_Adres ?? row.Adr_Ulica ?? "",
+                            Miejscowosc = row.Adr_Miejscowosc ?? "",
+                            Kod = row.Adr_Kod ?? ""
+                        };
+                        byId[row.Kh_Id] = item;
+                    }
+
+                    markMatch(item);
+                    added++;
                 }
+
+                return added;
             }
 
             try
             {
+                // GET /kontrahenci — osobne filtry (email, nazwa, nazwaPelna, search) scalane po kh_Id.
                 if (!string.IsNullOrWhiteSpace(email))
                 {
-                    await FetchAsync($"email={Uri.EscapeDataString(email.Trim())}&pageSize={pageSize}").ConfigureAwait(false);
+                    await FetchAsync(
+                        $"email={Uri.EscapeDataString(email.Trim())}&pageSize={pageSize}",
+                        i => i.IsEmailMatch = true).ConfigureAwait(false);
                 }
 
-                var search = !string.IsNullOrWhiteSpace(customerName)
-                    ? customerName.Trim()
-                    : (!string.IsNullOrWhiteSpace(nip) ? nip.Trim() : null);
-
-                if (!string.IsNullOrWhiteSpace(search))
+                if (!string.IsNullOrWhiteSpace(customerName))
                 {
-                    await FetchAsync($"search={Uri.EscapeDataString(search)}&pageSize={pageSize}").ConfigureAwait(false);
+                    var normalizedName = NormalizeKontrahentField(customerName);
+                    var nameHits = await FetchAsync(
+                        $"nazwa={Uri.EscapeDataString(normalizedName)}&pageSize={pageSize}",
+                        i => i.IsNameMatch = true).ConfigureAwait(false);
+
+                    // Dokładne adr_Nazwa nie trafiło (np. „Imię Nazwisko” vs „Nazwisko Imię”) — luźniejsze search= (AND po tokenach).
+                    if (nameHits == 0)
+                    {
+                        await FetchAsync(
+                            $"search={Uri.EscapeDataString(normalizedName)}&pageSize={pageSize}",
+                            i => i.IsNameMatch = true).ConfigureAwait(false);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(company))
+                {
+                    var normalizedCompany = NormalizeKontrahentField(company);
+                    var companyHits = await FetchAsync(
+                        $"nazwaPelna={Uri.EscapeDataString(normalizedCompany)}&pageSize={pageSize}",
+                        i => i.IsCompanyMatch = true).ConfigureAwait(false);
+
+                    if (companyHits == 0)
+                    {
+                        await FetchAsync(
+                            $"search={Uri.EscapeDataString(normalizedCompany)}&pageSize={pageSize}",
+                            i => i.IsCompanyMatch = true).ConfigureAwait(false);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(nip))
+                {
+                    var nipQuery = NormalizeDocumentSearchQuery(nip.Trim());
+                    await FetchAsync(
+                        $"search={Uri.EscapeDataString(nipQuery)}&pageSize={pageSize}",
+                        i => i.IsNipMatch = true).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
@@ -182,7 +226,13 @@ namespace Gryzak.Services
                 Error(ex, "SubiektApiService", "Błąd podczas wyszukiwania kontrahentów");
             }
 
-            return byId.Values.Take(pageSize).ToList();
+            return byId.Values
+                .OrderByDescending(k => k.IsNipMatch)
+                .ThenByDescending(k => k.IsEmailMatch)
+                .ThenByDescending(k => k.IsNameMatch)
+                .ThenByDescending(k => k.IsCompanyMatch)
+                .Take(pageSize)
+                .ToList();
         }
 
         public async Task<int?> GetZkIdByNumerOryginalnyAsync(string numerOryginalny, SubiektConfig? config = null, CancellationToken cancellationToken = default)
@@ -258,6 +308,19 @@ namespace Gryzak.Services
         }
 
         /// <summary>
+        /// Normalizuje nazwę kontrahenta do parametrów GET /kontrahenci (nazwa, nazwaPelna).
+        /// API normalizuje końce linii \r\n / \r → \n.
+        /// </summary>
+        private static string NormalizeKontrahentField(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "";
+
+            var text = value.Trim().Replace("\r\n", "\n").Replace('\r', '\n');
+            return text.TrimEnd('\n', ' ');
+        }
+
+        /// <summary>
         /// Normalizuje frazę do GET /documents?search= (nr FS/WZ/ZK, nazwa, symbol, NIP, e-mail, kh_Id).
         /// </summary>
         public static string NormalizeDocumentSearchQuery(string? raw)
@@ -323,6 +386,39 @@ namespace Gryzak.Services
         }
 
         /// <summary>
+        /// PUT /kontrahenci/{kh_Id} — aktualizacja adresu / korespondencji / dostawy przez Sferę.
+        /// </summary>
+        public async Task<KontrahentDetails?> UpdateKontrahentAsync(
+            int khId,
+            KontrahentUpdateRequest request,
+            SubiektConfig? config = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (khId <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(khId));
+            }
+
+            ArgumentNullException.ThrowIfNull(request);
+
+            config ??= _configService.LoadSubiektConfig();
+            EnsureConfigured(config);
+
+            var json = JsonSerializer.Serialize(request, new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            });
+            using var client = CreateClient(config);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = await client.PutAsync($"kontrahenci/{khId}", content, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            EnsureSuccess(response, body);
+
+            var envelope = JsonSerializer.Deserialize<ApiEnvelope<KontrahentDto>>(body, JsonOptions);
+            return envelope?.Data == null ? null : MapKontrahentDetails(envelope.Data);
+        }
+
+        /// <summary>
         /// GET /kontrahenci/{kh_Id} — pełna kartoteka z adresem dostawy (adr_Dostawa*), gdy aktywny.
         /// </summary>
         private async Task<KontrahentDto?> GetKontrahentByIdAsync(
@@ -369,7 +465,7 @@ namespace Gryzak.Services
             catch (Exception ex)
             {
                 Warning(
-                    $"Nie udało się pobrać adresu dostawy kontrahenta {doc.KontrahentId}: {ex.Message}",
+                    $"Nie udało się pobrać adresu wysyłki kontrahenta {doc.KontrahentId}: {ex.Message}",
                     "SubiektApiService");
             }
         }
@@ -473,6 +569,10 @@ namespace Gryzak.Services
                 Telefon = FirstNonEmpty(kh.Kh_TelefonKomorkowy, kh.Kh_Telefon, kh.Adr_Telefon),
                 Panstwo = kh.Adr_Panstwo?.Trim() ?? kh.Pa_Nazwa?.Trim() ?? "",
                 Wojewodztwo = kh.Adr_Wojewodztwo?.Trim() ?? "",
+                PanstwoId = kh.Adr_IdPanstwo,
+                WojewodztwoId = kh.Adr_IdWojewodztwo,
+                NrDomu = kh.Adr_NrDomu?.Trim() ?? "",
+                NrLokalu = kh.Adr_NrLokalu?.Trim() ?? "",
 
                 HasAdresKorespondencyjny = HasAdresKorespondencyjnyFields(kh),
                 KorespondencyjnyNazwa = kh.Adr_KorespondencyjnyNazwa?.Trim() ?? "",
@@ -486,6 +586,8 @@ namespace Gryzak.Services
                 KorespondencyjnyTelefon = kh.Adr_KorespondencyjnyTelefon?.Trim() ?? "",
                 KorespondencyjnyPanstwo = kh.Adr_KorespondencyjnyPanstwo?.Trim() ?? "",
                 KorespondencyjnyWojewodztwo = kh.Adr_KorespondencyjnyWojewodztwo?.Trim() ?? "",
+                KorespondencyjnyPanstwoId = kh.Adr_KorespondencyjnyIdPanstwo,
+                KorespondencyjnyWojewodztwoId = kh.Adr_KorespondencyjnyIdWojewodztwo,
 
                 HasAdresDostawy = HasAdresDostawyFields(kh),
                 DostawaNazwa = kh.Adr_DostawaNazwa?.Trim() ?? "",
@@ -498,7 +600,11 @@ namespace Gryzak.Services
                 DostawaPoczta = kh.Adr_DostawaPoczta?.Trim() ?? "",
                 DostawaTelefon = kh.Adr_DostawaTelefon?.Trim() ?? "",
                 DostawaPanstwo = kh.Adr_DostawaPanstwo?.Trim() ?? "",
-                DostawaWojewodztwo = kh.Adr_DostawaWojewodztwo?.Trim() ?? ""
+                DostawaWojewodztwo = kh.Adr_DostawaWojewodztwo?.Trim() ?? "",
+                DostawaPanstwoId = kh.Adr_DostawaIdPanstwo,
+                DostawaWojewodztwoId = kh.Adr_DostawaIdWojewodztwo,
+                DostawaNrDomu = kh.Adr_DostawaNrDomu?.Trim() ?? "",
+                DostawaNrLokalu = kh.Adr_DostawaNrLokalu?.Trim() ?? ""
             };
         }
 
@@ -539,7 +645,6 @@ namespace Gryzak.Services
                 DokId = row.Dok_Id,
                 DokTyp = row.Dok_Typ,
                 TypKod = typ,
-                Przesylka = MapPrzesylka(row.Pw_Przesylka),
                 NrPelny = row.Dok_NrPelny?.Trim() ?? "",
                 NrPelnyOryg = row.Dok_NrPelnyOryg?.Trim() ?? "",
                 DoDokId = row.Dok_DoDokId is > 0 ? row.Dok_DoDokId : null,
@@ -696,167 +801,6 @@ namespace Gryzak.Services
                 .ThenBy(d => d.NrPelny, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-        public async Task<(int? FsId, SubiektPrzesylka? Przesylka)> ResolveInvoiceShipmentAsync(
-            SubiektDocument document,
-            SubiektConfig? config = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (document == null || document.DokId <= 0)
-            {
-                return (null, null);
-            }
-
-            config ??= _configService.LoadSubiektConfig();
-
-            if (string.Equals(document.TypKod, "fs", StringComparison.OrdinalIgnoreCase)
-                || document.DokTyp == SubiektApiDocumentTypes.Fs)
-            {
-                return (document.DokId, document.Przesylka);
-            }
-
-            try
-            {
-                var related = await GetRelatedDocumentsAsync(document.DokId, document.TypKod, config, cancellationToken)
-                    .ConfigureAwait(false);
-                var fs = FindFs(related);
-
-                if (fs == null)
-                {
-                    var wz = FindWz(related);
-                    if (wz != null)
-                    {
-                        var wzRelated = await GetRelatedDocumentsAsync(wz.DokId, "wz", config, cancellationToken)
-                            .ConfigureAwait(false);
-                        fs = FindFs(wzRelated);
-                    }
-                }
-
-                if (fs == null)
-                {
-                    return (null, null);
-                }
-
-                var fsDoc = await GetDocumentByIdAsync("fs", fs.DokId, config, cancellationToken).ConfigureAwait(false);
-                return (fs.DokId, fsDoc?.Przesylka);
-            }
-            catch (Exception ex)
-            {
-                Warning($"Nie udało się odczytać powiązanego FS dla {document.NrPelny}: {ex.Message}", "SubiektApiService");
-                return (null, null);
-            }
-        }
-
-        public async Task<SubiektPrzesylka?> PutPrzesylkaAsync(
-            int fsDokId,
-            SubiektPrzesylka przesylka,
-            SubiektConfig? config = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (fsDokId <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(fsDokId));
-            }
-
-            if (przesylka == null)
-            {
-                throw new ArgumentNullException(nameof(przesylka));
-            }
-
-            var body = new Dictionary<string, object?>
-            {
-                ["typ"] = string.IsNullOrWhiteSpace(przesylka.Typ) ? "GLS" : przesylka.Typ.Trim().ToUpperInvariant(),
-                ["id"] = przesylka.Id,
-                ["nr_listu_przygotowalnia"] = przesylka.NrListuPrzygotowalnia ?? "",
-                ["nr_listu_nadane"] = przesylka.NrListuNadane ?? "",
-                ["status"] = string.IsNullOrWhiteSpace(przesylka.Status)
-                    ? SubiektPrzesylka.StatusUtworzono
-                    : przesylka.Status,
-                ["data"] = SubiektPrzesylka.FormatData(przesylka.Data ?? DateTime.Now)
-            };
-
-            var envelope = await PutPrzesylkaJsonAsync(fsDokId, body, config, cancellationToken).ConfigureAwait(false);
-            return envelope?.Data == null ? przesylka : MapPrzesylka(envelope.Data.Pw_Przesylka) ?? przesylka;
-        }
-
-        public async Task<SubiektPrzesylka?> ClearPrzesylkaAsync(
-            int fsDokId,
-            SubiektConfig? config = null,
-            CancellationToken cancellationToken = default)
-        {
-            var now = DateTime.Now;
-            var bodyObj = new
-            {
-                typ = "GLS",
-                status = SubiektPrzesylka.StatusUsuniete,
-                data = SubiektPrzesylka.FormatData(now)
-            };
-
-            var envelope = await PutPrzesylkaJsonAsync(fsDokId, bodyObj, config, cancellationToken).ConfigureAwait(false);
-            return envelope?.Data == null
-                ? new SubiektPrzesylka
-                {
-                    Typ = "GLS",
-                    Status = SubiektPrzesylka.StatusUsuniete,
-                    Data = now
-                }
-                : MapPrzesylka(envelope.Data.Pw_Przesylka) ?? new SubiektPrzesylka
-                {
-                    Typ = "GLS",
-                    Status = SubiektPrzesylka.StatusUsuniete,
-                    Data = now
-                };
-        }
-
-        private async Task<ApiEnvelope<DocumentDto>?> PutPrzesylkaJsonAsync(
-            int fsDokId,
-            object bodyObj,
-            SubiektConfig? config,
-            CancellationToken cancellationToken)
-        {
-            if (fsDokId <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(fsDokId));
-            }
-
-            config ??= _configService.LoadSubiektConfig();
-            EnsureConfigured(config);
-
-            using var client = CreateClient(config);
-            using var content = new StringContent(
-                JsonSerializer.Serialize(bodyObj),
-                Encoding.UTF8,
-                "application/json");
-
-            using var response = await client.PutAsync($"documents/fs/{fsDokId}/przesylka", content, cancellationToken)
-                .ConfigureAwait(false);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            EnsureSuccess(response, body);
-
-            return JsonSerializer.Deserialize<ApiEnvelope<DocumentDto>>(body, JsonOptions);
-        }
-
-        private static SubiektRelatedDocument? FindFs(SubiektRelatedDocuments? related)
-        {
-            if (related == null)
-            {
-                return null;
-            }
-
-            return related.Pochodne.FirstOrDefault(d => d.IsFs)
-                ?? (related.Zrodlowy is { IsFs: true } src ? src : null);
-        }
-
-        private static SubiektRelatedDocument? FindWz(SubiektRelatedDocuments? related)
-        {
-            if (related == null)
-            {
-                return null;
-            }
-
-            return related.Pochodne.FirstOrDefault(d => d.IsWz)
-                ?? (related.Zrodlowy is { IsWz: true } src ? src : null);
-        }
-
         private static SubiektRelatedDocument? MapRelated(RelatedDocDto? row)
         {
             if (row == null || row.Dok_Id <= 0)
@@ -870,117 +814,6 @@ namespace Gryzak.Services
                 DokTyp = row.Dok_Typ,
                 NrPelny = row.Dok_NrPelny?.Trim() ?? ""
             };
-        }
-
-        private static SubiektPrzesylka? MapPrzesylka(JsonElement element)
-        {
-            if (element.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
-            {
-                return null;
-            }
-
-            JsonElement obj = element;
-            if (element.ValueKind == JsonValueKind.String)
-            {
-                var raw = element.GetString();
-                if (string.IsNullOrWhiteSpace(raw))
-                {
-                    return null;
-                }
-
-                try
-                {
-                    using var parsed = JsonDocument.Parse(raw);
-                    obj = parsed.RootElement.Clone();
-                }
-                catch
-                {
-                    Warning("Pole pw_Przesylka nie jest poprawnym JSON-em — pomijam.", "SubiektApiService");
-                    return null;
-                }
-            }
-
-            if (obj.ValueKind != JsonValueKind.Object)
-            {
-                return null;
-            }
-
-            var id = GetJsonInt(obj, "id");
-            var typ = GetJsonString(obj, "typ") ?? "";
-            var status = GetJsonString(obj, "status") ?? "";
-            var nrPrzygotowalnia = GetJsonString(obj, "nr_listu_przygotowalnia") ?? "";
-            var nrNadane = GetJsonString(obj, "nr_listu_nadane") ?? "";
-            var data = SubiektPrzesylka.ParseData(GetJsonString(obj, "data"));
-
-            if (id is null or <= 0
-                && string.IsNullOrWhiteSpace(status)
-                && string.IsNullOrWhiteSpace(typ)
-                && string.IsNullOrWhiteSpace(nrPrzygotowalnia)
-                && string.IsNullOrWhiteSpace(nrNadane))
-            {
-                return null;
-            }
-
-            return new SubiektPrzesylka
-            {
-                Typ = typ,
-                Id = id is > 0 ? id.Value : 0,
-                NrListuPrzygotowalnia = nrPrzygotowalnia,
-                NrListuNadane = nrNadane,
-                Status = status,
-                Data = data
-            };
-        }
-
-        private static string? GetJsonString(JsonElement obj, string name)
-        {
-            if (!TryGetPropertyIgnoreCase(obj, name, out var prop))
-            {
-                return null;
-            }
-
-            return prop.ValueKind == JsonValueKind.String ? prop.GetString() : prop.ToString();
-        }
-
-        private static int? GetJsonInt(JsonElement obj, string name)
-        {
-            if (!TryGetPropertyIgnoreCase(obj, name, out var prop))
-            {
-                return null;
-            }
-
-            if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var number))
-            {
-                return number;
-            }
-
-            if (prop.ValueKind == JsonValueKind.String
-                && int.TryParse(prop.GetString(), out var parsed))
-            {
-                return parsed;
-            }
-
-            return null;
-        }
-
-        private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
-        {
-            if (obj.TryGetProperty(name, out value))
-            {
-                return true;
-            }
-
-            foreach (var prop in obj.EnumerateObject())
-            {
-                if (prop.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                {
-                    value = prop.Value;
-                    return true;
-                }
-            }
-
-            value = default;
-            return false;
         }
 
         private static string FormatKontrahentNazwa(KontrahentDto? kh)
@@ -1360,6 +1193,8 @@ namespace Gryzak.Services
             public string? Adr_Kod { get; set; }
             public string? Adr_Poczta { get; set; }
             public string? Adr_Telefon { get; set; }
+            public int? Adr_IdPanstwo { get; set; }
+            public int? Adr_IdWojewodztwo { get; set; }
             public string? Adr_Kraj { get; set; }
             public string? Adr_KrajKod { get; set; }
             public string? Adr_Panstwo { get; set; }
@@ -1377,10 +1212,14 @@ namespace Gryzak.Services
             public string? Adr_KorespondencyjnyNIP { get; set; }
             public string? Adr_KorespondencyjnyAdres { get; set; }
             public string? Adr_KorespondencyjnyUlica { get; set; }
+            public string? Adr_KorespondencyjnyNrDomu { get; set; }
+            public string? Adr_KorespondencyjnyNrLokalu { get; set; }
             public string? Adr_KorespondencyjnyMiejscowosc { get; set; }
             public string? Adr_KorespondencyjnyKod { get; set; }
             public string? Adr_KorespondencyjnyPoczta { get; set; }
             public string? Adr_KorespondencyjnyTelefon { get; set; }
+            public int? Adr_KorespondencyjnyIdPanstwo { get; set; }
+            public int? Adr_KorespondencyjnyIdWojewodztwo { get; set; }
             public string? Adr_KorespondencyjnyPanstwo { get; set; }
             public string? Adr_KorespondencyjnyWojewodztwo { get; set; }
 
@@ -1391,10 +1230,14 @@ namespace Gryzak.Services
             public string? Adr_DostawaNIP { get; set; }
             public string? Adr_DostawaAdres { get; set; }
             public string? Adr_DostawaUlica { get; set; }
+            public string? Adr_DostawaNrDomu { get; set; }
+            public string? Adr_DostawaNrLokalu { get; set; }
             public string? Adr_DostawaMiejscowosc { get; set; }
             public string? Adr_DostawaKod { get; set; }
             public string? Adr_DostawaPoczta { get; set; }
             public string? Adr_DostawaTelefon { get; set; }
+            public int? Adr_DostawaIdPanstwo { get; set; }
+            public int? Adr_DostawaIdWojewodztwo { get; set; }
             public string? Adr_DostawaPanstwo { get; set; }
             public string? Adr_DostawaWojewodztwo { get; set; }
         }
@@ -1416,7 +1259,6 @@ namespace Gryzak.Services
             public string? Dok_Wystawil { get; set; }
             public string? Dok_PlatNazwa { get; set; }
             public string? Dok_KartaNazwa { get; set; }
-            public JsonElement Pw_Przesylka { get; set; }
             public KontrahentDto? Kh__Kontrahent_Odbiorca { get; set; }
             public KontrahentDto? Kh__Kontrahent_Platnik { get; set; }
             public List<DocumentLineDto>? Dok_Pozycja { get; set; }

@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -14,6 +16,7 @@ namespace Gryzak.Views
         public SplashWindow()
         {
             InitializeComponent();
+            VersionText.Text = GetAppVersionText();
             
             // Timer do animacji postępu
             _progressTimer = new DispatcherTimer
@@ -30,6 +33,19 @@ namespace Gryzak.Views
             _closeTimer.Tick += CloseTimer_Tick;
 
             Loaded += SplashWindow_Loaded;
+        }
+
+        private static string GetAppVersionText()
+        {
+            var assembly = typeof(SplashWindow).Assembly;
+            var info = assembly
+                .GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), false)
+                .OfType<AssemblyInformationalVersionAttribute>()
+                .FirstOrDefault()?.InformationalVersion;
+            var version = !string.IsNullOrWhiteSpace(info)
+                ? info.Split('+')[0].Trim()
+                : assembly.GetName().Version?.ToString(3);
+            return string.IsNullOrWhiteSpace(version) ? "Gryzak" : $"Gryzak v{version}";
         }
 
         private void SplashWindow_Loaded(object sender, RoutedEventArgs e)

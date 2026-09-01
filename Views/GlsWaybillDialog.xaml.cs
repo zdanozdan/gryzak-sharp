@@ -243,7 +243,7 @@ namespace Gryzak.Views
                 ? ""
                 : $"\n\nDokument: {Consignment.References}";
             var confirm = MessageBox.Show(
-                "Za chwilę usuniesz przesyłkę z przygotowalni GLS oraz wpis Przesylka z faktury w Subiekcie."
+                "Za chwilę usuniesz przesyłkę z przygotowalni GLS oraz lokalny wpis cache w Gryzaku."
                 + referenceText
                 + "\n\nTej operacji nie można cofnąć. Użyj tej opcji tylko wtedy, gdy na pewno wiesz, co robisz."
                 + "\n\nCzy chcesz przejść dalej?",

@@ -21,6 +21,10 @@ namespace Gryzak.Models
         public string Telefon { get; set; } = "";
         public string Panstwo { get; set; } = "";
         public string Wojewodztwo { get; set; } = "";
+        public int? PanstwoId { get; set; }
+        public int? WojewodztwoId { get; set; }
+        public string NrDomu { get; set; } = "";
+        public string NrLokalu { get; set; } = "";
 
         public bool HasAdresKorespondencyjny { get; set; }
         public string KorespondencyjnyNazwa { get; set; } = "";
@@ -34,6 +38,8 @@ namespace Gryzak.Models
         public string KorespondencyjnyTelefon { get; set; } = "";
         public string KorespondencyjnyPanstwo { get; set; } = "";
         public string KorespondencyjnyWojewodztwo { get; set; } = "";
+        public int? KorespondencyjnyPanstwoId { get; set; }
+        public int? KorespondencyjnyWojewodztwoId { get; set; }
 
         public bool HasAdresDostawy { get; set; }
         public string DostawaNazwa { get; set; } = "";
@@ -47,5 +53,9 @@ namespace Gryzak.Models
         public string DostawaTelefon { get; set; } = "";
         public string DostawaPanstwo { get; set; } = "";
         public string DostawaWojewodztwo { get; set; } = "";
+        public int? DostawaPanstwoId { get; set; }
+        public int? DostawaWojewodztwoId { get; set; }
+        public string DostawaNrDomu { get; set; } = "";
+        public string DostawaNrLokalu { get; set; } = "";
     }
 }

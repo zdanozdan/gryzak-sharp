@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="🧪 Szukaj przesyłki GLS" 
+        Title="Szukaj w GLS" 
         Height="560" Width="640"
         MinHeight="470" MinWidth="520"
         WindowStartupLocation="CenterOwner"

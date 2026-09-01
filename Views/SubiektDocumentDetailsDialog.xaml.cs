@@ -22,6 +22,7 @@ namespace Gryzak.Views
         private SubiektDocument _document;
         private readonly ConfigService _configService;
         private readonly SubiektApiService _subiektApiService;
+        private readonly GlsShipmentStore _glsShipmentStore = new();
         private string _documentNumber = "";
         private string _originalNumber = "";
         private List<SubiektRelatedDocument> _relatedDocuments = new();
@@ -42,7 +43,8 @@ namespace Gryzak.Views
         private string _payment = "";
         private List<SubiektDocumentLine> _lines = new();
         private bool _isSavingWaybill;
-        private int? _fsDokId;
+        private int? _przesylkaDokId;
+        private string _przesylkaTypKod = "";
         private SubiektPrzesylka? _przesylka;
         private bool _glsWaybillExists;
         private string _waybillStatusText = "";
@@ -382,9 +384,22 @@ namespace Gryzak.Views
         {
             Loaded -= OnLoaded;
             _przesylka = _document.Przesylka;
-            _fsDokId = null;
-            _glsWaybillExists = _przesylka is { HasId: true, IsDeleted: false };
-            if (_przesylka != null && (!string.IsNullOrWhiteSpace(_przesylka.Status) || _przesylka.Data != null))
+            if ((_przesylka == null || _przesylka.IsEmpty)
+                && _document.GlsShipment is { IsEmpty: false } cached)
+            {
+                ApplyShipmentToPrzesylka(cached);
+            }
+
+            _przesylkaDokId = _document.PrzesylkaOwnerDokId
+                ?? _document.GlsShipmentDokId
+                ?? _document.DokId;
+            _przesylkaTypKod = !string.IsNullOrWhiteSpace(_document.PrzesylkaOwnerTypKod)
+                ? _document.PrzesylkaOwnerTypKod
+                : (_document.GlsShipmentDokTyp is int typ
+                    ? SubiektApiDocumentTypes.FromDokTyp(typ)
+                    : SubiektApiDocumentTypes.FromDokTyp(_document.DokTyp));
+            _glsWaybillExists = _przesylka is { HasId: true };
+            if (_przesylka != null && (_przesylka.HasId || _przesylka.HasAnyNrListu))
             {
                 WaybillStatusText = _przesylka.SummaryText;
             }
@@ -396,11 +411,9 @@ namespace Gryzak.Views
 
         private async System.Threading.Tasks.Task EnsurePrzesylkaForCardsAsync()
         {
-            var hadUsable = _przesylka is { IsDeleted: false } p
-                && (p.HasId || !string.IsNullOrWhiteSpace(p.NrListuPrzygotowalnia) || !string.IsNullOrWhiteSpace(p.NrListuNadane));
-            await EnsureFsDokIdAsync().ConfigureAwait(true);
-            var hasUsable = _przesylka is { IsDeleted: false } q
-                && (q.HasId || !string.IsNullOrWhiteSpace(q.NrListuPrzygotowalnia) || !string.IsNullOrWhiteSpace(q.NrListuNadane));
+            var hadUsable = _przesylka is { IsEmpty: false };
+            await EnsurePrzesylkaOwnerAsync().ConfigureAwait(true);
+            var hasUsable = _przesylka is { IsEmpty: false };
             if (!hadUsable && hasUsable)
             {
                 ShowSyncedStateWithoutGls();
@@ -488,7 +501,8 @@ namespace Gryzak.Views
 
                 _document = details;
                 _przesylka = details.Przesylka;
-                _fsDokId = null;
+                _przesylkaDokId = details.PrzesylkaOwnerDokId;
+                _przesylkaTypKod = details.PrzesylkaOwnerTypKod ?? "";
                 _document.GlsPreparingBoxId = null;
                 _document.GlsPreparingBoxParcelNumber = "";
                 _document.GlsPickupConsignmentId = null;
@@ -497,12 +511,12 @@ namespace Gryzak.Views
                 GlsListsLoaded = false;
                 ApplyDocument(details);
 
-                // WZ/ZK nie mają pw_Przesylka — dociągnij z powiązanego FS (jak przy pierwszym otwarciu z listy).
-                await EnsureFsDokIdAsync().ConfigureAwait(true);
+                // Na FS/ZK bez własnego pola — dociągnij Przesylka z powiązanego WZ (lub legacy FS).
+                await EnsurePrzesylkaOwnerAsync().ConfigureAwait(true);
 
-                _glsWaybillExists = _przesylka is { HasId: true, IsDeleted: false };
+                _glsWaybillExists = _przesylka is { HasId: true };
                 WaybillStatusText = _przesylka != null
-                    && (!string.IsNullOrWhiteSpace(_przesylka.Status) || _przesylka.Data != null)
+                    && (_przesylka.HasId || _przesylka.HasAnyNrListu)
                         ? _przesylka.SummaryText
                         : "";
                 ShowSyncedStateWithoutGls();
@@ -525,34 +539,123 @@ namespace Gryzak.Views
             }
         }
 
-        private async System.Threading.Tasks.Task EnsureFsDokIdAsync()
+        private async System.Threading.Tasks.Task EnsurePrzesylkaOwnerAsync(bool forWrite = false)
         {
-            var needsPrzesylka = _przesylka == null
-                || _przesylka.IsDeleted
-                || (!_przesylka.HasId && !_przesylka.HasAnyNrListu);
+            var needsPrzesylka = _przesylka == null || _przesylka.IsEmpty;
 
-            if (_fsDokId is > 0 && !needsPrzesylka)
+            if (_przesylkaDokId is > 0
+                && !string.IsNullOrWhiteSpace(_przesylkaTypKod)
+                && !needsPrzesylka
+                && !forWrite)
             {
                 return;
             }
 
             try
             {
-                var (fsId, przesylka) = await _subiektApiService.ResolveInvoiceShipmentAsync(_document);
-                if (fsId is > 0)
+                if (RelatedDocuments.Count == 0)
                 {
-                    _fsDokId = fsId;
+                    await LoadRelatedDocumentsAsync().ConfigureAwait(true);
                 }
 
-                if (przesylka != null && needsPrzesylka)
+                var (record, sourceDokId, sourceDokTyp) = await _glsShipmentStore
+                    .GetForDocumentAsync(_document, RelatedDocuments)
+                    .ConfigureAwait(true);
+
+                if (record is { IsEmpty: false })
                 {
-                    _przesylka = przesylka;
-                    _document.Przesylka = przesylka;
+                    _przesylkaDokId = sourceDokId;
+                    _przesylkaTypKod = SubiektApiDocumentTypes.FromDokTyp(sourceDokTyp);
+                    _document.PrzesylkaOwnerDokId = sourceDokId;
+                    _document.PrzesylkaOwnerTypKod = _przesylkaTypKod;
+                    GlsSubiektSync.ApplyCacheToDocument(_document, record);
+                    if (needsPrzesylka || forWrite)
+                    {
+                        ApplyShipmentToPrzesylka(record);
+                    }
+
+                    return;
+                }
+
+                if (forWrite || _przesylkaDokId is not > 0)
+                {
+                    _przesylkaDokId = _document.DokId;
+                    _przesylkaTypKod = SubiektApiDocumentTypes.FromDokTyp(_document.DokTyp);
+                    if (string.IsNullOrWhiteSpace(_przesylkaTypKod))
+                    {
+                        _przesylkaTypKod = SubiektApiService.NormalizeDocumentType(_document.TypKod);
+                    }
+
+                    _document.PrzesylkaOwnerDokId = _przesylkaDokId;
+                    _document.PrzesylkaOwnerTypKod = _przesylkaTypKod;
                 }
             }
             catch (Exception ex)
             {
-                Warning($"Nie udało się odczytać pola Przesylka z FS: {ex.Message}", "SubiektDocumentDetails");
+                Warning($"Nie udało się odczytać lokalnego cache GLS: {ex.Message}", "SubiektDocumentDetails");
+            }
+        }
+
+        private void ApplyShipmentToPrzesylka(GlsShipmentRecord? shipment)
+        {
+            if (shipment == null || shipment.IsEmpty)
+            {
+                _przesylka = null;
+                _document.Przesylka = null;
+                return;
+            }
+
+            _przesylka = new SubiektPrzesylka
+            {
+                Typ = string.IsNullOrWhiteSpace(shipment.Carrier) ? "GLS" : shipment.Carrier,
+                Id = shipment.BoxId,
+                NrListuPrzygotowalnia = shipment.NrPrzyg,
+                NrListuNadane = shipment.NrNad
+            };
+            _document.Przesylka = _przesylka;
+        }
+
+        private void ApplyLocalSyncResult(GlsLocalSyncResult sync)
+        {
+            if (sync.CacheDokId is int ownerDokId)
+            {
+                _przesylkaDokId = ownerDokId;
+                _przesylkaTypKod = sync.CacheTypKod;
+                _document.PrzesylkaOwnerDokId = ownerDokId;
+                _document.PrzesylkaOwnerTypKod = sync.CacheTypKod;
+                _document.GlsShipmentDokId = ownerDokId;
+                _document.GlsShipmentDokTyp = sync.CacheDokTyp;
+            }
+
+            ApplyShipmentToPrzesylka(sync.Shipment);
+        }
+
+        private async System.Threading.Tasks.Task ApplyLocalSyncResultAndPropagateAsync(GlsLocalSyncResult sync)
+        {
+            ApplyLocalSyncResult(sync);
+
+            try
+            {
+                if (RelatedDocuments.Count == 0)
+                {
+                    await LoadRelatedDocumentsAsync().ConfigureAwait(true);
+                }
+
+                var sourceDokId = sync.CacheDokId ?? _document.DokId;
+                var sourceDokTyp = sync.CacheDokTyp > 0 ? sync.CacheDokTyp : _document.DokTyp;
+                await _glsShipmentStore
+                    .PropagateToRelatedAsync(
+                        sync.Shipment,
+                        sourceDokId,
+                        sourceDokTyp,
+                        RelatedDocuments)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Warning(
+                    $"Nie udało się spropagować cache GLS na dokumenty powiązane: {ex.Message}",
+                    "SubiektDocumentDetails");
             }
         }
 
@@ -583,9 +686,8 @@ namespace Gryzak.Views
                 });
             }
 
-            // Jak kolumna Nadania na liście: gdy brak dopasowania GLS po referencji WZ/ZK,
-            // numery często są na powiązanym FS (Przesylka) — pokaż je w kartach.
-            if (przesylka is { IsDeleted: false })
+            // Gdy brak dopasowania GLS po referencji — numery z pola Przesylka (WZ/FS, ewentualnie related).
+            if (przesylka is { IsEmpty: false })
             {
                 if (box.Count == 0 && przesylka.HasId)
                 {
@@ -634,7 +736,7 @@ namespace Gryzak.Views
                 GlsListsLoaded = true;
                 PreparingBoxItems = new List<GlsPreparingBoxItem>();
                 PickupItems = new List<GlsPickupItem>();
-                _glsWaybillExists = _przesylka is { HasId: true, IsDeleted: false };
+                _glsWaybillExists = _przesylka is { HasId: true };
                 WaybillStatusText = _przesylka is { HasId: true }
                     ? $"Subiekt: id {_przesylka.Id} (nie sprawdzono w GLS — brak loginu)."
                     : "Nie sprawdzono GLS — brak loginu.";
@@ -661,18 +763,19 @@ namespace Gryzak.Views
                     return false;
                 }
 
-                var box = GlsSubiektSync.MatchPreparingBox(_document, result.Items);
+                var cacheIndex = GlsShipmentCacheIndex.From(_glsShipmentStore.GetAllSnapshot());
+                var box = GlsSubiektSync.MatchPreparingBox(_document, result.Items, cacheIndex);
                 var pickups = new List<GlsPickupItem>();
 
                 var przesylka = _przesylka ?? _document.Przesylka;
                 if (box.Count == 0
-                    && przesylka is { IsDeleted: false, HasId: true } liveBox
+                    && przesylka is { HasId: true } liveBox
                     && result.Items.Any(item => item.Id == liveBox.Id))
                 {
                     box = result.Items.Where(item => item.Id == liveBox.Id).ToList();
                 }
 
-                if (przesylka is { IsDeleted: false }
+                if (przesylka is { IsEmpty: false }
                     && !string.IsNullOrWhiteSpace(przesylka.NrListuNadane))
                 {
                     pickups.Add(new GlsPickupItem
@@ -698,26 +801,18 @@ namespace Gryzak.Views
                     .ToHashSet();
                 try
                 {
-                    var sync = await GlsSubiektSync.ApplyToSubiektAsync(
-                        _subiektApiService,
+                    var sync = await GlsSubiektSync.ApplyToLocalAsync(
+                        _glsShipmentStore,
                         _document,
                         liveIds,
                         _document.GlsPreparingBoxId,
                         _document.GlsPreparingBoxParcelNumber,
                         matchedPickupNrListu: null);
-                    if (sync.FsDokId is int fsDokId)
-                    {
-                        _fsDokId = fsDokId;
-                    }
-
-                    if (sync.Przesylka != null)
-                    {
-                        _przesylka = sync.Przesylka;
-                    }
+                    await ApplyLocalSyncResultAndPropagateAsync(sync);
                 }
                 catch (Exception ex)
                 {
-                    Warning($"Nie udało się zsynchronizować Przesylka z GLS: {ex.Message}", "SubiektDocumentDetails");
+                    Warning($"Nie udało się zsynchronizować cache GLS: {ex.Message}", "SubiektDocumentDetails");
                 }
 
                 WaybillStatusText = BuildGlsStatusText(box, pickups, pickupErrorMessage: null);
@@ -798,7 +893,7 @@ namespace Gryzak.Views
                 return;
             }
 
-            await EnsureFsDokIdAsync();
+            await EnsurePrzesylkaOwnerAsync(forWrite: true);
 
             var consignment = GlsConsignment.FromDocument(_document);
             var editId = GetPreparingBoxEditId();
@@ -910,7 +1005,7 @@ namespace Gryzak.Views
                     return;
                 }
 
-                var savedPrzesylka = await SavePrzesylkaToSubiektAsync(result.ConsignmentId!.Value, isEdit);
+                var savedCache = await SaveShipmentToLocalAsync(result.ConsignmentId!.Value, isEdit);
                 await RefreshGlsAndSyncAsync();
                 var message = isEdit
                     ? $"Przesyłka GLS ({result.EnvironmentName}) została zapisana w przygotowalni.\n\nIdentyfikator: {result.ConsignmentId}"
@@ -921,9 +1016,9 @@ namespace Gryzak.Views
                     message += "\n\n" + result.WarningMessage;
                 }
 
-                if (!string.IsNullOrWhiteSpace(savedPrzesylka.Warning))
+                if (!string.IsNullOrWhiteSpace(savedCache.Warning))
                 {
-                    message += "\n\n" + savedPrzesylka.Warning;
+                    message += "\n\n" + savedCache.Warning;
                 }
 
                 Info(message, "SubiektDocumentDetails");
@@ -931,7 +1026,7 @@ namespace Gryzak.Views
                     message,
                     isEdit ? "Przygotowalnia GLS — zapisano" : "Przygotowalnia GLS — dodano",
                     MessageBoxButton.OK,
-                    string.IsNullOrWhiteSpace(result.WarningMessage) && string.IsNullOrWhiteSpace(savedPrzesylka.Warning)
+                    string.IsNullOrWhiteSpace(result.WarningMessage) && string.IsNullOrWhiteSpace(savedCache.Warning)
                         ? MessageBoxImage.Information
                         : MessageBoxImage.Warning);
             }
@@ -978,7 +1073,7 @@ namespace Gryzak.Views
 
         /// <summary>
         /// Po adePreparingBox_GetConsignLabels GLS nadaje numery paczek — zapisujemy je
-        /// w Przesylka i od razu na karcie przygotowalni (bez czekania na pełne Odśwież).
+        /// w lokalnym cache i od razu na karcie przygotowalni (bez czekania na pełne Odśwież).
         /// </summary>
         private async System.Threading.Tasks.Task ApplyIssuedLabelAsync(
             int? consignmentId,
@@ -1004,40 +1099,36 @@ namespace Gryzak.Views
             var existingNadane = SubiektPrzesylka.NormalizeNrListu(
                 _przesylka?.NrListuNadane
                 ?? _document.Przesylka?.NrListuNadane
+                ?? _document.GlsShipment?.NrNad
                 ?? _document.GlsPickupParcelNumber);
 
-            var next = new SubiektPrzesylka
+            await EnsurePrzesylkaOwnerAsync(forWrite: true);
+            try
             {
-                Typ = "GLS",
-                Id = consignmentId.Value,
-                NrListuPrzygotowalnia = nr,
-                NrListuNadane = existingNadane,
-                Status = SubiektPrzesylka.StatusEdytowano,
-                Data = DateTime.Now
-            };
-
-            await EnsureFsDokIdAsync();
-            if (_fsDokId is > 0)
-            {
-                try
-                {
-                    var saved = await _subiektApiService.PutPrzesylkaAsync(_fsDokId.Value, next);
-                    _przesylka = saved ?? next;
-                    _document.Przesylka = _przesylka;
-                }
-                catch (Exception ex)
-                {
-                    Warning(
-                        $"Etykieta GLS ma numery {nr}, ale nie zapisano Przesylka na FS: {ex.Message}",
-                        "SubiektDocumentDetails");
-                    _przesylka = next;
-                    _document.Przesylka = next;
-                }
+                var sync = await GlsSubiektSync.ApplyToLocalAsync(
+                    _glsShipmentStore,
+                    _document,
+                    new HashSet<int> { consignmentId.Value },
+                    consignmentId,
+                    nr,
+                    matchedPickupNrListu: null);
+                await ApplyLocalSyncResultAndPropagateAsync(sync);
             }
-            else
+            catch (Exception ex)
             {
-                _przesylka = next;
-                _document.Przesylka = next;
+                Warning(
+                    $"Etykieta GLS ma numery {nr}, ale nie zapisano lokalnego cache GLS: {ex.Message}",
+                    "SubiektDocumentDetails");
+                ApplyShipmentToPrzesylka(new GlsShipmentRecord
+                {
+                    DokId = _document.DokId,
+                    DokTyp = _document.DokTyp,
+                    NrPelny = _document.NrPelny ?? "",
+                    Carrier = "GLS",
+                    BoxId = consignmentId.Value,
+                    NrPrzyg = nr,
+                    NrNad = existingNadane
+                });
             }
 
             var box = new List<GlsPreparingBoxItem>
@@ -1045,8 +1136,8 @@ namespace Gryzak.Views
                 new()
                 {
                     Id = consignmentId.Value,
-                    References = _document.NrPelny,
-                    ParcelNumber = nr
+                    References = _document.NrPelny ?? "",
+                    ParcelNumber = nr ?? ""
                 }
             };
             PreparingBoxItems = box;
@@ -1058,11 +1149,11 @@ namespace Gryzak.Views
                 {
                     new()
                     {
-                        References = _document.NrPelny,
-                        ParcelNumber = existingNadane
+                        References = _document.NrPelny ?? "",
+                        ParcelNumber = existingNadane ?? ""
                     }
                 };
-                _document.GlsPickupParcelNumber = existingNadane;
+                _document.GlsPickupParcelNumber = existingNadane ?? "";
             }
 
             WaybillStatusText = BuildGlsStatusText(PreparingBoxItems, PickupItems, pickupErrorMessage: null);
@@ -1073,48 +1164,50 @@ namespace Gryzak.Views
                 "SubiektDocumentDetails");
         }
 
-        private async System.Threading.Tasks.Task<(SubiektPrzesylka? Przesylka, string? Warning)> SavePrzesylkaToSubiektAsync(
+        private async System.Threading.Tasks.Task<(SubiektPrzesylka? Przesylka, string? Warning)> SaveShipmentToLocalAsync(
             int consignmentId,
             bool isEdit)
         {
-                var existingNadane = SubiektPrzesylka.NormalizeNrListu(
-                    _przesylka?.NrListuNadane
-                    ?? _document.Przesylka?.NrListuNadane);
-                var next = new SubiektPrzesylka
-                {
-                    Typ = "GLS",
-                    Id = consignmentId,
-                    NrListuPrzygotowalnia = isEdit
-                        ? (!string.IsNullOrWhiteSpace(_przesylka?.NrListuPrzygotowalnia) ? _przesylka!.NrListuPrzygotowalnia : "")
-                        : "",
-                    NrListuNadane = existingNadane,
-                    Status = isEdit ? SubiektPrzesylka.StatusEdytowano : SubiektPrzesylka.StatusUtworzono,
-                    Data = DateTime.Now
-                };
+            var nrPrzyg = isEdit
+                ? SubiektPrzesylka.NormalizeNrListu(
+                    !string.IsNullOrWhiteSpace(_przesylka?.NrListuPrzygotowalnia)
+                        ? _przesylka!.NrListuPrzygotowalnia
+                        : _document.GlsShipment?.NrPrzyg)
+                : "";
 
-            if (_fsDokId is not > 0)
-            {
-                var warning = "Przesyłka GLS została dodana do przygotowalni, ale nie zapisano jej na fakturze — brak powiązanego FS z polem Przesylka.";
-                Warning(warning, "SubiektDocumentDetails");
-                _przesylka = next;
-                _document.Przesylka = next;
-                return (next, warning);
-            }
+            await EnsurePrzesylkaOwnerAsync(forWrite: true);
 
             try
             {
-                var saved = await _subiektApiService.PutPrzesylkaAsync(_fsDokId.Value, next);
-                _przesylka = saved ?? next;
-                _document.Przesylka = _przesylka;
+                var sync = await GlsSubiektSync.ApplyToLocalAsync(
+                    _glsShipmentStore,
+                    _document,
+                    new HashSet<int> { consignmentId },
+                    consignmentId,
+                    nrPrzyg,
+                    matchedPickupNrListu: null);
+                await ApplyLocalSyncResultAndPropagateAsync(sync);
                 return (_przesylka, null);
             }
             catch (Exception ex)
             {
-                var warning = $"Przesyłka GLS w przygotowalni ma id={consignmentId}, ale nie udało się zapisać pola Przesylka na FS: {ex.Message}";
+                var warning =
+                    $"Przesyłka GLS w przygotowalni ma id={consignmentId}, ale nie udało się zapisać lokalnego cache GLS: {ex.Message}";
                 Warning(warning, "SubiektDocumentDetails");
-                _przesylka = next;
-                _document.Przesylka = next;
-                return (next, warning);
+                var fallback = new GlsShipmentRecord
+                {
+                    DokId = _document.DokId,
+                    DokTyp = _document.DokTyp,
+                    NrPelny = _document.NrPelny ?? "",
+                    Carrier = "GLS",
+                    BoxId = consignmentId,
+                    NrPrzyg = nrPrzyg,
+                    NrNad = SubiektPrzesylka.NormalizeNrListu(
+                        _przesylka?.NrListuNadane
+                        ?? _document.GlsShipment?.NrNad)
+                };
+                ApplyShipmentToPrzesylka(fallback);
+                return (_przesylka, warning);
             }
         }
 
@@ -1140,52 +1233,49 @@ namespace Gryzak.Views
                     var error = deleted.ErrorMessage ?? "Nieznany błąd usuwania przesyłki GLS.";
                     Warning(error, "SubiektDocumentDetails");
                     MessageBox.Show(
-                        $"Nie udało się usunąć przesyłki z przygotowalni GLS ({deleted.EnvironmentName}).\n\nWpis w Subiekcie nie został zmieniony.\n\n{error}",
+                        $"Nie udało się usunąć przesyłki z przygotowalni GLS ({deleted.EnvironmentName}).\n\nLokalny cache nie został zmieniony.\n\n{error}",
                         "Błąd GLS",
                         MessageBoxButton.OK,
                         MessageBoxImage.Error);
                     return;
                 }
 
-                string? subiektWarning = null;
+                string? cacheWarning = null;
                 var refreshed = await RefreshGlsAndSyncAsync();
-                if (!refreshed && _fsDokId is > 0)
+                if (!refreshed)
                 {
                     try
                     {
-                        var cleared = await _subiektApiService.ClearPrzesylkaAsync(_fsDokId.Value);
-                        _przesylka = cleared ?? new SubiektPrzesylka
-                        {
-                            Typ = "GLS",
-                            Status = SubiektPrzesylka.StatusUsuniete,
-                            Data = DateTime.Now
-                        };
-                        _document.Przesylka = _przesylka;
+                        var sync = await GlsSubiektSync.ApplyToLocalAsync(
+                            _glsShipmentStore,
+                            _document,
+                            Array.Empty<int>(),
+                            matchedPreparingBoxId: null,
+                            matchedPreparingNrListu: null,
+                            matchedPickupNrListu: null);
+                        await ApplyLocalSyncResultAndPropagateAsync(sync);
                         _glsWaybillExists = false;
                     }
                     catch (Exception ex)
                     {
-                        subiektWarning = $"List usunięto z GLS, ale nie udało się zaktualizować pola Przesylka na FS: {ex.Message}";
-                        Warning(subiektWarning, "SubiektDocumentDetails");
+                        cacheWarning =
+                            $"List usunięto z GLS, ale nie udało się zaktualizować lokalnego cache: {ex.Message}";
+                        Warning(cacheWarning, "SubiektDocumentDetails");
                     }
                 }
 
                 string message;
-                if (_fsDokId is not > 0)
+                if (!string.IsNullOrWhiteSpace(cacheWarning))
                 {
-                    message = $"Przesyłka GLS ({deleted.EnvironmentName}) została usunięta z przygotowalni.\n\nBrak powiązanego FS — pole Przesylka nie było aktualizowane.";
-                }
-                else if (!string.IsNullOrWhiteSpace(subiektWarning))
-                {
-                    message = $"Przesyłkę usunięto z przygotowalni GLS ({deleted.EnvironmentName}).\n\n{subiektWarning}";
+                    message = $"Przesyłkę usunięto z przygotowalni GLS ({deleted.EnvironmentName}).\n\n{cacheWarning}";
                 }
                 else if (deleted.NotFound)
                 {
-                    message = "Przesyłki nie było już w przygotowalni GLS. Pole Przesylka na fakturze zsynchronizowano z GLS.";
+                    message = "Przesyłki nie było już w przygotowalni GLS. Lokalny cache zsynchronizowano z GLS.";
                 }
                 else
                 {
-                    message = $"Przesyłka GLS ({deleted.EnvironmentName}) została usunięta z przygotowalni. Pole Przesylka na fakturze zsynchronizowano z GLS.";
+                    message = $"Przesyłka GLS ({deleted.EnvironmentName}) została usunięta z przygotowalni. Lokalny cache zsynchronizowano z GLS.";
                 }
 
                 Info(message, "SubiektDocumentDetails");
@@ -1193,7 +1283,7 @@ namespace Gryzak.Views
                     message,
                     "Usuń z przygotowalni",
                     MessageBoxButton.OK,
-                    string.IsNullOrWhiteSpace(subiektWarning) ? MessageBoxImage.Information : MessageBoxImage.Warning);
+                    string.IsNullOrWhiteSpace(cacheWarning) ? MessageBoxImage.Information : MessageBoxImage.Warning);
             }
             catch (Exception ex)
             {

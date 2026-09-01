@@ -5,7 +5,9 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Input;
 using Gryzak.Models;
+using Gryzak.Services;
 using Gryzak.ViewModels;
 using Gryzak.Converters;
 using static Gryzak.Services.Logger;
@@ -21,6 +23,17 @@ namespace Gryzak.Views
         private string? _customerNip;
         private string? _customerAddress;
         private string _customerCountry = "";
+        private bool _hasPaymentAddress;
+        private bool _isShippingDifferentFromPayment;
+        private bool _isShippingCompanyDifferent;
+        private bool _isShippingStreetDifferent;
+        private bool _isShippingPostcodeOrCityDifferent;
+        private string _shippingDisplayName = "";
+        private string _shippingPersonName = "";
+        private string _shippingCompany = "";
+        private string _shippingDisplayStreet = "";
+        private string _shippingDisplayCityLine = "";
+        private string _shippingDifferenceSummary = "";
         private List<Product> _products = new List<Product>();
         private ObservableCollection<OrderTotal> _orderTotals = new ObservableCollection<OrderTotal>();
         private string _total = "0.00";
@@ -46,6 +59,7 @@ namespace Gryzak.Views
             CustomerNip = order.Nip;
             CustomerAddress = order.Address;
             CustomerCountry = order.CountryWithIso3;
+            RefreshShippingUi(order);
             Products = order.Items ?? new List<Product>();
             Total = order.Total;
             Currency = order.Currency;
@@ -65,7 +79,7 @@ namespace Gryzak.Views
         public string CustomerName
         {
             get => _customerName;
-            set { _customerName = value; OnPropertyChanged(); }
+            set { _customerName = value; OnPropertyChanged(); RefreshHasPaymentAddress(); }
         }
 
         public DateTime OrderDate
@@ -77,25 +91,91 @@ namespace Gryzak.Views
         public string? CustomerCompany
         {
             get => _customerCompany;
-            set { _customerCompany = value; OnPropertyChanged(); }
+            set { _customerCompany = value; OnPropertyChanged(); RefreshHasPaymentAddress(); }
         }
 
         public string? CustomerNip
         {
             get => _customerNip;
-            set { _customerNip = value; OnPropertyChanged(); }
+            set { _customerNip = value; OnPropertyChanged(); RefreshHasPaymentAddress(); }
         }
 
         public string? CustomerAddress
         {
             get => _customerAddress;
-            set { _customerAddress = value; OnPropertyChanged(); }
+            set { _customerAddress = value; OnPropertyChanged(); RefreshHasPaymentAddress(); }
         }
 
         public string CustomerCountry
         {
             get => _customerCountry;
-            set { _customerCountry = value; OnPropertyChanged(); }
+            set { _customerCountry = value; OnPropertyChanged(); RefreshHasPaymentAddress(); }
+        }
+
+        public bool HasPaymentAddress
+        {
+            get => _hasPaymentAddress;
+            set { _hasPaymentAddress = value; OnPropertyChanged(); }
+        }
+
+        public bool IsShippingDifferentFromPayment
+        {
+            get => _isShippingDifferentFromPayment;
+            set { _isShippingDifferentFromPayment = value; OnPropertyChanged(); }
+        }
+
+        public bool IsShippingCompanyDifferent
+        {
+            get => _isShippingCompanyDifferent;
+            set { _isShippingCompanyDifferent = value; OnPropertyChanged(); }
+        }
+
+        public bool IsShippingStreetDifferent
+        {
+            get => _isShippingStreetDifferent;
+            set { _isShippingStreetDifferent = value; OnPropertyChanged(); }
+        }
+
+        public bool IsShippingPostcodeOrCityDifferent
+        {
+            get => _isShippingPostcodeOrCityDifferent;
+            set { _isShippingPostcodeOrCityDifferent = value; OnPropertyChanged(); }
+        }
+
+        public string ShippingDisplayName
+        {
+            get => _shippingDisplayName;
+            set { _shippingDisplayName = value; OnPropertyChanged(); }
+        }
+
+        public string ShippingPersonName
+        {
+            get => _shippingPersonName;
+            set { _shippingPersonName = value; OnPropertyChanged(); }
+        }
+
+        public string ShippingCompany
+        {
+            get => _shippingCompany;
+            set { _shippingCompany = value; OnPropertyChanged(); }
+        }
+
+        public string ShippingDisplayStreet
+        {
+            get => _shippingDisplayStreet;
+            set { _shippingDisplayStreet = value; OnPropertyChanged(); }
+        }
+
+        public string ShippingDisplayCityLine
+        {
+            get => _shippingDisplayCityLine;
+            set { _shippingDisplayCityLine = value; OnPropertyChanged(); }
+        }
+
+        public string ShippingDifferenceSummary
+        {
+            get => _shippingDifferenceSummary;
+            set { _shippingDifferenceSummary = value; OnPropertyChanged(); }
         }
 
         public List<Product> Products
@@ -290,64 +370,14 @@ namespace Gryzak.Views
                 using var doc = System.Text.Json.JsonDocument.Parse(detailsJson);
                 var root = doc.RootElement;
 
-                // Aktualizuj nazwę firmy (payment_company)
-                if (root.TryGetProperty("payment_company", out var companyProp) && companyProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                {
-                    var companyValue = companyProp.GetString();
-                    if (!string.IsNullOrWhiteSpace(companyValue))
-                    {
-                        // Decoduj HTML entities dwukrotnie (bo API zwraca podwójnie zakodowane encje)
-                        companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
-                        companyValue = System.Net.WebUtility.HtmlDecode(companyValue);
-                        _order.Company = companyValue;
-                        CustomerCompany = companyValue;
-                        Debug($"Zaktualizowano firmę: {CustomerCompany}", "OrderDetailsDialog");
-                    }
-                }
-
-                // Aktualizuj adres
-                if (root.TryGetProperty("payment_address_1", out var addr1Prop) && addr1Prop.ValueKind == System.Text.Json.JsonValueKind.String)
-                {
-                    var addressParts = new List<string>();
-                    var addr1Raw = addr1Prop.GetString() ?? "";
-                    var addr1 = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(addr1Raw));
-                    addressParts.Add(addr1);
-                    
-                    // Dodaj address_2 jeśli istnieje
-                    if (root.TryGetProperty("payment_address_2", out var addr2Prop) && addr2Prop.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var addr2Raw = addr2Prop.GetString();
-                        if (!string.IsNullOrWhiteSpace(addr2Raw))
-                        {
-                            var addr2 = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(addr2Raw));
-                            addressParts.Add(addr2);
-                        }
-                    }
-                    
-                    // Dodaj postcode i city
-                    var postcode = "";
-                    var city = "";
-                    if (root.TryGetProperty("payment_postcode", out var pcProp) && pcProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var pcRaw = pcProp.GetString() ?? "";
-                        postcode = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(pcRaw));
-                    }
-                    if (root.TryGetProperty("payment_city", out var cityProp) && cityProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var cityRaw = cityProp.GetString() ?? "";
-                        city = System.Net.WebUtility.HtmlDecode(System.Net.WebUtility.HtmlDecode(cityRaw));
-                    }
-                    
-                    if (!string.IsNullOrWhiteSpace(postcode) || !string.IsNullOrWhiteSpace(city))
-                    {
-                        addressParts.Add($"{postcode} {city}".Trim());
-                    }
-                    
-                    var fullAddress = string.Join(", ", addressParts.Where(s => !string.IsNullOrWhiteSpace(s)));
-                    _order.Address = string.IsNullOrWhiteSpace(fullAddress) ? null : fullAddress;
-                    CustomerAddress = _order.Address;
-                    Debug($"Zaktualizowano adres: {CustomerAddress}", "OrderDetailsDialog");
-                }
+                // Adres płatności + adres wysyłki (payment_* / shipping_* z OpenCart)
+                _order.ApplyAddressesFromApi(root);
+                CustomerName = _order.Customer;
+                CustomerCompany = _order.Company;
+                CustomerAddress = _order.Address;
+                RefreshShippingUi(_order);
+                Debug($"Zaktualizowano adres płatności: {CustomerAddress}", "OrderDetailsDialog");
+                Debug($"Adres wysyłki: {_order.ShippingDisplayAddress} (różny={_order.IsShippingDifferentFromPayment})", "OrderDetailsDialog");
 
                 // Aktualizuj NIP (vat)
                 if (root.TryGetProperty("vat", out var vatProp) && vatProp.ValueKind == System.Text.Json.JsonValueKind.String)
@@ -623,10 +653,155 @@ namespace Gryzak.Views
             }
         }
 
+        private async void EditKontrahentButton_Click(object sender, RoutedEventArgs e)
+        {
+            var nip = NullIfPlaceholder(CustomerNip);
+            var email = NullIfPlaceholder(_order?.Email, "Brak email");
+            var customerName = NullIfPlaceholder(CustomerName);
+            var company = NullIfPlaceholder(CustomerCompany);
+            var phone = NullIfPlaceholder(_order?.Phone, "Brak telefonu");
+            var address = NullIfPlaceholder(CustomerAddress);
+
+            if (string.IsNullOrWhiteSpace(email)
+                && string.IsNullOrWhiteSpace(customerName)
+                && string.IsNullOrWhiteSpace(nip)
+                && string.IsNullOrWhiteSpace(company))
+            {
+                MessageBox.Show(
+                    "Brak danych do wyszukania kontrahenta (NIP, e-mail, nazwa lub firma).",
+                    "Edycja kontrahenta",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var api = new SubiektApiService();
+            if (!api.IsConfigured())
+            {
+                MessageBox.Show(
+                    "Skonfiguruj URL API Subiekt w ustawieniach.",
+                    "Edycja kontrahenta",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            Mouse.OverrideCursor = Cursors.Wait;
+            try
+            {
+                // Jak przy generowaniu ZK: e-mail + nazwa + NIP + firma, wyniki scalane po kh_Id.
+                var results = await api.SearchKontrahenciAsync(email, customerName, nip, company);
+
+                if (results.Count == 0)
+                {
+                    Mouse.OverrideCursor = null;
+                    MessageBox.Show(
+                        "Nie znaleziono kontrahenta.",
+                        "Edycja kontrahenta",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                KontrahentItem? selected = null;
+                if (results.Count == 1)
+                {
+                    selected = results[0];
+                }
+                else
+                {
+                    Mouse.OverrideCursor = null;
+                    var pick = new SelectKontrahentDialog(
+                        new ObservableCollection<KontrahentItem>(results),
+                        customerName: customerName,
+                        email: email,
+                        phone: phone,
+                        company: company,
+                        nip: nip,
+                        address: address,
+                        showZkActions: false)
+                    {
+                        Owner = this
+                    };
+
+                    if (pick.ShowDialog() != true || pick.SelectedKontrahent == null)
+                        return;
+
+                    selected = pick.SelectedKontrahent;
+                }
+
+                Mouse.OverrideCursor = Cursors.Wait;
+                var details = await api.GetKontrahentDetailsAsync(selected.Id);
+                if (details == null)
+                {
+                    MessageBox.Show(
+                        $"Nie udało się pobrać kontrahenta (kh_Id={selected.Id}).",
+                        "Edycja kontrahenta",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
+                Mouse.OverrideCursor = null;
+                var edit = new KontrahentEditDialog(details, _order, api) { Owner = this };
+                edit.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "OrderDetailsDialog", "Błąd edycji kontrahenta");
+                MessageBox.Show(
+                    $"Nie udało się otworzyć edycji kontrahenta:\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
+        }
+
+        private static string? NullIfPlaceholder(string? value, params string[] placeholders)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+            var trimmed = value.Trim();
+            foreach (var p in placeholders)
+            {
+                if (string.Equals(trimmed, p, StringComparison.OrdinalIgnoreCase))
+                    return null;
+            }
+            return trimmed;
+        }
+
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
             DialogResult = false;
             Close();
+        }
+
+        private void RefreshHasPaymentAddress()
+        {
+            HasPaymentAddress = !string.IsNullOrWhiteSpace(CustomerName)
+                || !string.IsNullOrWhiteSpace(CustomerCompany)
+                || !string.IsNullOrWhiteSpace(CustomerNip)
+                || !string.IsNullOrWhiteSpace(CustomerAddress)
+                || !string.IsNullOrWhiteSpace(CustomerCountry);
+        }
+
+        private void RefreshShippingUi(Order order)
+        {
+            RefreshHasPaymentAddress();
+            IsShippingDifferentFromPayment = order.IsShippingDifferentFromPayment;
+            IsShippingCompanyDifferent = order.IsShippingCompanyDifferent;
+            IsShippingStreetDifferent = order.IsShippingStreetDifferent;
+            IsShippingPostcodeOrCityDifferent = order.IsShippingPostcodeDifferent || order.IsShippingCityDifferent;
+            ShippingDisplayName = order.ShippingDisplayName;
+            ShippingPersonName = order.ShippingPersonName;
+            ShippingCompany = order.ShippingCompanyDisplay;
+            ShippingDisplayStreet = order.ShippingDisplayStreet;
+            ShippingDisplayCityLine = order.ShippingDisplayCityLine;
+            ShippingDifferenceSummary = order.ShippingDifferenceSummary;
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

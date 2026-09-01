@@ -51,33 +51,7 @@
                     <TextBlock Text="{Binding OrderId, StringFormat='Zamówienie: {0}'}" 
                                FontSize="24" 
                                FontWeight="Bold" 
-                               Foreground="White"
-                               Margin="0,0,0,6"/>
-                    <TextBlock Text="{Binding CustomerName}" 
-                               FontSize="14" 
-                               FontWeight="SemiBold"
-                               Foreground="White"
-                               Margin="0,0,0,3"/>
-                    <StackPanel Orientation="Horizontal" 
-                                Margin="0,0,0,1"
-                                Visibility="{Binding CustomerCompany, Converter={StaticResource StringToVisibilityConverter}}">
-                        <TextBlock Text="Firma: " 
-                                   FontSize="11" 
-                                   Foreground="#E3F2FD"/>
-                        <TextBlock Text="{Binding CustomerCompany}" 
-                                   FontSize="11" 
-                                   Foreground="#E3F2FD"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" 
-                                Margin="0,0,0,1"
-                                Visibility="{Binding CustomerNip, Converter={StaticResource StringToVisibilityConverter}}">
-                        <TextBlock Text="NIP: " 
-                                   FontSize="11" 
-                                   Foreground="#E3F2FD"/>
-                        <TextBlock Text="{Binding CustomerNip}" 
-                                   FontSize="11" 
-                                   Foreground="#E3F2FD"/>
-                    </StackPanel>
+                               Foreground="White"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" 
                             VerticalAlignment="Top"
@@ -85,21 +59,7 @@
                     <TextBlock Text="{Binding OrderDate, StringFormat='{}{0:dd.MM.yyyy HH:mm}'}" 
                                FontSize="13" 
                                FontWeight="SemiBold"
-                               Foreground="#E3F2FD"
-                               Margin="0,0,0,6"/>
-                    <TextBlock FontSize="11" 
-                               Foreground="#E3F2FD"
-                               Visibility="{Binding CustomerAddress, Converter={StaticResource StringToVisibilityConverter}}"
-                               Margin="0,0,0,2">
-                        <Run Text="Adres: " Foreground="#BBDEFB"/>
-                        <Run Text="{Binding CustomerAddress}" Foreground="#E3F2FD"/>
-                    </TextBlock>
-                    <TextBlock FontSize="11" 
-                               Foreground="#E3F2FD"
-                               Visibility="{Binding CustomerCountry, Converter={StaticResource StringToVisibilityConverter}}">
-                        <Run Text="Kraj: " Foreground="#BBDEFB"/>
-                        <Run Text="{Binding CustomerCountry}" Foreground="#E3F2FD"/>
-                    </TextBlock>
+                               Foreground="#E3F2FD"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -292,6 +252,101 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="300"/>
                 </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <!-- Adres -->
+                    <StackPanel Visibility="{Binding HasPaymentAddress, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <DockPanel LastChildFill="False" Margin="0,0,0,2">
+                            <TextBlock Text="Adres" FontWeight="Bold" Foreground="#424242"
+                                       VerticalAlignment="Center"/>
+                            <Button DockPanel.Dock="Right"
+                                    Click="EditKontrahentButton_Click"
+                                    ToolTip="Edytuj kontrahenta w Subiekcie (wyszukiwanie: NIP, e-mail, nazwa, firma)"
+                                    Width="28" Height="28" MinWidth="28" Padding="0" Margin="8,0,0,0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Cursor="Hand" VerticalAlignment="Center">
+                                <TextBlock Text="&#xE70F;"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="14"
+                                           Foreground="#1976D2"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Button>
+                        </DockPanel>
+                        <TextBlock Text="{Binding CustomerName}"
+                                   Visibility="{Binding CustomerName, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding CustomerCompany}"
+                                   Visibility="{Binding CustomerCompany, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBlock Visibility="{Binding CustomerNip, Converter={StaticResource StringToVisibilityConverter}}">
+                            <Run Text="NIP: " Foreground="#666"/>
+                            <Run Text="{Binding CustomerNip}"/>
+                        </TextBlock>
+                        <TextBlock Text="{Binding CustomerAddress}" TextWrapping="Wrap"
+                                   Visibility="{Binding CustomerAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBlock Visibility="{Binding CustomerCountry, Converter={StaticResource StringToVisibilityConverter}}">
+                            <Run Text="Kraj: " Foreground="#666"/>
+                            <Run Text="{Binding CustomerCountry}"/>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- Adres wysyłki tylko gdy inny -->
+                    <Border Margin="0,10,0,0" BorderBrush="#F44336" BorderThickness="4,0,0,0"
+                            Background="#FFEBEE" Padding="10,6,10,6"
+                            Visibility="{Binding IsShippingDifferentFromPayment, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="Inny adres wysyłki" FontWeight="Bold" Foreground="#C62828"/>
+                            <TextBlock FontSize="11" Foreground="#C62828" Margin="0,0,0,4"
+                                       Visibility="{Binding ShippingDifferenceSummary, Converter={StaticResource StringToVisibilityConverter}}">
+                                <Run Text="Różnice: "/>
+                                <Run Text="{Binding ShippingDifferenceSummary}" FontWeight="SemiBold"/>
+                            </TextBlock>
+                            <TextBlock Text="{Binding ShippingPersonName}"
+                                       Visibility="{Binding ShippingPersonName, Converter={StaticResource StringToVisibilityConverter}}"/>
+                            <TextBlock Text="{Binding ShippingCompany}"
+                                       Visibility="{Binding ShippingCompany, Converter={StaticResource StringToVisibilityConverter}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="Black"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShippingCompanyDifferent}" Value="True">
+                                                <Setter Property="Foreground" Value="#C62828"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding ShippingDisplayStreet}" TextWrapping="Wrap"
+                                       Visibility="{Binding ShippingDisplayStreet, Converter={StaticResource StringToVisibilityConverter}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="Black"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShippingStreetDifferent}" Value="True">
+                                                <Setter Property="Foreground" Value="#C62828"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding ShippingDisplayCityLine}" TextWrapping="Wrap"
+                                       Visibility="{Binding ShippingDisplayCityLine, Converter={StaticResource StringToVisibilityConverter}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="Black"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShippingPostcodeOrCityDifferent}" Value="True">
+                                                <Setter Property="Foreground" Value="#C62828"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
                 
                 <StackPanel Grid.Column="1">
                     <ItemsControl ItemsSource="{Binding OrderTotals}">

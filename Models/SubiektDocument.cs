@@ -29,6 +29,7 @@ namespace Gryzak.Models
         public string KartaNazwa { get; set; } = "";
 
         private SubiektPrzesylka? _przesylka;
+        private GlsShipmentRecord? _glsShipment;
         private int? _glsPreparingBoxId;
         private string _glsPreparingBoxParcelNumber = "";
         private bool _glsStatusChecked;
@@ -49,6 +50,51 @@ namespace Gryzak.Models
                 OnPropertyChanged(nameof(NadaniaTooltip));
             }
         }
+
+        /// <summary>
+        /// Dokument-właściciel pola <c>Przesylka</c> (WZ lub FS). Może różnić się od
+        /// <see cref="DokId"/>, gdy UI pokazuje przesyłkę z powiązanego WZ na FS/ZK.
+        /// </summary>
+        public int? PrzesylkaOwnerDokId { get; set; }
+
+        /// <summary>Typ właściciela: <c>wz</c> / <c>fs</c>.</summary>
+        public string PrzesylkaOwnerTypKod { get; set; } = "";
+
+        public bool OwnsPrzesylkaField =>
+            PrzesylkaOwnerDokId is int owner
+                ? owner == DokId
+                : SubiektApiDocumentTypes.IsFsOrWz(DokTyp)
+                  || SubiektApiDocumentTypes.IsFsOrWz(TypKod);
+
+        /// <summary>Lokalny cache GLS (SQLite), nie pole Subiekta.</summary>
+        public GlsShipmentRecord? GlsShipment
+        {
+            get => _glsShipment;
+            set
+            {
+                _glsShipment = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(GlsShipmentDisplay));
+                OnPropertyChanged(nameof(PrzygotowalniaDisplay));
+                OnPropertyChanged(nameof(PrzygotowalniaTooltip));
+                OnPropertyChanged(nameof(NadaniaDisplay));
+                OnPropertyChanged(nameof(NadaniaTooltip));
+                OnPropertyChanged(nameof(HasNadaneNrListu));
+                OnPropertyChanged(nameof(IsInGlsPreparingBox));
+            }
+        }
+
+        /// <summary>
+        /// Dokument, spod którego wczytano cache (może być powiązane WZ przy FS/ZK).
+        /// </summary>
+        public int? GlsShipmentDokId { get; set; }
+
+        public int? GlsShipmentDokTyp { get; set; }
+
+        public bool OwnsGlsShipmentCache =>
+            GlsShipmentDokId is int owner
+                ? owner == DokId
+                : true;
 
         public int? GlsPreparingBoxId
         {
@@ -97,34 +143,38 @@ namespace Gryzak.Models
         {
             get
             {
+                // Live GLS (zielony w UI) ma pierwszeństwo; inaczej lokalny cache (szary).
                 if (GlsPreparingBoxId is int glsId && glsId > 0)
                 {
                     if (!string.IsNullOrWhiteSpace(GlsPreparingBoxParcelNumber))
                     {
-                        return SubiektPrzesylka.FormatNrListuDisplay(GlsPreparingBoxParcelNumber);
+                        return GlsShipmentRecord.FormatNrListuDisplay(GlsPreparingBoxParcelNumber);
                     }
 
                     return glsId.ToString(CultureInfo.InvariantCulture);
                 }
 
-                if (GlsStatusChecked)
+                var cached = GlsShipment;
+                var cachedHasBox = cached is { HasBoxId: true };
+
+                // Gdy przesyłka opuściła przygotowalnię (brak box_id), numery są w kolumnie Nadania.
+                if (!cachedHasBox && HasNadaneNrListu)
                 {
                     return "";
                 }
 
-                var subiekt = Przesylka;
-                if (subiekt == null || subiekt.IsDeleted)
+                if (cached == null || cached.IsEmpty)
                 {
                     return "";
                 }
 
-                if (!string.IsNullOrWhiteSpace(subiekt.NrListuPrzygotowalnia))
+                if (!string.IsNullOrWhiteSpace(cached.NrPrzyg))
                 {
-                    return SubiektPrzesylka.FormatNrListuDisplay(subiekt.NrListuPrzygotowalnia);
+                    return GlsShipmentRecord.FormatNrListuDisplay(cached.NrPrzyg);
                 }
 
-                return subiekt.HasId
-                    ? subiekt.Id.ToString(CultureInfo.InvariantCulture)
+                return cached.HasBoxId
+                    ? cached.BoxId.ToString(CultureInfo.InvariantCulture)
                     : "";
             }
         }
@@ -135,11 +185,32 @@ namespace Gryzak.Models
             {
                 if (GlsPreparingBoxId is int glsId && glsId > 0)
                 {
-                    var numbers = SubiektPrzesylka.SplitNrListu(GlsPreparingBoxParcelNumber);
+                    var numbers = GlsShipmentRecord.SplitNrListu(GlsPreparingBoxParcelNumber);
                     var idPart = $"id {glsId.ToString(CultureInfo.InvariantCulture)}";
                     return numbers.Count == 0
                         ? idPart
                         : idPart + "\n" + string.Join("\n", numbers);
+                }
+
+                var cached = GlsShipment;
+                var cachedHasBox = cached is { HasBoxId: true };
+                if (!cachedHasBox && HasNadaneNrListu)
+                {
+                    return "";
+                }
+
+                if (cached == null || cached.IsEmpty)
+                {
+                    return "";
+                }
+
+                var cachedNumbers = GlsShipmentRecord.SplitNrListu(cached.NrPrzyg);
+                if (cached.HasBoxId)
+                {
+                    var idPart = $"id {cached.BoxId.ToString(CultureInfo.InvariantCulture)} (cache)";
+                    return cachedNumbers.Count == 0
+                        ? idPart
+                        : idPart + "\n" + string.Join("\n", cachedNumbers);
                 }
 
                 return PrzygotowalniaDisplay;
@@ -172,9 +243,22 @@ namespace Gryzak.Models
                 OnPropertyChanged(nameof(NadaniaDisplay));
                 OnPropertyChanged(nameof(NadaniaTooltip));
                 OnPropertyChanged(nameof(IsGlsPickedUp));
+                OnPropertyChanged(nameof(HasNadaneNrListu));
+                OnPropertyChanged(nameof(PrzygotowalniaDisplay));
+                OnPropertyChanged(nameof(PrzygotowalniaTooltip));
+                OnPropertyChanged(nameof(IsInGlsPreparingBox));
             }
         }
 
+        /// <summary>Przesyłka ma już numer po nadaniu (live lub cache SQLite).</summary>
+        public bool HasNadaneNrListu =>
+            !string.IsNullOrWhiteSpace(GlsPickupParcelNumber)
+            || GlsShipment is { IsEmpty: false } shipment && !string.IsNullOrWhiteSpace(shipment.NrNad);
+
+        /// <summary>
+        /// True gdy nadanie potwierdzone z API GLS (zielony w UI).
+        /// Same dane z lokalnego cache → szary (<see cref="NadaniaDisplay"/>).
+        /// </summary>
         public bool IsGlsPickedUp =>
             GlsPickupConsignmentId is > 0 || !string.IsNullOrWhiteSpace(GlsPickupParcelNumber);
 
@@ -184,15 +268,13 @@ namespace Gryzak.Models
             {
                 if (!string.IsNullOrWhiteSpace(GlsPickupParcelNumber))
                 {
-                    return SubiektPrzesylka.FormatNrListuDisplay(GlsPickupParcelNumber);
+                    return GlsShipmentRecord.FormatNrListuDisplay(GlsPickupParcelNumber);
                 }
 
-                var nrListu = Przesylka is { IsDeleted: false } p
-                    ? (p.NrListuNadane ?? "").Trim()
-                    : "";
+                var nrListu = (GlsShipment?.NrNad ?? "").Trim();
                 if (!string.IsNullOrEmpty(nrListu))
                 {
-                    return SubiektPrzesylka.FormatNrListuDisplay(nrListu);
+                    return GlsShipmentRecord.FormatNrListuDisplay(nrListu);
                 }
 
                 return GlsPickupConsignmentId is int id && id > 0
@@ -205,10 +287,10 @@ namespace Gryzak.Models
         {
             get
             {
-                var parts = SubiektPrzesylka.SplitNrListu(
+                var parts = GlsShipmentRecord.SplitNrListu(
                     !string.IsNullOrWhiteSpace(GlsPickupParcelNumber)
                         ? GlsPickupParcelNumber
-                        : Przesylka is { IsDeleted: false } p ? p.NrListuNadane : "");
+                        : GlsShipment?.NrNad);
                 if (parts.Count == 0)
                 {
                     return NadaniaDisplay;
@@ -258,11 +340,11 @@ namespace Gryzak.Models
                 || ContainsIgnoreCase(PlatnikEmail, q)
                 || ContainsIgnoreCase(StatusNazwa, q)
                 || ContainsIgnoreCase(Wystawil, q)
-                || ContainsIgnoreCase(WartBruttoDisplay, q)
+                || MatchesAmount(WartBrutto, q)
                 || ContainsIgnoreCase(GlsPreparingBoxParcelNumber, q)
                 || ContainsIgnoreCase(GlsPickupParcelNumber, q)
-                || ContainsIgnoreCase(Przesylka?.NrListuPrzygotowalnia, q)
-                || ContainsIgnoreCase(Przesylka?.NrListuNadane, q))
+                || ContainsIgnoreCase(GlsShipment?.NrPrzyg, q)
+                || ContainsIgnoreCase(GlsShipment?.NrNad, q))
             {
                 return true;
             }
@@ -288,6 +370,35 @@ namespace Gryzak.Models
             && value.Contains(query, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Format N2 (pl-PL) używa NBSP jako separatora tysięcy — użytkownik wpisuje zwykłą spację.
+        /// Porównujemy też wersję bez spacji („33500” vs „33 500,00”).
+        /// </summary>
+        private static bool MatchesAmount(decimal amount, string query)
+        {
+            var display = amount.ToString("N2", CultureInfo.CurrentCulture);
+            var normDisplay = NormalizeSpaces(display);
+            var normQuery = NormalizeSpaces(query);
+            if (normDisplay.Contains(normQuery, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var compactDisplay = CompactNumeric(display);
+            var compactQuery = CompactNumeric(query);
+            return compactQuery.Length > 0
+                && compactDisplay.Contains(compactQuery, StringComparison.Ordinal);
+        }
+
+        private static string NormalizeSpaces(string value) =>
+            (value ?? "")
+                .Replace('\u00A0', ' ')  // NBSP (pl-PL NumberGroupSeparator)
+                .Replace('\u202F', ' ')  // narrow no-break space
+                .Replace('\u2009', ' '); // thin space
+
+        private static string CompactNumeric(string value) =>
+            new string((value ?? "").Where(c => char.IsDigit(c) || c is ',' or '.').ToArray());
+
+        /// <summary>
         /// Adres dostawy z kartoteki kontrahenta (GET /kontrahenci/{id}, pola adr_Dostawa*),
         /// gdy w Subiekcie zaznaczono „Adres dostawy” (kh_AdresDostawy=1).
         /// </summary>
@@ -311,6 +422,7 @@ namespace Gryzak.Models
         public string WartBruttoDisplay => $"{WartBrutto:N2}";
         public string WartNettoDisplay => $"{WartNetto:N2}";
         public string PrzesylkaDisplay => Przesylka?.ListDisplayText ?? "";
+        public string GlsShipmentDisplay => GlsShipment?.ListDisplayText ?? "";
 
         public bool IsGlsPobranie =>
             KartaNazwa.Equals("GLS pobranie", StringComparison.OrdinalIgnoreCase);
@@ -354,48 +466,29 @@ namespace Gryzak.Models
         }
     }
 
-    public class SubiektDocumentLine
-    {
-        public int Plu { get; set; }
-        public string Symbol { get; set; } = "";
-        public string Nazwa { get; set; } = "";
-        public decimal Ilosc { get; set; }
-        public decimal CenaNetto { get; set; }
-        public decimal CenaBrutto { get; set; }
-        public decimal WartoscNetto => Ilosc * CenaNetto;
-        public decimal WartoscBrutto => Ilosc * CenaBrutto;
-    }
-
     public class SubiektPrzesylka
     {
-        public const string StatusUtworzono = "utworzono";
-        public const string StatusEdytowano = "edytowano";
-        public const string StatusUsuniete = "usuniete";
-        public const string DataFormat = "yyyy-MM-dd HH:mm:ss";
-
         public string Typ { get; set; } = "";
         public int Id { get; set; }
-        /// <summary>Numery listów w przygotowalni GLS (przechowalnia — po etykiecie, przed nadaniem).</summary>
+        /// <summary>Numery listów w przygotowalni GLS (JSON: nr_przyg).</summary>
         public string NrListuPrzygotowalnia { get; set; } = "";
-        /// <summary>Numery listów już nadanych (pickup GLS).</summary>
+        /// <summary>Numery listów już nadanych (JSON: nr_nad).</summary>
         public string NrListuNadane { get; set; } = "";
-        public string Status { get; set; } = "";
-        public DateTime? Data { get; set; }
 
         public bool HasId => Id > 0;
-        public bool IsDeleted =>
-            Status.Equals(StatusUsuniete, StringComparison.OrdinalIgnoreCase);
 
         public bool HasAnyNrListu =>
             !string.IsNullOrWhiteSpace(NrListuPrzygotowalnia)
             || !string.IsNullOrWhiteSpace(NrListuNadane);
 
+        public bool IsEmpty => !HasId && !HasAnyNrListu;
+
         public bool IsPreparingBoxOnly =>
-            HasId && !IsDeleted && string.IsNullOrWhiteSpace(NrListuPrzygotowalnia);
+            HasId && string.IsNullOrWhiteSpace(NrListuPrzygotowalnia);
 
         public bool MatchesGls(int id, string? nrListuPrzygotowalnia, string? nrListuNadane)
         {
-            if (IsDeleted || Id != id)
+            if (IsEmpty || Id != id)
             {
                 return false;
             }
@@ -452,17 +545,12 @@ namespace Gryzak.Models
             get
             {
                 var numbers = CombineNrListu(NrListuPrzygotowalnia, NrListuNadane);
-                var idPart = !string.IsNullOrWhiteSpace(numbers)
-                    ? numbers
-                    : (HasId ? Id.ToString(CultureInfo.InvariantCulture) : "");
-                var status = Status.Trim();
-
-                if (string.IsNullOrEmpty(idPart))
+                if (!string.IsNullOrEmpty(numbers))
                 {
-                    return status;
+                    return numbers;
                 }
 
-                return string.IsNullOrEmpty(status) ? idPart : $"{idPart} {status}";
+                return HasId ? Id.ToString(CultureInfo.InvariantCulture) : "";
             }
         }
 
@@ -471,11 +559,6 @@ namespace Gryzak.Models
             get
             {
                 var bits = new List<string>();
-                if (!string.IsNullOrWhiteSpace(Status))
-                {
-                    bits.Add(Status);
-                }
-
                 if (HasId)
                 {
                     bits.Add($"id {Id}");
@@ -491,41 +574,24 @@ namespace Gryzak.Models
                     bits.Add($"nadane {NrListuNadane}");
                 }
 
-                if (Data is DateTime date)
-                {
-                    bits.Add(FormatData(date));
-                }
-
                 return string.Join(", ", bits);
             }
         }
 
         public static string CombineNrListu(params string?[] values) =>
             NormalizeNrListu(string.Join(",", values.SelectMany(SplitNrListu)));
+    }
 
-        public static string FormatData(DateTime value) =>
-            value.ToString(DataFormat, CultureInfo.InvariantCulture);
-
-        public static DateTime? ParseData(string? raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw))
-            {
-                return null;
-            }
-
-            var text = raw.Trim();
-            if (DateTime.TryParseExact(text, DataFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
-            {
-                return exact;
-            }
-
-            if (DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
-            {
-                return parsed;
-            }
-
-            return DateTime.TryParse(text, out parsed) ? parsed : null;
-        }
+    public class SubiektDocumentLine
+    {
+        public int Plu { get; set; }
+        public string Symbol { get; set; } = "";
+        public string Nazwa { get; set; } = "";
+        public decimal Ilosc { get; set; }
+        public decimal CenaNetto { get; set; }
+        public decimal CenaBrutto { get; set; }
+        public decimal WartoscNetto => Ilosc * CenaNetto;
+        public decimal WartoscBrutto => Ilosc * CenaBrutto;
     }
 
     public class SubiektRelatedDocument
@@ -536,6 +602,7 @@ namespace Gryzak.Models
         public string TypKod => SubiektApiDocumentTypes.FromDokTyp(DokTyp);
         public bool IsFs => DokTyp == SubiektApiDocumentTypes.Fs;
         public bool IsWz => DokTyp == SubiektApiDocumentTypes.Wz;
+        public bool IsZk => DokTyp == SubiektApiDocumentTypes.Zk;
     }
 
     public class SubiektRelatedDocuments
@@ -625,6 +692,21 @@ namespace Gryzak.Models
             if (text.StartsWith("ZK ", StringComparison.OrdinalIgnoreCase)) return Zk;
             return Zk;
         }
+
+        /// <summary>Dokumenty FS/WZ (related lookup cache GLS).</summary>
+        public static bool IsFsOrWz(int dokTyp) => dokTyp is Fs or Wz;
+
+        public static bool IsFsOrWz(string? typKod)
+        {
+            var typ = (typKod ?? "").Trim().ToLowerInvariant();
+            return typ is "fs" or "wz";
+        }
+
+        [Obsolete("Use IsFsOrWz")]
+        public static bool SupportsPrzesylka(int dokTyp) => IsFsOrWz(dokTyp);
+
+        [Obsolete("Use IsFsOrWz")]
+        public static bool SupportsPrzesylka(string? typKod) => IsFsOrWz(typKod);
     }
 
     public class SubiektDocumentPage

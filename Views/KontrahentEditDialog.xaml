@@ -1,0 +1,165 @@
+<Window x:Class="Gryzak.Views.KontrahentEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:converters="clr-namespace:Gryzak.Converters"
+        Title="Adres wysyłki kontrahenta"
+        Height="580" Width="520"
+        MinHeight="440" MinWidth="440"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Icon="pack://application:,,,/gryzak_icon.png">
+
+    <Window.Resources>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Background" Value="#2196F3"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#666"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Margin" Value="0,0,0,3"/>
+        </Style>
+        <Style x:Key="ReadOnlyValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#222"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+        <Style x:Key="FieldBox" TargetType="TextBox">
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#2196F3" Padding="20,14">
+            <TextBlock x:Name="HeaderTitleText" FontSize="18" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" Padding="20,16" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- Karta kontrahenta (tylko odczyt) -->
+                <Border Background="#FAFAFA" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="4" Padding="14,12" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Kontrahent w Subiekcie" Style="{StaticResource SectionTitle}" Foreground="#424242"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                    Visibility="{Binding ElementName=CardOsobaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                            <TextBlock Text="Imię i nazwisko: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
+                            <TextBlock x:Name="CardOsobaText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                    Visibility="{Binding ElementName=CardFirmaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                            <TextBlock Text="Firma: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
+                            <TextBlock x:Name="CardFirmaText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                    Visibility="{Binding ElementName=CardNipText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                            <TextBlock Text="NIP: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
+                            <TextBlock x:Name="CardNipText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                    Visibility="{Binding ElementName=CardAdresText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                            <TextBlock Text="Adres: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110" VerticalAlignment="Top"/>
+                            <TextBlock x:Name="CardAdresText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding ElementName=CardEmailText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                            <TextBlock Text="E-mail: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
+                            <TextBlock x:Name="CardEmailText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Obecny adres wysyłki z Subiekta -->
+                <Border x:Name="CurrentDostawaCard" Visibility="Collapsed"
+                        BorderThickness="4,0,0,0" Padding="14,12" CornerRadius="0,4,4,0" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Obecny adres wysyłki kontrahenta w Subiekcie" Style="{StaticResource SectionTitle}"
+                                   x:Name="CurrentDostawaTitle" Foreground="#1565C0"/>
+                        <TextBlock x:Name="CurrentDostawaNazwaText" Style="{StaticResource ReadOnlyValue}" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="CurrentDostawaAdresText" Style="{StaticResource ReadOnlyValue}" Foreground="#666"/>
+                        <TextBlock x:Name="CurrentDostawaCompareText" FontSize="11" FontWeight="SemiBold"
+                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <TextBlock x:Name="CurrentDostawaDiffText" FontSize="11" Foreground="#C62828"
+                                   TextWrapping="Wrap" Margin="0,2,0,0" Visibility="Collapsed"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Edycja adresu wysyłki -->
+                <Border BorderBrush="#4CAF50" BorderThickness="4,0,0,0" Background="#F1F8E9" Padding="14,12" CornerRadius="0,4,4,0">
+                    <StackPanel>
+                        <CheckBox x:Name="DostawaAktywnyCheck"
+                                  Content="Zmień adres wysyłki w kartotece kontrahenta na podstawie zamówienia"
+                                  FontWeight="Bold" Foreground="#2E7D32" Margin="0,0,0,4"
+                                  Checked="DostawaAktywnyCheck_Changed" Unchecked="DostawaAktywnyCheck_Changed"/>
+                        <TextBlock Text="Poniżej adres wysyłki z zamówienia. Edycja i zapis tylko po zaznaczeniu."
+                                   FontSize="11" Foreground="#666" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <StackPanel x:Name="DostawaFieldsPanel">
+                            <TextBlock Text="Nazwa / odbiorca" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="DostawaNazwaBox" Style="{StaticResource FieldBox}"/>
+                            <TextBlock Text="Ulica" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="DostawaUlicaBox" Style="{StaticResource FieldBox}"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Nr domu" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="DostawaNrDomuBox" Style="{StaticResource FieldBox}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Nr lokalu / dopisek" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="DostawaNrLokaluBox" Style="{StaticResource FieldBox}"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Kod" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="DostawaKodBox" Style="{StaticResource FieldBox}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Miejscowość" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="DostawaMiejscowoscBox" Style="{StaticResource FieldBox}"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Background="#F5F5F5" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="16,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Anuluj" IsCancel="True" Click="CancelButton_Click"
+                        Background="#9E9E9E" Width="120" Height="35"/>
+                <Button x:Name="SaveButton" Content="Zmień adres wysyłki na podstawie zamówienia" IsDefault="True" Click="SaveButton_Click"
+                        MinWidth="280" Height="35" IsEnabled="False"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
