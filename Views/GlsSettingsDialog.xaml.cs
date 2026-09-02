@@ -120,7 +120,10 @@ namespace Gryzak.Views
 
         private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
         {
+            FlushUiToCurrentEnvironment();
             var config = GetConfigFromUI();
+            // Testuj edytowany profil, niekoniecznie globalnie aktywny.
+            config.UseProduction = _uiIsProduction;
 
             if (string.IsNullOrWhiteSpace(config.UserName) || string.IsNullOrWhiteSpace(config.Password))
             {
@@ -222,7 +225,8 @@ namespace Gryzak.Views
         private GlsConfig GetConfigFromUI()
         {
             FlushUiToCurrentEnvironment();
-            _currentConfig.UseProduction = ProductionEnvironmentRadio.IsChecked == true;
+            // UseProduction pochodzi z globalnego environment.json — nie z radiów w tym oknie.
+            _currentConfig.UseProduction = _configService.GetUseProduction();
             _currentConfig.GlsPanelEnabled = GlsPanelEnabledCheckBox.IsChecked == true;
             _currentConfig.LabelPrinterName = (LabelPrinterComboBox.SelectedItem as string)?.Trim()
                 ?? LabelPrinterComboBox.Text?.Trim()

@@ -602,6 +602,298 @@ namespace Gryzak.Services
                     System.Windows.MessageBoxImage.Error);
             }
         }
+
+        /// <summary>
+        /// Otwiera okno kartoteki istniejącego kontrahenta w Subiekcie GT przez Sferę (COM).
+        /// Opcjonalnie wypełnia adres dostawy (checkbox „Adres dostawy”) przed Wyswietl — zapis w oknie Subiekta.
+        /// Po zamknięciu okna kartoteki zwalnia licencję Sfery.
+        /// </summary>
+        public void OtworzKartotekeKontrahenta(int khId, AdresDostawyPrefill? adresDostawyPrefill = null)
+        {
+            if (khId <= 0)
+            {
+                MessageBox.Show(
+                    "Brak identyfikatora kontrahenta (kh_Id).",
+                    "Kontrahent",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            dynamic? kontrahent = null;
+            var subiektAcquired = false;
+
+            try
+            {
+                Info($"Próba otwarcia kartoteki kontrahenta kh_Id={khId} przez Sferę" +
+                     (adresDostawyPrefill != null ? " (z prefill adresu dostawy)" : "") + "...", "SubiektService");
+
+                dynamic? gt = null;
+                dynamic? subiekt = null;
+
+                if (_cachedSubiekt != null && _cachedGt != null)
+                {
+                    subiekt = _cachedSubiekt;
+                    gt = _cachedGt;
+                    subiektAcquired = true;
+                    Info("Używam istniejącej instancji Subiekta GT z cache.", "SubiektService");
+                    PowiadomOZmianieInstancji(true);
+                }
+
+                if (subiekt == null)
+                {
+                    Info("Uruchamiam nową instancję Subiekta GT...", "SubiektService");
+
+                    Type? gtType = Type.GetTypeFromProgID("InsERT.gt");
+                    if (gtType == null)
+                    {
+                        Info("BŁĄD: Nie można załadować typu COM 'InsERT.gt'.", "SubiektService");
+                        MessageBox.Show(
+                            "Nie można połączyć się z Subiektem GT.\n\nUpewnij się, że:\n- Sfera dla Subiekta GT jest zainstalowana\n- Subiekt GT jest zainstalowany",
+                            "Błąd połączenia",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        return;
+                    }
+
+                    gt = Activator.CreateInstance(gtType);
+                    if (gt == null)
+                    {
+                        Info("BŁĄD: Nie można utworzyć instancji obiektu GT.", "SubiektService");
+                        return;
+                    }
+
+                    var subiektConfig = _configService.LoadSubiektConfig();
+                    if (string.IsNullOrWhiteSpace(subiektConfig.ServerAddress) ||
+                        string.IsNullOrWhiteSpace(subiektConfig.DatabaseName))
+                    {
+                        MessageBox.Show(
+                            "Brak konfiguracji Subiekt GT (serwer / baza).\n\nProszę skonfigurować połączenie w ustawieniach.",
+                            "Brak konfiguracji",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    gt.Produkt = subiektConfig.GtProdukt;
+                    gt.Serwer = subiektConfig.ServerAddress;
+                    gt.Baza = subiektConfig.DatabaseName;
+                    gt.Autentykacja = subiektConfig.AuthenticationMode;
+                    if (!string.IsNullOrWhiteSpace(subiektConfig.ServerUsername))
+                    {
+                        gt.Uzytkownik = subiektConfig.ServerUsername;
+                        gt.UzytkownikHaslo = subiektConfig.ServerPassword ?? "";
+                    }
+                    gt.Operator = subiektConfig.User ?? "Szef";
+                    gt.OperatorHaslo = subiektConfig.Password ?? "";
+
+                    try
+                    {
+                        subiekt = gt.Uruchom(subiektConfig.LaunchDopasujOperatora, subiektConfig.LaunchTryb);
+                        if (subiekt == null)
+                        {
+                            Info("BŁĄD: Uruchomienie Subiekta GT zwróciło null.", "SubiektService");
+                            return;
+                        }
+
+                        _cachedGt = gt;
+                        _cachedSubiekt = subiekt;
+                        subiektAcquired = true;
+                        PowiadomOZmianieInstancji(true);
+
+                        try { subiekt.Okno.Widoczne = false; }
+                        catch (Exception oknoEx)
+                        {
+                            Warning($"Nie można ustawić głównego okna jako niewidoczne: {oknoEx.Message}", "SubiektService");
+                        }
+                    }
+                    catch (COMException comEx)
+                    {
+                        Error($"Błąd COM: {comEx.Message}", "SubiektService");
+                        _cachedSubiekt = null;
+                        _cachedGt = null;
+                        MessageBox.Show(
+                            $"Błąd podczas uruchamiania Subiekta GT:\n\n{comEx.Message}",
+                            "Błąd uruchamiania",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        return;
+                    }
+                }
+
+                try
+                {
+                    dynamic kontrahenciManager = subiekt!.KontrahenciManager;
+                    kontrahent = kontrahenciManager.WczytajKontrahenta(khId);
+                    Info($"Wczytano kontrahenta przez KontrahenciManager.WczytajKontrahenta(kh_Id={khId})", "SubiektService");
+                }
+                catch (Exception ex1)
+                {
+                    Warning($"KontrahenciManager.WczytajKontrahenta nie zadziałał: {ex1.Message}", "SubiektService");
+                }
+
+                if (kontrahent == null)
+                {
+                    try
+                    {
+                        dynamic kontrahenci = subiekt!.Kontrahenci;
+                        kontrahent = kontrahenci.Wczytaj(khId);
+                        Info($"Wczytano kontrahenta przez Kontrahenci.Wczytaj(kh_Id={khId})", "SubiektService");
+                    }
+                    catch (Exception ex2)
+                    {
+                        Warning($"Kontrahenci.Wczytaj nie zadziałał: {ex2.Message}", "SubiektService");
+                    }
+                }
+
+                if (kontrahent == null)
+                {
+                    MessageBox.Show(
+                        $"Nie udało się wczytać kontrahenta (kh_Id={khId}) w Subiekcie GT.",
+                        "Kontrahent",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (adresDostawyPrefill != null)
+                {
+                    WypelnijAdresDostawyNaKontrahencie(kontrahent, adresDostawyPrefill);
+                }
+
+                try
+                {
+                    kontrahent.Wyswietl();
+                    Info($"Zamknięto kartotekę kontrahenta kh_Id={khId} (Wyswietl).", "SubiektService");
+                }
+                catch (Exception wyswietlEx)
+                {
+                    Warning($"Wyswietl() nie zadziałał: {wyswietlEx.Message} — próbuję Wyswietl(false)", "SubiektService");
+                    kontrahent.Wyswietl(false);
+                    Info($"Zamknięto kartotekę kontrahenta kh_Id={khId} (Wyswietl(false)).", "SubiektService");
+                }
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "SubiektService", "Błąd podczas otwierania kartoteki kontrahenta");
+                MessageBox.Show(
+                    $"Błąd podczas otwierania kartoteki kontrahenta w Subiekcie:\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                if (kontrahent != null)
+                {
+                    try
+                    {
+                        Marshal.ReleaseComObject(kontrahent);
+                    }
+                    catch (Exception releaseEx)
+                    {
+                        Warning($"Błąd zwolnienia COM kontrahenta: {releaseEx.Message}", "SubiektService");
+                    }
+                }
+
+                if (subiektAcquired)
+                {
+                    Info("Zwalnianie licencji Sfery po zamknięciu kartoteki kontrahenta...", "SubiektService");
+                    ZwolnijLicencje();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Włącza „Adres dostawy” i wypełnia pola AdrDost* na obiekcie SuKontrahent (Sfera).
+        /// Zapisuje użytkownik w oknie Subiekta.
+        /// </summary>
+        private void WypelnijAdresDostawyNaKontrahencie(dynamic kontrahent, AdresDostawyPrefill prefill)
+        {
+            Info("Wypełnianie adresu dostawy na kontrahencie (Sfera)...", "SubiektService");
+
+            // Checkbox „Adres dostawy” na zakładce Adresy
+            if (!TrySetComProperty(kontrahent, true, "AdresDostawy"))
+                Warning("Nie udało się ustawić AdresDostawy=true", "SubiektService");
+
+            if (!string.IsNullOrWhiteSpace(prefill.Nazwa))
+            {
+                var nazwa = prefill.Nazwa.Trim();
+                TrySetComProperty(kontrahent, nazwa, "AdrDostNazwa", "AdrDostawaNazwa", "NazwaDostawy");
+                TrySetComProperty(kontrahent, nazwa, "AdrDostNazwaPelna", "AdrDostawaNazwaPelna", "NazwaPelnaDostawy");
+            }
+
+            if (!string.IsNullOrWhiteSpace(prefill.Ulica))
+                TrySetComProperty(kontrahent, prefill.Ulica.Trim(), "AdrDostUlica", "AdrDostawaUlica", "UlicaDostawy");
+
+            if (!string.IsNullOrWhiteSpace(prefill.NrDomu))
+                TrySetComProperty(kontrahent, prefill.NrDomu.Trim(), "AdrDostNrDomu", "AdrDostawaNrDomu", "NrDomuDostawy");
+
+            if (!string.IsNullOrWhiteSpace(prefill.NrLokalu))
+                TrySetComProperty(kontrahent, prefill.NrLokalu.Trim(), "AdrDostNrLokalu", "AdrDostawaNrLokalu", "NrLokaluDostawy");
+
+            if (!string.IsNullOrWhiteSpace(prefill.Kod))
+                TrySetComProperty(kontrahent, prefill.Kod.Trim(),
+                    "AdrDostKodPocztowy", "AdrDostawaKodPocztowy", "AdrDostKod", "AdrDostawaKod", "KodPocztowyDostawy");
+
+            if (!string.IsNullOrWhiteSpace(prefill.Miejscowosc))
+                TrySetComProperty(kontrahent, prefill.Miejscowosc.Trim(),
+                    "AdrDostMiejscowosc", "AdrDostawaMiejscowosc", "MiejscowoscDostawy");
+
+            if (prefill.PanstwoId is > 0)
+                TrySetComProperty(kontrahent, prefill.PanstwoId.Value,
+                    "AdrDostPanstwo", "AdrDostawaPanstwo", "PanstwoDostawy");
+
+            if (prefill.WojewodztwoId is > 0)
+                TrySetComProperty(kontrahent, prefill.WojewodztwoId.Value,
+                    "AdrDostWojewodztwo", "AdrDostawaWojewodztwo", "WojewodztwoDostawy");
+
+            // Złożone pole Adres (gdy Subiekt trzyma ulicę+nr w jednej linii)
+            var adresLinia = BuildAdresLinia(prefill.Ulica, prefill.NrDomu, prefill.NrLokalu);
+            if (!string.IsNullOrWhiteSpace(adresLinia))
+                TrySetComProperty(kontrahent, adresLinia, "AdrDostAdres", "AdrDostawaAdres", "AdresDostawyAdres");
+
+            Info("Zakończono wypełnianie adresu dostawy (przed Wyswietl).", "SubiektService");
+        }
+
+        private static string BuildAdresLinia(string? ulica, string? nrDomu, string? nrLokalu)
+        {
+            var street = (ulica ?? "").Trim();
+            var nr = $"{nrDomu} {nrLokalu}".Trim();
+            if (string.IsNullOrWhiteSpace(street) && string.IsNullOrWhiteSpace(nr))
+                return "";
+            if (string.IsNullOrWhiteSpace(nr))
+                return street;
+            if (string.IsNullOrWhiteSpace(street))
+                return nr;
+            return $"{street} {nr}";
+        }
+
+        private static bool TrySetComProperty(dynamic obj, object? value, params string[] propertyNames)
+        {
+            var comObj = (object)obj;
+            foreach (var name in propertyNames)
+            {
+                try
+                {
+                    comObj.GetType().InvokeMember(
+                        name,
+                        System.Reflection.BindingFlags.SetProperty,
+                        null,
+                        comObj,
+                        new[] { value });
+                    Info($"Ustawiono {name}={value}", "SubiektService");
+                    return true;
+                }
+                catch
+                {
+                    // spróbuj kolejnej nazwy właściwości
+                }
+            }
+
+            Warning($"Nie udało się ustawić żadnej z właściwości: {string.Join(", ", propertyNames)}", "SubiektService");
+            return false;
+        }
         
         /// <summary>
         /// Wyszukuje ID kraju w słowniku państw Subiekta GT po nazwie (REST API)

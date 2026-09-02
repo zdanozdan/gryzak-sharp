@@ -148,6 +148,20 @@
                 <MenuItem Header="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}"/>
                 <MenuItem Header="Ustawienia GLS" Command="{Binding OpenGlsSettingsCommand}"/>
                 <Separator/>
+                <MenuItem Header="Środowisko">
+                    <MenuItem Header="Test"
+                              IsCheckable="True"
+                              IsChecked="{Binding IsTestEnvironment, Mode=OneWay}"
+                              Command="{Binding SetTestEnvironmentCommand}"/>
+                    <MenuItem Header="Produkcja"
+                              IsCheckable="True"
+                              IsChecked="{Binding IsProductionEnvironment, Mode=OneWay}"
+                              Command="{Binding SetProductionEnvironmentCommand}"/>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="Zapisz ustawienia…" Command="{Binding ExportSettingsCommand}"/>
+                <MenuItem Header="Wgraj ustawienia…" Command="{Binding ImportSettingsCommand}"/>
+                <Separator/>
                 <MenuItem Header="Debug" Click="DebugMenuItem_Click"/>
                 <Separator/>
                 <MenuItem Header="Zwolnij licencję Subiekta GT" Command="{Binding ZwolnijLicencjeCommand}">
@@ -1138,9 +1152,26 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,20,0">
-                        <TextBlock Text="{Binding StatusCountLabel}" FontSize="12" Margin="0,0,5,0"/>
-                        <TextBlock Text="{Binding StatusCountValue}" FontWeight="Bold" FontSize="12" Margin="0,0,15,0"/>
-                        <TextBlock Text="{Binding SubiektStatusText}" FontSize="12" Foreground="#4CAF50" FontWeight="SemiBold">
+                        <Border CornerRadius="3" Padding="8,2" Margin="0,0,12,0" VerticalAlignment="Center">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#FF9800"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsProductionEnvironment}" Value="True">
+                                            <Setter Property="Background" Value="#2E7D32"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding EnvironmentStatusText}"
+                                       FontSize="11"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="{Binding StatusCountLabel}" FontSize="12" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding StatusCountValue}" FontWeight="Bold" FontSize="12" Margin="0,0,15,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding SubiektStatusText}" FontSize="12" Foreground="#4CAF50" FontWeight="SemiBold" VerticalAlignment="Center">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Visibility" Value="Collapsed"/>
@@ -1158,6 +1189,7 @@
                                Foreground="#2196F3"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
                                Text="{Binding StatusSelectedCaption}">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
@@ -1170,7 +1202,7 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <TextBlock Grid.Column="2" Text="{Binding AppVersionText}" FontSize="11" Foreground="Gray"/>
+                    <TextBlock Grid.Column="2" Text="{Binding AppVersionText}" FontSize="11" Foreground="Gray" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
         </Grid>

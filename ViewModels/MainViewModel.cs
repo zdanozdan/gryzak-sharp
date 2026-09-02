@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows;
+using Microsoft.Win32;
 using System.Windows.Threading;
 using System.Windows.Data;
 using System.Text.Json;
@@ -458,6 +459,12 @@ namespace Gryzak.ViewModels
             }
         }
 
+        public bool IsProductionEnvironment => _configService.GetUseProduction();
+
+        public bool IsTestEnvironment => !IsProductionEnvironment;
+
+        public string EnvironmentStatusText => _configService.GetEnvironmentDisplayName();
+
         public string StatusSelectedCaption
         {
             get
@@ -559,6 +566,10 @@ namespace Gryzak.ViewModels
         public ICommand ConfigureApiCommand { get; }
         public ICommand OpenSubiektSettingsCommand { get; }
         public ICommand OpenGlsSettingsCommand { get; }
+        public ICommand ExportSettingsCommand { get; }
+        public ICommand ImportSettingsCommand { get; }
+        public ICommand SetTestEnvironmentCommand { get; }
+        public ICommand SetProductionEnvironmentCommand { get; }
         public ICommand OrderSelectedCommand { get; }
         public ICommand DodajZKCommand { get; }
         public ICommand NoweZKCommand { get; }
@@ -597,6 +608,10 @@ namespace Gryzak.ViewModels
             ConfigureApiCommand = new RelayCommand(() => OpenConfigDialog());
             OpenSubiektSettingsCommand = new RelayCommand(() => OpenSubiektSettingsDialog());
             OpenGlsSettingsCommand = new RelayCommand(() => OpenGlsSettingsDialog());
+            ExportSettingsCommand = new RelayCommand(() => ExportSettings());
+            ImportSettingsCommand = new RelayCommand(() => ImportSettings());
+            SetTestEnvironmentCommand = new RelayCommand(() => SetEnvironment(useProduction: false));
+            SetProductionEnvironmentCommand = new RelayCommand(() => SetEnvironment(useProduction: true));
             OrderSelectedCommand = new RelayCommand<Order>(order => OnOrderSelected(order));
             SubiektDocumentSelectedCommand = new RelayCommand<SubiektDocument>(doc => OnSubiektDocumentSelected(doc));
             DodajZKCommand = new RelayCommand(() => DodajZK());
@@ -792,6 +807,59 @@ namespace Gryzak.ViewModels
             OnPropertyChanged(nameof(StatusCountValue));
             OnPropertyChanged(nameof(StatusSelectedCaption));
             OnPropertyChanged(nameof(HasStatusSelection));
+            OnPropertyChanged(nameof(IsProductionEnvironment));
+            OnPropertyChanged(nameof(IsTestEnvironment));
+            OnPropertyChanged(nameof(EnvironmentStatusText));
+        }
+
+        private void SetEnvironment(bool useProduction)
+        {
+            if (_configService.GetUseProduction() == useProduction)
+            {
+                return;
+            }
+
+            var label = useProduction ? "Live" : "TEST";
+            var confirm = MessageBox.Show(
+                $"Przełączyć aplikację na środowisko {label}?\n\nZmieni się aktywna konfiguracja sklepu, Subiekta i GLS.",
+                "Zmiana środowiska",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                _configService.SetUseProduction(useProduction);
+                _apiService.InvalidateHttpClient();
+                NotifyStatusBarChanged();
+                CheckApiConfiguration();
+                CheckSubiektApiConfiguration();
+
+                if (IsApiConfigured && !IsSubiektTabSelected)
+                {
+                    _ = LoadOrdersAsync(true);
+                }
+
+                if (IsSubiektTabSelected && IsSubiektApiConfigured)
+                {
+                    _ = LoadSubiektDocumentsAsync(true);
+                }
+
+                Info($"Przełączono środowisko na {label}.", "MainViewModel");
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd zmiany środowiska");
+                MessageBox.Show(
+                    $"Nie udało się zmienić środowiska.\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private async Task RefreshActiveTabAsync()
@@ -2514,6 +2582,7 @@ namespace Gryzak.ViewModels
             configWindow.ShowDialog();
             
             // Sprawdź konfigurację i odśwież listę
+            _apiService.InvalidateHttpClient();
             CheckApiConfiguration();
             _ = LoadOrdersAsync();
         }
@@ -2534,6 +2603,110 @@ namespace Gryzak.ViewModels
             var settingsWindow = new Views.GlsSettingsDialog(_configService);
             settingsWindow.ShowDialog();
             IsGlsPanelEnabled = _configService.LoadGlsConfig().GlsPanelEnabled;
+        }
+
+        private void ExportSettings()
+        {
+            var dialog = new SaveFileDialog
+            {
+                Title = "Zapisz ustawienia Gryzak",
+                Filter = "Plik JSON (*.json)|*.json|Wszystkie pliki (*.*)|*.*",
+                DefaultExt = "json",
+                FileName = "gryzak-ustawienia.json",
+                AddExtension = true
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            try
+            {
+                _configService.ExportSettings(dialog.FileName);
+                MessageBox.Show(
+                    $"Ustawienia zapisano do pliku:\n{dialog.FileName}",
+                    "Zapisano ustawienia",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd eksportu ustawień");
+                MessageBox.Show(
+                    $"Nie udało się zapisać ustawień.\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ImportSettings()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Wgraj ustawienia Gryzak",
+                Filter = "Plik JSON (*.json)|*.json|Wszystkie pliki (*.*)|*.*",
+                DefaultExt = "json"
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                "Wgranie ustawień nadpisze bieżącą konfigurację sklepu, Subiekta i GLS na tej stacji.\n\nKontynuować?",
+                "Wgraj ustawienia",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                _configService.ImportSettings(dialog.FileName);
+                ApplyImportedSettings();
+                MessageBox.Show(
+                    "Ustawienia zostały wgrane pomyślnie.",
+                    "Wgrano ustawienia",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "MainViewModel", "Błąd importu ustawień");
+                MessageBox.Show(
+                    $"Nie udało się wgrać ustawień.\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ApplyImportedSettings()
+        {
+            _apiService.InvalidateHttpClient();
+            CheckApiConfiguration();
+            CheckSubiektApiConfiguration();
+            IsGlsPanelEnabled = _configService.LoadGlsConfig().GlsPanelEnabled;
+            RestoreSelectedMainTabIndex();
+            OnPropertyChanged(nameof(SelectedMainTabIndex));
+            OnPropertyChanged(nameof(IsSubiektTabSelected));
+            NotifyStatusBarChanged();
+
+            if (IsApiConfigured)
+            {
+                _ = LoadOrdersAsync();
+            }
+
+            if (IsSubiektTabSelected && IsSubiektApiConfigured)
+            {
+                _ = LoadSubiektDocumentsAsync(true);
+            }
         }
 
         private void OpenGlsShipmentsDialog()

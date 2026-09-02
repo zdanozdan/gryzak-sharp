@@ -11,7 +11,9 @@ namespace Gryzak.Views
     public partial class ConfigDialog : Window
     {
         private readonly ConfigService _configService;
-        private ApiConfig _currentConfig;
+        private readonly ApiConfig _currentConfig;
+        private bool _uiIsProduction;
+        private bool _suppressEnvironmentChange;
 
         public ConfigDialog(ConfigService configService)
         {
@@ -19,20 +21,83 @@ namespace Gryzak.Views
             _configService = configService;
             _currentConfig = _configService.LoadConfig();
             LoadConfig();
-            UpdateUrlPreviews();
         }
 
         private void LoadConfig()
         {
-            ApiUrlTextBox.Text = _currentConfig.ApiUrl;
-            ApiTokenPasswordBox.Password = _currentConfig.ApiToken;
-            ApiTimeoutTextBox.Text = _currentConfig.ApiTimeout.ToString();
-            OrderListEndpointTextBox.Text = _currentConfig.OrderListEndpoint;
-            OrderDetailsEndpointTextBox.Text = _currentConfig.OrderDetailsEndpoint;
+            _suppressEnvironmentChange = true;
+            try
+            {
+                _uiIsProduction = _currentConfig.UseProduction;
+                TestEnvironmentRadio.IsChecked = !_uiIsProduction;
+                ProductionEnvironmentRadio.IsChecked = _uiIsProduction;
+                LoadUiFromCurrentEnvironment();
+                UpdateEnvironmentLabels();
+                UpdateUrlPreviews();
+            }
+            finally
+            {
+                _suppressEnvironmentChange = false;
+            }
+        }
+
+        private void Environment_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEnvironmentChange || ApiUrlTextBox == null)
+            {
+                return;
+            }
+
+            FlushUiToCurrentEnvironment();
+            _uiIsProduction = ProductionEnvironmentRadio.IsChecked == true;
+            LoadUiFromCurrentEnvironment();
+            UpdateEnvironmentLabels();
+            UpdateUrlPreviews();
+            TestStatusText.Text = "";
+        }
+
+        private void LoadUiFromCurrentEnvironment()
+        {
+            var env = GetUiEnvironment();
+            ApiUrlTextBox.Text = env.ApiUrl ?? "";
+            ApiTokenPasswordBox.Password = env.ApiToken ?? "";
+            ApiTimeoutTextBox.Text = env.ApiTimeout.ToString();
+            OrderListEndpointTextBox.Text = env.OrderListEndpoint ?? "";
+            OrderDetailsEndpointTextBox.Text = env.OrderDetailsEndpoint ?? "";
+        }
+
+        private void FlushUiToCurrentEnvironment()
+        {
+            var env = GetUiEnvironment();
+            env.ApiUrl = ApiUrlTextBox.Text.Trim();
+            env.ApiToken = ApiTokenPasswordBox.Password;
+            env.ApiTimeout = int.TryParse(ApiTimeoutTextBox.Text, out var timeout) ? timeout : 30;
+            env.OrderListEndpoint = OrderListEndpointTextBox.Text.Trim();
+            env.OrderDetailsEndpoint = OrderDetailsEndpointTextBox.Text.Trim();
+        }
+
+        private ShopEnvironmentSettings GetUiEnvironment()
+        {
+            return _uiIsProduction ? _currentConfig.Production : _currentConfig.Test;
+        }
+
+        private void UpdateEnvironmentLabels()
+        {
+            if (EnvironmentConfigHeader == null)
+            {
+                return;
+            }
+
+            EnvironmentConfigHeader.Text = _uiIsProduction ? "Konfiguracja: Produkcja" : "Konfiguracja: Test";
         }
 
         private void UpdateUrlPreviews()
         {
+            if (OrderListUrlPreview == null || ApiUrlTextBox == null)
+            {
+                return;
+            }
+
             var baseUrl = ApiUrlTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(baseUrl))
             {
@@ -49,79 +114,60 @@ namespace Gryzak.Views
             var separator = listEndpoint.Contains('?') ? "&" : "?";
             OrderListUrlPreview.Text = $"Pełny URL: {listUrl}{separator}page=1";
 
-            var detailsUrl = baseUrlClean + detailsEndpoint.Replace("{id}", "123");
+            var detailsUrl = baseUrlClean + detailsEndpoint.Replace("{order_id}", "123").Replace("{id}", "123");
             OrderDetailsUrlPreview.Text = $"Pełny URL: {detailsUrl}";
         }
 
-        private void ApiUrl_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        {
-            UpdateUrlPreviews();
-        }
-
-        private void ApiToken_PasswordChanged(object sender, System.Windows.RoutedEventArgs e)
-        {
-            // PasswordChanged tylko do aktualizacji podglądu jeśli potrzebne
-        }
+        private void ApiUrl_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateUrlPreviews();
 
         private void ApiTimeout_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
-            // Walidacja
             if (int.TryParse(ApiTimeoutTextBox.Text, out var timeout))
             {
-                if (timeout < 5 || timeout > 300)
-                {
-                    ApiTimeoutTextBox.Background = System.Windows.Media.Brushes.LightPink;
-                }
-                else
-                {
-                    ApiTimeoutTextBox.Background = System.Windows.Media.Brushes.White;
-                }
+                ApiTimeoutTextBox.Background = timeout < 5 || timeout > 300
+                    ? System.Windows.Media.Brushes.LightPink
+                    : System.Windows.Media.Brushes.White;
             }
         }
 
-        private void OrderListEndpoint_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        {
-            UpdateUrlPreviews();
-        }
+        private void OrderListEndpoint_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateUrlPreviews();
 
-        private void OrderDetailsEndpoint_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        {
-            UpdateUrlPreviews();
-        }
+        private void OrderDetailsEndpoint_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateUrlPreviews();
 
         private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
         {
+            FlushUiToCurrentEnvironment();
+            var env = GetUiEnvironment();
+
             TestConnectionButton.IsEnabled = false;
             TestStatusText.Text = "🔄 Testowanie połączenia...";
             TestStatusText.Foreground = System.Windows.Media.Brushes.Blue;
 
             try
             {
-                var config = GetConfigFromUI();
-                
-                if (string.IsNullOrWhiteSpace(config.ApiUrl))
+                if (string.IsNullOrWhiteSpace(env.ApiUrl))
                 {
                     TestStatusText.Text = "❌ URL API jest wymagany";
                     TestStatusText.Foreground = System.Windows.Media.Brushes.Red;
-                    TestConnectionButton.IsEnabled = true;
                     return;
                 }
 
                 using var client = new HttpClient();
-                client.Timeout = TimeSpan.FromSeconds(config.ApiTimeout);
+                client.Timeout = TimeSpan.FromSeconds(env.ApiTimeout);
                 client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-                
-                if (!string.IsNullOrWhiteSpace(config.ApiToken))
+
+                if (!string.IsNullOrWhiteSpace(env.ApiToken))
                 {
-                    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ApiToken);
+                    client.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", env.ApiToken);
                 }
 
-                var baseUrl = config.ApiUrl.TrimEnd('/');
-                var endpoint = config.OrderListEndpoint;
+                var baseUrl = env.ApiUrl.TrimEnd('/');
+                var endpoint = env.OrderListEndpoint;
                 var separator = endpoint.Contains('?') ? "&" : "?";
                 var url = $"{baseUrl}{endpoint}{separator}page=1";
 
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(config.ApiTimeout));
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(env.ApiTimeout));
                 var response = await client.GetAsync(url, cts.Token);
 
                 if (response.IsSuccessStatusCode)
@@ -160,46 +206,27 @@ namespace Gryzak.Views
         {
             try
             {
-                var config = GetConfigFromUI();
+                FlushUiToCurrentEnvironment();
+                _currentConfig.Normalize();
 
-                // Walidacja
-                if (string.IsNullOrWhiteSpace(config.ApiUrl))
+                if (_currentConfig.Test.ApiTimeout < 5 || _currentConfig.Test.ApiTimeout > 300
+                    || _currentConfig.Production.ApiTimeout < 5 || _currentConfig.Production.ApiTimeout > 300)
                 {
                     MessageBox.Show(
-                        "URL API jest wymagany do zapisania konfiguracji.",
+                        "Timeout musi być między 5 a 300 sekundami (oba środowiska).",
                         "Błąd walidacji",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
                     return;
                 }
 
-                if (config.ApiTimeout < 5 || config.ApiTimeout > 300)
-                {
-                    MessageBox.Show(
-                        "Timeout musi być między 5 a 300 sekundami.",
-                        "Błąd walidacji",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Warning);
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(config.OrderListEndpoint))
-                {
-                    config.OrderListEndpoint = "/orders";
-                }
-
-                if (string.IsNullOrWhiteSpace(config.OrderDetailsEndpoint))
-                {
-                    config.OrderDetailsEndpoint = "/orders";
-                }
-
-                _configService.SaveConfig(config);
+                _configService.SaveConfig(_currentConfig);
                 MessageBox.Show(
                     "Konfiguracja została zapisana pomyślnie.",
                     "Sukces",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
-                
+
                 DialogResult = true;
                 Close();
             }
@@ -216,17 +243,29 @@ namespace Gryzak.Views
         private void ResetButton_Click(object sender, RoutedEventArgs e)
         {
             var result = MessageBox.Show(
-                "Czy na pewno chcesz zresetować konfigurację do wartości domyślnych?",
+                "Zresetować aktualnie edytowany profil środowiska do wartości domyślnych?",
                 "Potwierdzenie",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
-            if (result == MessageBoxResult.Yes)
+            if (result != MessageBoxResult.Yes)
             {
-                _currentConfig = new ApiConfig();
-                LoadConfig();
-                UpdateUrlPreviews();
+                return;
             }
+
+            var defaults = new ShopEnvironmentSettings();
+            if (_uiIsProduction)
+            {
+                _currentConfig.Production = defaults;
+            }
+            else
+            {
+                defaults.ApiUrl = "https://mikran.pl";
+                _currentConfig.Test = defaults;
+            }
+
+            LoadUiFromCurrentEnvironment();
+            UpdateUrlPreviews();
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
@@ -234,18 +273,5 @@ namespace Gryzak.Views
             DialogResult = false;
             Close();
         }
-
-        private ApiConfig GetConfigFromUI()
-        {
-            return new ApiConfig
-            {
-                ApiUrl = ApiUrlTextBox.Text.Trim(),
-                ApiToken = ApiTokenPasswordBox.Password,
-                ApiTimeout = int.TryParse(ApiTimeoutTextBox.Text, out var timeout) ? timeout : 30,
-                OrderListEndpoint = OrderListEndpointTextBox.Text.Trim(),
-                OrderDetailsEndpoint = OrderDetailsEndpointTextBox.Text.Trim()
-            };
-        }
     }
 }
-

@@ -12,23 +12,98 @@ namespace Gryzak.Services
         private readonly string _configPath;
         private readonly string _subiektConfigPath;
         private readonly string _glsConfigPath;
+        private readonly string _environmentPath;
         private readonly string _historyPath;
 
         public ConfigService()
         {
             var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var gryzakPath = Path.Combine(appDataPath, "Gryzak");
-            
+
             if (!Directory.Exists(gryzakPath))
             {
                 Directory.CreateDirectory(gryzakPath);
             }
-            
+
             _configPath = Path.Combine(gryzakPath, "config.json");
             _subiektConfigPath = Path.Combine(gryzakPath, "subiekt_config.json");
             _glsConfigPath = Path.Combine(gryzakPath, "gls_config.json");
+            _environmentPath = Path.Combine(gryzakPath, "environment.json");
             _historyPath = Path.Combine(gryzakPath, "order_history.json");
         }
+
+        public AppEnvironmentConfig LoadEnvironment()
+        {
+            try
+            {
+                if (File.Exists(_environmentPath))
+                {
+                    var json = File.ReadAllText(_environmentPath);
+                    var config = JsonSerializer.Deserialize<AppEnvironmentConfig>(json);
+                    if (config != null)
+                    {
+                        return config;
+                    }
+                }
+                else
+                {
+                    // Migracja: przejmij UseProduction z GLS, jeśli było zapisane.
+                    var migrated = TryMigrateEnvironmentFromGls();
+                    SaveEnvironment(migrated);
+                    return migrated;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd ładowania środowiska: {ex.Message}");
+            }
+
+            return new AppEnvironmentConfig();
+        }
+
+        public void SaveEnvironment(AppEnvironmentConfig config)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(config, JsonWriteOptions);
+                File.WriteAllText(_environmentPath, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd zapisywania środowiska: {ex.Message}");
+                throw;
+            }
+        }
+
+        public bool GetUseProduction() => LoadEnvironment().UseProduction;
+
+        public void SetUseProduction(bool useProduction)
+        {
+            var env = LoadEnvironment();
+            if (env.UseProduction == useProduction)
+            {
+                return;
+            }
+
+            env.UseProduction = useProduction;
+            SaveEnvironment(env);
+
+            // Utrzymaj zgodność pliku GLS (Active/URL w UI GLS).
+            try
+            {
+                var gls = LoadGlsConfigRaw();
+                gls.UseProduction = useProduction;
+                SaveGlsConfigRaw(gls);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Nie udało się zsynchronizować GLS UseProduction: {ex.Message}");
+            }
+        }
+
+        public string GetEnvironmentName() => LoadEnvironment().GetEnvironmentName();
+
+        public string GetEnvironmentDisplayName() => LoadEnvironment().GetEnvironmentDisplayName();
 
         public ApiConfig LoadConfig()
         {
@@ -40,12 +115,18 @@ namespace Gryzak.Services
                     var config = JsonSerializer.Deserialize<ApiConfig>(json);
                     if (config != null)
                     {
-                        // Napraw obcięty endpoint jeśli istnieje
-                        if (config.OrderDetailsEndpoint != null && config.OrderDetailsEndpoint.Contains("{order_{d}"))
+                        using var doc = JsonDocument.Parse(json);
+                        config.ApplyLegacy(doc.RootElement);
+                        config.Normalize();
+                        ApplyActiveEnvironment(config);
+
+                        if (config.OrderDetailsEndpoint.Contains("{order_{d}", StringComparison.Ordinal))
                         {
-                            config.OrderDetailsEndpoint = "/index.php?route=extension/module/orders/details&token=strefalicencji&order_id={order_id}&format=json";
-                            SaveConfig(config); // Zapisz naprawioną konfigurację
+                            config.OrderDetailsEndpoint =
+                                "/index.php?route=extension/module/orders/details&token=strefalicencji&order_id={order_id}&format=json";
+                            SaveConfig(config);
                         }
+
                         return config;
                     }
                 }
@@ -62,7 +143,8 @@ namespace Gryzak.Services
         {
             try
             {
-                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                config.Normalize();
+                var json = JsonSerializer.Serialize(config, JsonWriteOptions);
                 File.WriteAllText(_configPath, json);
             }
             catch (Exception ex)
@@ -74,20 +156,17 @@ namespace Gryzak.Services
 
         public void ResetConfig()
         {
-            var defaultConfig = GetDefaultConfig();
-            SaveConfig(defaultConfig);
+            SaveConfig(GetDefaultConfig());
         }
 
         private ApiConfig GetDefaultConfig()
         {
-            return new ApiConfig
-            {
-                ApiUrl = "https://mikran.pl",
-                ApiToken = "",
-                ApiTimeout = 30,
-                OrderListEndpoint = "/index.php?route=extension/module/orders/list&format=json",
-                OrderDetailsEndpoint = "/index.php?route=extension/module/orders/details&token=strefalicencji&order_id={order_id}&format=json"
-            };
+            var config = new ApiConfig();
+            config.Test.ApiUrl = "https://mikran.pl";
+            config.Production.ApiUrl = "https://mikran.pl";
+            config.Normalize();
+            ApplyActiveEnvironment(config);
+            return config;
         }
 
         public SubiektConfig LoadSubiektConfig()
@@ -100,10 +179,10 @@ namespace Gryzak.Services
                     var config = JsonSerializer.Deserialize<SubiektConfig>(json);
                     if (config != null)
                     {
-                        if (string.IsNullOrWhiteSpace(config.DiscountCalculationMode))
-                        {
-                            config.DiscountCalculationMode = "percent";
-                        }
+                        using var doc = JsonDocument.Parse(json);
+                        config.ApplyLegacy(doc.RootElement);
+                        config.Normalize();
+                        ApplyActiveEnvironment(config);
                         return config;
                     }
                 }
@@ -120,7 +199,8 @@ namespace Gryzak.Services
         {
             try
             {
-                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                config.Normalize();
+                var json = JsonSerializer.Serialize(config, JsonWriteOptions);
                 File.WriteAllText(_subiektConfigPath, json);
             }
             catch (Exception ex)
@@ -132,20 +212,43 @@ namespace Gryzak.Services
 
         private SubiektConfig GetDefaultSubiektConfig()
         {
-            return new SubiektConfig
+            var config = new SubiektConfig
             {
-                ServerAddress = "192.168.0.140",
-                DatabaseName = "",
-                ServerUsername = "mikran_com",
-                ServerPassword = "mikran_comqwer4321",
-                User = "Szef",
-                Password = "zdanoszef123",
                 AutoReleaseLicenseTimeoutMinutes = 0,
                 DiscountCalculationMode = "percent"
             };
+            config.Test.ServerAddress = "192.168.0.140";
+            config.Test.ServerUsername = "mikran_com";
+            config.Test.ServerPassword = "mikran_comqwer4321";
+            config.Test.User = "Szef";
+            config.Test.Password = "zdanoszef123";
+            config.Production = new SubiektEnvironmentSettings
+            {
+                ServerAddress = config.Test.ServerAddress,
+                ServerUsername = config.Test.ServerUsername,
+                ServerPassword = config.Test.ServerPassword,
+                User = config.Test.User,
+                Password = config.Test.Password
+            };
+            config.Normalize();
+            ApplyActiveEnvironment(config);
+            return config;
         }
 
         public GlsConfig LoadGlsConfig()
+        {
+            var config = LoadGlsConfigRaw();
+            config.UseProduction = GetUseProduction();
+            return config;
+        }
+
+        public void SaveGlsConfig(GlsConfig config)
+        {
+            config.UseProduction = GetUseProduction();
+            SaveGlsConfigRaw(config);
+        }
+
+        private GlsConfig LoadGlsConfigRaw()
         {
             try
             {
@@ -170,11 +273,12 @@ namespace Gryzak.Services
             return GetDefaultGlsConfig();
         }
 
-        public void SaveGlsConfig(GlsConfig config)
+        private void SaveGlsConfigRaw(GlsConfig config)
         {
             try
             {
-                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                config.Normalize();
+                var json = JsonSerializer.Serialize(config, JsonWriteOptions);
                 File.WriteAllText(_glsConfigPath, json);
             }
             catch (Exception ex)
@@ -186,7 +290,9 @@ namespace Gryzak.Services
 
         private GlsConfig GetDefaultGlsConfig()
         {
-            return new GlsConfig();
+            var config = new GlsConfig();
+            config.Normalize();
+            return config;
         }
 
         public List<string> LoadOrderHistory()
@@ -199,7 +305,6 @@ namespace Gryzak.Services
                     var historyData = JsonSerializer.Deserialize<OrderHistoryData>(json);
                     if (historyData?.OrderIds != null && historyData.OrderIds.Count > 0)
                     {
-                        // Zwróć maksymalnie 10 pozycji
                         return historyData.OrderIds.Take(10).ToList();
                     }
                 }
@@ -218,9 +323,9 @@ namespace Gryzak.Services
             {
                 var historyData = new OrderHistoryData
                 {
-                    OrderIds = history.Take(10).ToList() // Ogranicz do 10
+                    OrderIds = history.Take(10).ToList()
                 };
-                var json = JsonSerializer.Serialize(historyData, new JsonSerializerOptions { WriteIndented = true });
+                var json = JsonSerializer.Serialize(historyData, JsonWriteOptions);
                 File.WriteAllText(_historyPath, json);
             }
             catch (Exception ex)
@@ -239,19 +344,13 @@ namespace Gryzak.Services
             try
             {
                 var history = LoadOrderHistory();
-                
-                // Usuń duplikat jeśli istnieje
                 history.RemoveAll(id => id == orderId);
-                
-                // Dodaj na początek
                 history.Insert(0, orderId);
-                
-                // Ogranicz do 10 pozycji
                 if (history.Count > 10)
                 {
                     history = history.Take(10).ToList();
                 }
-                
+
                 SaveOrderHistory(history);
             }
             catch (Exception ex)
@@ -264,6 +363,111 @@ namespace Gryzak.Services
         {
             public List<string> OrderIds { get; set; } = new List<string>();
         }
+
+        private static JsonSerializerOptions JsonWriteOptions => new() { WriteIndented = true };
+
+        public GryzakSettingsExport CreateSettingsExport()
+        {
+            return new GryzakSettingsExport
+            {
+                Version = GryzakSettingsExport.CurrentVersion,
+                ExportedAt = DateTime.UtcNow,
+                Environment = LoadEnvironment(),
+                Shop = LoadConfig(),
+                Subiekt = LoadSubiektConfig(),
+                Gls = LoadGlsConfig()
+            };
+        }
+
+        public void ExportSettings(string filePath)
+        {
+            var export = CreateSettingsExport();
+            var json = JsonSerializer.Serialize(export, JsonWriteOptions);
+            File.WriteAllText(filePath, json);
+        }
+
+        public void ImportSettings(string filePath)
+        {
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException("Nie znaleziono pliku ustawień.", filePath);
+            }
+
+            var json = File.ReadAllText(filePath);
+            var export = JsonSerializer.Deserialize<GryzakSettingsExport>(json);
+            if (export?.Shop == null || export.Subiekt == null || export.Gls == null)
+            {
+                throw new InvalidOperationException("Plik nie zawiera kompletnych ustawień Gryzak (sklep, Subiekt, GLS).");
+            }
+
+            using (var doc = JsonDocument.Parse(json))
+            {
+                if (doc.RootElement.TryGetProperty("Shop", out var shopEl))
+                {
+                    export.Shop.ApplyLegacy(shopEl);
+                }
+
+                if (doc.RootElement.TryGetProperty("Subiekt", out var subiektEl))
+                {
+                    export.Subiekt.ApplyLegacy(subiektEl);
+                }
+
+                if (doc.RootElement.TryGetProperty("Gls", out var glsEl))
+                {
+                    export.Gls.ApplyLegacy(glsEl);
+                }
+            }
+
+            export.Shop.Normalize();
+            export.Subiekt.Normalize();
+            export.Gls.Normalize();
+
+            if (export.Environment != null)
+            {
+                SaveEnvironment(export.Environment);
+            }
+            else
+            {
+                // Stary eksport: weź UseProduction z GLS jeśli jest.
+                SaveEnvironment(new AppEnvironmentConfig { UseProduction = export.Gls.UseProduction });
+            }
+
+            SaveConfig(export.Shop);
+            SaveSubiektConfig(export.Subiekt);
+            SaveGlsConfig(export.Gls);
+        }
+
+        private void ApplyActiveEnvironment(ApiConfig config)
+        {
+            config.UseProduction = GetUseProduction();
+        }
+
+        private void ApplyActiveEnvironment(SubiektConfig config)
+        {
+            config.UseProduction = GetUseProduction();
+        }
+
+        private AppEnvironmentConfig TryMigrateEnvironmentFromGls()
+        {
+            try
+            {
+                if (File.Exists(_glsConfigPath))
+                {
+                    var json = File.ReadAllText(_glsConfigPath);
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("UseProduction", out var value)
+                        && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False))
+                    {
+                        return new AppEnvironmentConfig { UseProduction = value.GetBoolean() };
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return new AppEnvironmentConfig();
+        }
     }
 }
-

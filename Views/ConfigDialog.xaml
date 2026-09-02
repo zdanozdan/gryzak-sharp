@@ -5,9 +5,10 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="⚙️ Ustawienia sklepu" 
-        Height="550" Width="600"
+        Height="640" Width="620"
+        MinHeight="520" MinWidth="560"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         Icon="pack://application:,,,/gryzak_icon.png">
     
     <Window.Resources>
@@ -24,6 +25,11 @@
             <Setter Property="Margin" Value="5"/>
             <Setter Property="MinWidth" Value="100"/>
         </Style>
+        <Style TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,0,20,0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="20">
@@ -33,23 +39,41 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Nagłówek -->
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
             <TextBlock Text="⚙️ Ustawienia sklepu" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
-            <TextBlock Text="Połączenie z API zamówień sklepu internetowego" FontSize="12" Foreground="Gray"/>
+            <TextBlock Text="Połączenie z API zamówień sklepu internetowego (Test / Produkcja)" FontSize="12" Foreground="Gray"/>
         </StackPanel>
 
-        <!-- Formularz -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <TextBlock Text="API zamówień (sklep)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,15" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Profil środowiska" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <RadioButton Name="TestEnvironmentRadio"
+                                         Content="Test"
+                                         GroupName="ShopEnvironment"
+                                         Checked="Environment_Changed"/>
+                            <RadioButton Name="ProductionEnvironmentRadio"
+                                         Content="Produkcja"
+                                         GroupName="ShopEnvironment"
+                                         Checked="Environment_Changed"/>
+                        </StackPanel>
+                        <TextBlock Text="Tu edytujesz osobne dane połączenia. Aktywne środowisko aplikacji ustawiasz w menu Plik → Środowisko (pasek statusu)."
+                                   FontSize="11"
+                                   Foreground="Gray"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Name="EnvironmentConfigHeader" Text="Konfiguracja: Test" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
 
                 <TextBlock Text="URL API sklepu:" FontWeight="SemiBold"/>
                 <TextBox Name="ApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
                 <TextBlock Text="Pełny URL do API zamówień sklepu (nie Subiekt)" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
 
                 <TextBlock Text="Token API:" FontWeight="SemiBold"/>
-                <PasswordBox Name="ApiTokenPasswordBox" PasswordChanged="ApiToken_PasswordChanged"/>
+                <PasswordBox Name="ApiTokenPasswordBox"/>
                 <TextBlock Text="Token autoryzacji do API sklepu" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
 
                 <TextBlock Text="Timeout (sekundy):" FontWeight="SemiBold"/>
@@ -63,11 +87,10 @@
 
                 <TextBlock Text="Endpoint szczegółów zamówienia:" FontWeight="SemiBold"/>
                 <TextBox Name="OrderDetailsEndpointTextBox" TextChanged="OrderDetailsEndpoint_TextChanged"/>
-                <TextBlock Text="Ścieżka względna do endpointu szczegółów zamówienia (może zawierać {id})" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
+                <TextBlock Text="Ścieżka względna do endpointu szczegółów zamówienia (może zawierać {order_id})" FontSize="10" Foreground="Gray" Margin="0,0,0,10"/>
                 <TextBlock Name="OrderDetailsUrlPreview" FontSize="10" Foreground="Blue" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
-                <!-- Test połączenia -->
-                <Border BorderBrush="#E0E0E0" BorderThickness="1" Padding="15" Margin="0,20,0,10" Background="#F5F5F5">
+                <Border BorderBrush="#E0E0E0" BorderThickness="1" Padding="15" Margin="0,10,0,10" Background="#F5F5F5">
                     <StackPanel>
                         <TextBlock Text="🔄 Test połączenia" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
                         <Button Name="TestConnectionButton" Content="🧪 Testuj połączenie" Click="TestConnectionButton_Click"/>
@@ -77,7 +100,6 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Przyciski -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
             <Button Content="🔄 Resetuj" Click="ResetButton_Click"/>
             <Button Content="💾 Zapisz konfigurację" Click="SaveButton_Click" IsDefault="True"/>
@@ -85,4 +107,3 @@
         </StackPanel>
     </Grid>
 </Window>
-

@@ -21,6 +21,12 @@ namespace Gryzak.Services
             _configService = configService;
         }
 
+        public void InvalidateHttpClient()
+        {
+            _httpClient?.Dispose();
+            _httpClient = null;
+        }
+
         public async Task<List<Order>> LoadOrdersAsync(int page, CancellationToken cancellationToken = default)
         {
             var config = _configService.LoadConfig();
@@ -33,10 +39,7 @@ namespace Gryzak.Services
 
             try
             {
-                if (_httpClient == null)
-                {
-                    _httpClient = CreateHttpClient(config);
-                }
+                _httpClient ??= CreateHttpClient(config);
 
                 var url = BuildListUrl(config, page);
                 var response = await _httpClient.GetAsync(url, cancellationToken);
@@ -78,10 +81,7 @@ namespace Gryzak.Services
 
             try
             {
-                if (_httpClient == null)
-                {
-                    _httpClient = CreateHttpClient(config);
-                }
+                _httpClient ??= CreateHttpClient(config);
 
                 var url = BuildDetailsUrl(config, orderId);
                 Debug($"Wywoływanie URL: {url}", "ApiService");

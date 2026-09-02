@@ -47,6 +47,58 @@ namespace Gryzak.Views
             UpdateDostawaFieldsEnabled();
         }
 
+        private void OpenSubiektKontrahentButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_khId <= 0)
+            {
+                MessageBox.Show(
+                    "Brak identyfikatora kontrahenta (kh_Id).",
+                    "Kontrahent",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                AdresDostawyPrefill? prefill = null;
+                if (DostawaAktywnyCheck.IsChecked == true)
+                {
+                    prefill = new AdresDostawyPrefill
+                    {
+                        Nazwa = NullIfEmpty(DostawaNazwaBox.Text),
+                        Ulica = NullIfEmpty(DostawaUlicaBox.Text),
+                        NrDomu = NullIfEmpty(DostawaNrDomuBox.Text),
+                        NrLokalu = NullIfEmpty(DostawaNrLokaluBox.Text),
+                        Kod = NullIfEmpty(DostawaKodBox.Text),
+                        Miejscowosc = NullIfEmpty(DostawaMiejscowoscBox.Text),
+                        PanstwoId = _dostawaPanstwoId ?? _panstwoId,
+                        WojewodztwoId = _dostawaWojewodztwoId ?? _wojewodztwoId
+                    };
+                    Debug($"Otwieranie kartoteki kh_Id={_khId} z prefill adresu dostawy (Sfera)", "KontrahentEditDialog");
+                }
+                else
+                {
+                    Debug($"Otwieranie kartoteki kontrahenta kh_Id={_khId} przez Sferę", "KontrahentEditDialog");
+                }
+
+                var subiektService = new SubiektService();
+                subiektService.OtworzKartotekeKontrahenta(_khId, prefill);
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "KontrahentEditDialog", "Błąd otwierania kartoteki w Subiekcie");
+                MessageBox.Show(
+                    $"Nie udało się otworzyć kartoteki kontrahenta w Subiekcie:\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private static string? NullIfEmpty(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
         private static string GetCompanyDisplayName(KontrahentDetails d)
         {
             if (!string.IsNullOrWhiteSpace(d.NazwaPelna))
@@ -98,20 +150,46 @@ namespace Gryzak.Views
             CardAdresText.Text = string.Join(", ", adresParts);
         }
 
+        private static string? GetDostawaPersonDisplayName(KontrahentDetails d)
+        {
+            var nazwa = d.DostawaNazwa?.Trim() ?? "";
+            var firma = d.DostawaNazwaPelna?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(nazwa))
+                return null;
+            if (string.IsNullOrWhiteSpace(firma))
+                return null;
+            if (string.Equals(Normalize(nazwa), Normalize(firma), StringComparison.Ordinal))
+                return null;
+            return nazwa;
+        }
+
         private void BindCurrentDostawaCard(KontrahentDetails d, Order? order)
         {
             if (!d.HasAdresDostawy)
             {
-                CurrentDostawaCard.Visibility = Visibility.Collapsed;
+                CurrentDostawaFieldsPanel.Visibility = Visibility.Collapsed;
+                CurrentDostawaEmptyText.Visibility = Visibility.Visible;
+                CurrentDostawaCard.BorderBrush = new SolidColorBrush(Color.FromRgb(0xE0, 0xE0, 0xE0));
+                CurrentDostawaCard.Background = new SolidColorBrush(Color.FromRgb(0xFA, 0xFA, 0xFA));
+                CurrentDostawaTitle.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+                CurrentDostawaCompareText.Text = "";
+                CurrentDostawaDiffText.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            CurrentDostawaCard.Visibility = Visibility.Visible;
+            CurrentDostawaFieldsPanel.Visibility = Visibility.Visible;
+            CurrentDostawaEmptyText.Visibility = Visibility.Collapsed;
 
-            CurrentDostawaNazwaText.Text = !string.IsNullOrWhiteSpace(d.DostawaNazwa) ? d.DostawaNazwa
-                : (!string.IsNullOrWhiteSpace(d.DostawaNazwaPelna) ? d.DostawaNazwaPelna : "");
-            CurrentDostawaNazwaText.Visibility = string.IsNullOrWhiteSpace(CurrentDostawaNazwaText.Text)
-                ? Visibility.Collapsed : Visibility.Visible;
+            var firma = d.DostawaNazwaPelna?.Trim() ?? "";
+            var nazwa = d.DostawaNazwa?.Trim() ?? "";
+            var osoba = GetDostawaPersonDisplayName(d);
+
+            CurrentDostawaOsobaText.Text = osoba ?? "";
+            CurrentDostawaFirmaText.Text = !string.IsNullOrWhiteSpace(firma)
+                ? firma
+                : (string.IsNullOrWhiteSpace(osoba) ? nazwa : "");
+            CurrentDostawaNipText.Text = d.DostawaNip?.Trim() ?? "";
+            CurrentDostawaTelefonText.Text = d.DostawaTelefon?.Trim() ?? "";
 
             var adresParts = new List<string>();
             if (!string.IsNullOrWhiteSpace(d.DostawaAdres)) adresParts.Add(d.DostawaAdres.Trim());
@@ -123,8 +201,10 @@ namespace Gryzak.Views
             }
             var cityLine = $"{d.DostawaKod} {d.DostawaMiejscowosc}".Trim();
             if (!string.IsNullOrWhiteSpace(cityLine)) adresParts.Add(cityLine);
+            if (!string.IsNullOrWhiteSpace(d.DostawaPanstwo)
+                && !d.DostawaPanstwo.Equals("Polska", StringComparison.OrdinalIgnoreCase))
+                adresParts.Add(d.DostawaPanstwo.Trim());
             CurrentDostawaAdresText.Text = string.Join(", ", adresParts);
-            CurrentDostawaAdresText.Visibility = adresParts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
             if (order == null || !order.HasShippingAddress)
             {
@@ -374,6 +454,9 @@ namespace Gryzak.Views
             DostawaFieldsPanel.IsEnabled = active;
             DostawaFieldsPanel.Opacity = active ? 1 : 0.65;
             SaveButton.IsEnabled = active;
+            OpenSubiektKontrahentButton.ToolTip = active
+                ? "Otwórz kartotekę w Subiekcie z wypełnionym adresem wysyłki — potem zapisz w Subiekcie"
+                : "Otwórz kartotekę kontrahenta w Subiekcie GT (Sfera)";
         }
 
         private async void SaveButton_Click(object sender, RoutedEventArgs e)

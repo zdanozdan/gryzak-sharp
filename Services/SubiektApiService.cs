@@ -127,17 +127,26 @@ namespace Gryzak.Services
             EnsureConfigured(config);
 
             var byId = new Dictionary<int, KontrahentItem>();
+            var baseUrl = config.ApiBaseUrl.Trim().TrimEnd('/');
+
+            Debug(
+                $"Wyszukiwanie kontrahentów: email={email ?? "-"}, nazwa={customerName ?? "-"}, firma={company ?? "-"}, nip={nip ?? "-"}",
+                "SubiektApiService");
 
             async Task<int> FetchAsync(string query, Action<KontrahentItem> markMatch)
             {
+                var path = $"kontrahenci?{query}";
+                Debug($"GET {baseUrl}/{path}", "SubiektApiService");
+
                 using var client = CreateClient(config);
-                using var response = await client.GetAsync($"kontrahenci?{query}", cancellationToken).ConfigureAwait(false);
+                using var response = await client.GetAsync(path, cancellationToken).ConfigureAwait(false);
                 var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 EnsureSuccess(response, body);
 
                 var envelope = JsonSerializer.Deserialize<ApiEnvelope<List<KontrahentDto>>>(body, JsonOptions);
                 if (envelope?.Data == null)
                 {
+                    Debug($"GET {path} → {(int)response.StatusCode}, wierszy=0", "SubiektApiService");
                     return 0;
                 }
 
@@ -169,6 +178,7 @@ namespace Gryzak.Services
                     added++;
                 }
 
+                Debug($"GET {path} → {(int)response.StatusCode}, wierszy={added}, unikalnych={byId.Count}", "SubiektApiService");
                 return added;
             }
 
@@ -192,6 +202,7 @@ namespace Gryzak.Services
                     // Dokładne adr_Nazwa nie trafiło (np. „Imię Nazwisko” vs „Nazwisko Imię”) — luźniejsze search= (AND po tokenach).
                     if (nameHits == 0)
                     {
+                        Debug($"Brak trafień nazwa= — fallback search={normalizedName}", "SubiektApiService");
                         await FetchAsync(
                             $"search={Uri.EscapeDataString(normalizedName)}&pageSize={pageSize}",
                             i => i.IsNameMatch = true).ConfigureAwait(false);
@@ -207,6 +218,7 @@ namespace Gryzak.Services
 
                     if (companyHits == 0)
                     {
+                        Debug($"Brak trafień nazwaPelna= — fallback search={normalizedCompany}", "SubiektApiService");
                         await FetchAsync(
                             $"search={Uri.EscapeDataString(normalizedCompany)}&pageSize={pageSize}",
                             i => i.IsCompanyMatch = true).ConfigureAwait(false);
@@ -226,13 +238,16 @@ namespace Gryzak.Services
                 Error(ex, "SubiektApiService", "Błąd podczas wyszukiwania kontrahentów");
             }
 
-            return byId.Values
+            var result = byId.Values
                 .OrderByDescending(k => k.IsNipMatch)
                 .ThenByDescending(k => k.IsEmailMatch)
                 .ThenByDescending(k => k.IsNameMatch)
                 .ThenByDescending(k => k.IsCompanyMatch)
                 .Take(pageSize)
                 .ToList();
+
+            Debug($"Wyszukiwanie kontrahentów zakończone: {result.Count} wyników", "SubiektApiService");
+            return result;
         }
 
         public async Task<int?> GetZkIdByNumerOryginalnyAsync(string numerOryginalny, SubiektConfig? config = null, CancellationToken cancellationToken = default)
@@ -408,10 +423,13 @@ namespace Gryzak.Services
             {
                 DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
             });
+            var baseUrl = config.ApiBaseUrl.Trim().TrimEnd('/');
+            Debug($"PUT {baseUrl}/kontrahenci/{khId} body={json}", "SubiektApiService");
             using var client = CreateClient(config);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             using var response = await client.PutAsync($"kontrahenci/{khId}", content, cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            Debug($"PUT kontrahenci/{khId} → {(int)response.StatusCode}", "SubiektApiService");
             EnsureSuccess(response, body);
 
             var envelope = JsonSerializer.Deserialize<ApiEnvelope<KontrahentDto>>(body, JsonOptions);
@@ -434,9 +452,12 @@ namespace Gryzak.Services
             config ??= _configService.LoadSubiektConfig();
             EnsureConfigured(config);
 
+            var baseUrl = config.ApiBaseUrl.Trim().TrimEnd('/');
+            Debug($"GET {baseUrl}/kontrahenci/{khId}", "SubiektApiService");
             using var client = CreateClient(config);
             using var response = await client.GetAsync($"kontrahenci/{khId}", cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            Debug($"GET kontrahenci/{khId} → {(int)response.StatusCode}", "SubiektApiService");
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 return null;

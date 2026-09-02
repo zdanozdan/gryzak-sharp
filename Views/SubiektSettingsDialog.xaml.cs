@@ -13,7 +13,9 @@ namespace Gryzak.Views
     {
         private readonly ConfigService _configService;
         private SubiektConfig _currentConfig;
-        private ObservableCollection<UserItem> _users = new ObservableCollection<UserItem>();
+        private readonly ObservableCollection<UserItem> _users = new();
+        private bool _uiIsProduction;
+        private bool _suppressEnvironmentChange;
 
         private class UserItem
         {
@@ -30,99 +32,159 @@ namespace Gryzak.Views
             LoadConfig();
         }
 
-        private SubiektConfig BuildConfigFromUi()
-        {
-            var config = new SubiektConfig
-            {
-                ApiBaseUrl = ApiBaseUrlTextBox.Text.Trim(),
-                ApiKey = ApiKeyPasswordBox.Password,
-                ServerAddress = ServerAddressTextBox.Text.Trim(),
-                DatabaseName = DatabaseNameTextBox.Text.Trim(),
-                ServerUsername = ServerUsernameTextBox.Text.Trim(),
-                ServerPassword = ServerPasswordBox.Password,
-                User = UserComboBox.Text.Trim(),
-                Password = PasswordBox.Password,
-                GtProdukt = _currentConfig.GtProdukt,
-                AuthenticationMode = _currentConfig.AuthenticationMode,
-                LaunchDopasujOperatora = _currentConfig.LaunchDopasujOperatora,
-                LaunchTryb = _currentConfig.LaunchTryb,
-                AutoReleaseLicenseTimeoutMinutes = _currentConfig.AutoReleaseLicenseTimeoutMinutes,
-                DiscountCalculationMode = _currentConfig.DiscountCalculationMode,
-                CalculateFromGrossPrices = _currentConfig.CalculateFromGrossPrices,
-                DiscountRoundingMode = _currentConfig.DiscountRoundingMode
-            };
-
-            if (GtProduktComboBox.SelectedValue is string gtProduktStr && int.TryParse(gtProduktStr, out int gtProdukt))
-                config.GtProdukt = gtProdukt;
-
-            if (AuthenticationModeComboBox.SelectedValue is string authModeStr && int.TryParse(authModeStr, out int authMode))
-                config.AuthenticationMode = authMode;
-
-            if (LaunchDopasujComboBox.SelectedValue is string dopasujStr && int.TryParse(dopasujStr, out int dopasuj))
-                config.LaunchDopasujOperatora = dopasuj;
-
-            if (LaunchTrybComboBox.SelectedValue is string trybStr && int.TryParse(trybStr, out int tryb))
-                config.LaunchTryb = tryb;
-
-            var selectedDiscountMode = DiscountModeComboBox.SelectedValue as string;
-            config.DiscountCalculationMode = string.IsNullOrWhiteSpace(selectedDiscountMode) ? "percent" : selectedDiscountMode;
-
-            var selectedPriceMode = PriceCalculationModeComboBox.SelectedValue as string;
-            config.CalculateFromGrossPrices = selectedPriceMode == "gross";
-
-            var selectedRoundingMode = DiscountRoundingModeComboBox.SelectedValue as string;
-            config.DiscountRoundingMode = string.IsNullOrWhiteSpace(selectedRoundingMode) ? "percent" : selectedRoundingMode;
-
-            if (int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out int timeoutMinutes))
-            {
-                config.AutoReleaseLicenseTimeoutMinutes = timeoutMinutes < 0 ? 0 : timeoutMinutes;
-            }
-
-            return config;
-        }
-
         private void LoadConfig()
         {
-            ApiBaseUrlTextBox.Text = _currentConfig.ApiBaseUrl ?? "";
-            ApiKeyPasswordBox.Password = _currentConfig.ApiKey ?? "";
-            ServerAddressTextBox.Text = _currentConfig.ServerAddress ?? "";
-            DatabaseNameTextBox.Text = _currentConfig.DatabaseName ?? "";
-            ServerUsernameTextBox.Text = _currentConfig.ServerUsername ?? "";
-            ServerPasswordBox.Password = _currentConfig.ServerPassword ?? "";
-            
-            UserComboBox.ItemsSource = _users;
-            
-            string savedUser = _currentConfig.User ?? "";
-            if (!string.IsNullOrEmpty(savedUser))
+            _suppressEnvironmentChange = true;
+            try
             {
-                UserComboBox.Text = savedUser;
+                _uiIsProduction = _currentConfig.UseProduction;
+                TestEnvironmentRadio.IsChecked = !_uiIsProduction;
+                ProductionEnvironmentRadio.IsChecked = _uiIsProduction;
+                UserComboBox.ItemsSource = _users;
+                LoadSharedFromConfig();
+                LoadUiFromCurrentEnvironment();
+                UpdateEnvironmentLabels();
             }
-            
-            PasswordBox.Password = _currentConfig.Password;
-            GtProduktComboBox.SelectedValue = _currentConfig.GtProdukt.ToString();
-            AuthenticationModeComboBox.SelectedValue = _currentConfig.AuthenticationMode.ToString();
-            LaunchDopasujComboBox.SelectedValue = _currentConfig.LaunchDopasujOperatora.ToString();
-            LaunchTrybComboBox.SelectedValue = _currentConfig.LaunchTryb.ToString();
+            finally
+            {
+                _suppressEnvironmentChange = false;
+            }
+        }
+
+        private void Environment_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEnvironmentChange || ApiBaseUrlTextBox == null)
+            {
+                return;
+            }
+
+            FlushUiToCurrentEnvironment();
+            _uiIsProduction = ProductionEnvironmentRadio.IsChecked == true;
+            LoadUiFromCurrentEnvironment();
+            UpdateEnvironmentLabels();
+        }
+
+        private void UpdateEnvironmentLabels()
+        {
+            if (EnvironmentConfigHeader == null)
+            {
+                return;
+            }
+
+            EnvironmentConfigHeader.Text = _uiIsProduction
+                ? "Subiekt REST API — Produkcja"
+                : "Subiekt REST API — Test";
+        }
+
+        private void LoadSharedFromConfig()
+        {
             AutoReleaseLicenseTimeoutTextBox.Text = _currentConfig.AutoReleaseLicenseTimeoutMinutes.ToString();
 
             if (string.IsNullOrWhiteSpace(_currentConfig.DiscountCalculationMode))
             {
                 _currentConfig.DiscountCalculationMode = "percent";
             }
-            DiscountModeComboBox.SelectedValue = _currentConfig.DiscountCalculationMode;
 
+            DiscountModeComboBox.SelectedValue = _currentConfig.DiscountCalculationMode;
             PriceCalculationModeComboBox.SelectedValue = _currentConfig.CalculateFromGrossPrices ? "gross" : "net";
 
             if (string.IsNullOrWhiteSpace(_currentConfig.DiscountRoundingMode))
             {
                 _currentConfig.DiscountRoundingMode = "percent";
             }
+
             DiscountRoundingModeComboBox.SelectedValue = _currentConfig.DiscountRoundingMode;
+        }
+
+        private void LoadUiFromCurrentEnvironment()
+        {
+            var env = GetUiEnvironment();
+            ApiBaseUrlTextBox.Text = env.ApiBaseUrl ?? "";
+            ApiKeyPasswordBox.Password = env.ApiKey ?? "";
+            ServerAddressTextBox.Text = env.ServerAddress ?? "";
+            DatabaseNameTextBox.Text = env.DatabaseName ?? "";
+            ServerUsernameTextBox.Text = env.ServerUsername ?? "";
+            ServerPasswordBox.Password = env.ServerPassword ?? "";
+            UserComboBox.Text = env.User ?? "";
+            PasswordBox.Password = env.Password ?? "";
+            GtProduktComboBox.SelectedValue = env.GtProdukt.ToString();
+            AuthenticationModeComboBox.SelectedValue = env.AuthenticationMode.ToString();
+            LaunchDopasujComboBox.SelectedValue = env.LaunchDopasujOperatora.ToString();
+            LaunchTrybComboBox.SelectedValue = env.LaunchTryb.ToString();
+        }
+
+        private void FlushUiToCurrentEnvironment()
+        {
+            var env = GetUiEnvironment();
+            env.ApiBaseUrl = ApiBaseUrlTextBox.Text.Trim();
+            env.ApiKey = ApiKeyPasswordBox.Password;
+            env.ServerAddress = ServerAddressTextBox.Text.Trim();
+            env.DatabaseName = DatabaseNameTextBox.Text.Trim();
+            env.ServerUsername = ServerUsernameTextBox.Text.Trim();
+            env.ServerPassword = ServerPasswordBox.Password;
+            env.User = UserComboBox.Text.Trim();
+            env.Password = PasswordBox.Password;
+
+            if (GtProduktComboBox.SelectedValue is string gtProduktStr && int.TryParse(gtProduktStr, out int gtProdukt))
+            {
+                env.GtProdukt = gtProdukt;
+            }
+
+            if (AuthenticationModeComboBox.SelectedValue is string authModeStr && int.TryParse(authModeStr, out int authMode))
+            {
+                env.AuthenticationMode = authMode;
+            }
+
+            if (LaunchDopasujComboBox.SelectedValue is string dopasujStr && int.TryParse(dopasujStr, out int dopasuj))
+            {
+                env.LaunchDopasujOperatora = dopasuj;
+            }
+
+            if (LaunchTrybComboBox.SelectedValue is string trybStr && int.TryParse(trybStr, out int tryb))
+            {
+                env.LaunchTryb = tryb;
+            }
+        }
+
+        private void FlushSharedToConfig()
+        {
+            var selectedDiscountMode = DiscountModeComboBox.SelectedValue as string;
+            _currentConfig.DiscountCalculationMode = string.IsNullOrWhiteSpace(selectedDiscountMode) ? "percent" : selectedDiscountMode;
+
+            var selectedPriceMode = PriceCalculationModeComboBox.SelectedValue as string;
+            _currentConfig.CalculateFromGrossPrices = selectedPriceMode == "gross";
+
+            var selectedRoundingMode = DiscountRoundingModeComboBox.SelectedValue as string;
+            _currentConfig.DiscountRoundingMode = string.IsNullOrWhiteSpace(selectedRoundingMode) ? "percent" : selectedRoundingMode;
+
+            if (int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out int timeoutMinutes))
+            {
+                _currentConfig.AutoReleaseLicenseTimeoutMinutes = timeoutMinutes < 0 ? 0 : timeoutMinutes;
+            }
+            else
+            {
+                _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
+            }
+        }
+
+        private SubiektEnvironmentSettings GetUiEnvironment()
+        {
+            return _uiIsProduction ? _currentConfig.Production : _currentConfig.Test;
+        }
+
+        /// <summary>Buduje tymczasowy SubiektConfig z aktywnym profilem UI (do testów API).</summary>
+        private SubiektConfig BuildConfigFromUi()
+        {
+            FlushUiToCurrentEnvironment();
+            FlushSharedToConfig();
+            _currentConfig.UseProduction = _uiIsProduction;
+            return _currentConfig;
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            _currentConfig = BuildConfigFromUi();
+            FlushUiToCurrentEnvironment();
+            FlushSharedToConfig();
 
             if (_currentConfig.AutoReleaseLicenseTimeoutMinutes < 0)
             {
@@ -143,12 +205,12 @@ namespace Gryzak.Views
                 DialogResult = true;
                 Close();
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 MessageBox.Show($"Nie udało się zapisać ustawień:\n\n{ex.Message}", "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-        
+
         private void NumberValidationTextBox(object sender, TextCompositionEventArgs e)
         {
             e.Handled = !char.IsDigit(e.Text, e.Text.Length - 1);
@@ -237,7 +299,7 @@ namespace Gryzak.Views
                     });
                 }
 
-                string savedUser = _currentConfig.User ?? "";
+                string savedUser = GetUiEnvironment().User ?? "";
                 if (!string.IsNullOrEmpty(savedUser))
                 {
                     UserComboBox.Text = savedUser;
@@ -257,7 +319,7 @@ namespace Gryzak.Views
                     "Błąd",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
-                
+
                 Error(ex, "SubiektSettings");
             }
             finally
@@ -286,9 +348,14 @@ namespace Gryzak.Views
                     return;
                 }
 
+                var previousUseProduction = _configService.GetUseProduction();
                 try
                 {
                     _configService.SaveSubiektConfig(_currentConfig);
+                    if (_uiIsProduction != previousUseProduction)
+                    {
+                        _configService.SetUseProduction(_uiIsProduction);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -300,7 +367,7 @@ namespace Gryzak.Views
                 Mouse.OverrideCursor = Cursors.Wait;
 
                 await Task.Delay(100);
-                
+
                 _ = Dispatcher.BeginInvoke(new Action(() =>
                 {
                     try
@@ -319,6 +386,18 @@ namespace Gryzak.Views
                     }
                     finally
                     {
+                        try
+                        {
+                            if (_configService.GetUseProduction() != previousUseProduction)
+                            {
+                                _configService.SetUseProduction(previousUseProduction);
+                            }
+                        }
+                        catch
+                        {
+                            // ignore restore errors
+                        }
+
                         TestSubiektButton.IsEnabled = true;
                         TestSubiektButton.Content = "🚀 Testuj uruchomienie Subiekta GT";
                         Mouse.OverrideCursor = null;
@@ -333,7 +412,7 @@ namespace Gryzak.Views
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 Error(ex, "SubiektSettings");
-                
+
                 TestSubiektButton.IsEnabled = true;
                 TestSubiektButton.Content = "🚀 Testuj uruchomienie Subiekta GT";
                 Mouse.OverrideCursor = null;

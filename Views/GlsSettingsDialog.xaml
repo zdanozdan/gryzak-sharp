@@ -83,13 +83,13 @@
                                          Checked="Environment_Changed"/>
                         </StackPanel>
 
-                        <TextBlock Text="Każde środowisko ma osobny URL, login, hasło i timeout."
+                        <TextBlock Text="Tu edytujesz osobne dane logowania Test/Produkcja. Aktywne środowisko aplikacji ustawiasz w menu Plik → Środowisko (pasek statusu)."
                                    FontSize="11"
                                    Foreground="Gray"
                                    TextWrapping="Wrap"
                                    Margin="0,0,0,10"/>
 
-                        <TextBlock Text="Aktywny URL:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBlock Text="Aktywny URL (profil edytowany):" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBlock Name="ActiveUrlPreview"
                                    FontSize="12"
                                    Foreground="#1565C0"

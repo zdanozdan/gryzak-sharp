@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:converters="clr-namespace:Gryzak.Converters"
         Title="Adres wysyłki kontrahenta"
-        Height="580" Width="520"
-        MinHeight="440" MinWidth="440"
+        Height="580" Width="720"
+        MinHeight="440" MinWidth="640"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         Icon="pack://application:,,,/gryzak_icon.png">
@@ -54,54 +54,150 @@
             <TextBlock x:Name="HeaderTitleText" FontSize="18" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
         </Border>
 
-        <ScrollViewer Grid.Row="1" Padding="20,16" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer Grid.Row="1" Padding="20,16"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
-                <!-- Karta kontrahenta (tylko odczyt) -->
-                <Border Background="#FAFAFA" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="4" Padding="14,12" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Kontrahent w Subiekcie" Style="{StaticResource SectionTitle}" Foreground="#424242"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
-                                    Visibility="{Binding ElementName=CardOsobaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
-                            <TextBlock Text="Imię i nazwisko: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
-                            <TextBlock x:Name="CardOsobaText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
-                                    Visibility="{Binding ElementName=CardFirmaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
-                            <TextBlock Text="Firma: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
-                            <TextBlock x:Name="CardFirmaText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
-                                    Visibility="{Binding ElementName=CardNipText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
-                            <TextBlock Text="NIP: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
-                            <TextBlock x:Name="CardNipText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
-                                    Visibility="{Binding ElementName=CardAdresText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
-                            <TextBlock Text="Adres: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110" VerticalAlignment="Top"/>
-                            <TextBlock x:Name="CardAdresText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal"
-                                    Visibility="{Binding ElementName=CardEmailText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
-                            <TextBlock Text="E-mail: " Style="{StaticResource FieldLabel}" Margin="0,0,8,0" Width="110"/>
-                            <TextBlock x:Name="CardEmailText" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
+                <!-- 2 kolumny: Kontrahent | Obecny adres wysyłki (oba z Subiekta, ten sam układ pól) -->
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-                <!-- Obecny adres wysyłki z Subiekta -->
-                <Border x:Name="CurrentDostawaCard" Visibility="Collapsed"
-                        BorderThickness="4,0,0,0" Padding="14,12" CornerRadius="0,4,4,0" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Obecny adres wysyłki kontrahenta w Subiekcie" Style="{StaticResource SectionTitle}"
-                                   x:Name="CurrentDostawaTitle" Foreground="#1565C0"/>
-                        <TextBlock x:Name="CurrentDostawaNazwaText" Style="{StaticResource ReadOnlyValue}" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="CurrentDostawaAdresText" Style="{StaticResource ReadOnlyValue}" Foreground="#666"/>
-                        <TextBlock x:Name="CurrentDostawaCompareText" FontSize="11" FontWeight="SemiBold"
-                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
-                        <TextBlock x:Name="CurrentDostawaDiffText" FontSize="11" Foreground="#C62828"
-                                   TextWrapping="Wrap" Margin="0,2,0,0" Visibility="Collapsed"/>
-                    </StackPanel>
-                </Border>
+                    <Border Grid.Column="0" Background="#FAFAFA" BorderBrush="#E0E0E0" BorderThickness="1"
+                            CornerRadius="4" Padding="14,12" VerticalAlignment="Stretch">
+                        <StackPanel>
+                            <DockPanel LastChildFill="True" Margin="0,0,0,8">
+                                <Button x:Name="OpenSubiektKontrahentButton"
+                                        DockPanel.Dock="Right"
+                                        Click="OpenSubiektKontrahentButton_Click"
+                                        ToolTip="Otwórz kartotekę kontrahenta w Subiekcie GT (Sfera)"
+                                        Width="28" Height="28" MinWidth="28" Padding="0" Margin="8,0,0,0"
+                                        Background="Transparent" BorderThickness="0"
+                                        Cursor="Hand" VerticalAlignment="Center">
+                                    <TextBlock Text="&#xE8A7;"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               FontSize="14"
+                                               Foreground="#1976D2"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Button>
+                                <TextBlock Text="Kontrahent w Subiekcie" Style="{StaticResource SectionTitle}"
+                                           Foreground="#424242" TextWrapping="Wrap" Margin="0"
+                                           VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <Grid Margin="0,0,0,4"
+                                  Visibility="{Binding ElementName=CardOsobaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Imię i nazwisko: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                <TextBlock x:Name="CardOsobaText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,4"
+                                  Visibility="{Binding ElementName=CardFirmaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Firma: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                <TextBlock x:Name="CardFirmaText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,4"
+                                  Visibility="{Binding ElementName=CardNipText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="NIP: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                <TextBlock x:Name="CardNipText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,4"
+                                  Visibility="{Binding ElementName=CardAdresText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Adres: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                <TextBlock x:Name="CardAdresText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                            </Grid>
+                            <Grid Visibility="{Binding ElementName=CardEmailText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="E-mail: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                <TextBlock x:Name="CardEmailText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="CurrentDostawaCard" Grid.Column="2"
+                            BorderThickness="1" BorderBrush="#E0E0E0" Background="#FAFAFA"
+                            Padding="14,12" CornerRadius="4" VerticalAlignment="Stretch">
+                        <StackPanel>
+                            <TextBlock Text="Adres wysyłki w Subiekcie" Style="{StaticResource SectionTitle}"
+                                       x:Name="CurrentDostawaTitle" Foreground="#1565C0" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="CurrentDostawaEmptyText" Text="Brak adresu wysyłki w kartotece."
+                                       FontSize="12" Foreground="#757575" TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Visibility="Collapsed"/>
+                            <StackPanel x:Name="CurrentDostawaFieldsPanel">
+                                <Grid Margin="0,0,0,4"
+                                      Visibility="{Binding ElementName=CurrentDostawaOsobaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Imię i nazwisko: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                    <TextBlock x:Name="CurrentDostawaOsobaText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4"
+                                      Visibility="{Binding ElementName=CurrentDostawaFirmaText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Firma: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                    <TextBlock x:Name="CurrentDostawaFirmaText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4"
+                                      Visibility="{Binding ElementName=CurrentDostawaNipText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="NIP: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                    <TextBlock x:Name="CurrentDostawaNipText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4"
+                                      Visibility="{Binding ElementName=CurrentDostawaAdresText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Adres: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                    <TextBlock x:Name="CurrentDostawaAdresText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4"
+                                      Visibility="{Binding ElementName=CurrentDostawaTelefonText, Path=Text, Converter={StaticResource StringToVisibilityConverter}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Telefon: " Style="{StaticResource FieldLabel}" Margin="0" VerticalAlignment="Top"/>
+                                    <TextBlock x:Name="CurrentDostawaTelefonText" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Margin="0"/>
+                                </Grid>
+                            </StackPanel>
+                            <TextBlock x:Name="CurrentDostawaCompareText" FontSize="11" FontWeight="SemiBold"
+                                       TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            <TextBlock x:Name="CurrentDostawaDiffText" FontSize="11" Foreground="#C62828"
+                                       TextWrapping="Wrap" Margin="0,2,0,0" Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
 
                 <!-- Edycja adresu wysyłki -->
                 <Border BorderBrush="#4CAF50" BorderThickness="4,0,0,0" Background="#F1F8E9" Padding="14,12" CornerRadius="0,4,4,0">

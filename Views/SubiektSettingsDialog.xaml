@@ -45,16 +45,42 @@
         <!-- Nagłówek -->
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
             <TextBlock Text="⚙️ Ustawienia Subiekt GT" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
-            <TextBlock Text="API REST do odczytów + Sfera COM do dokumentów ZK" FontSize="12" Foreground="Gray"/>
+            <TextBlock Text="API REST do odczytów + Sfera COM do dokumentów ZK (Test / Produkcja)" FontSize="12" Foreground="Gray"/>
         </StackPanel>
 
         <!-- Formularz -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
+                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
+                    <StackPanel>
+                        <TextBlock Text="Profil środowiska" FontSize="16" FontWeight="Bold" Margin="0,0,0,10" Foreground="#2196F3"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <RadioButton Name="TestEnvironmentRadio"
+                                         Content="Test"
+                                         GroupName="SubiektEnvironment"
+                                         Margin="0,0,20,0"
+                                         Checked="Environment_Changed"/>
+                            <RadioButton Name="ProductionEnvironmentRadio"
+                                         Content="Produkcja"
+                                         GroupName="SubiektEnvironment"
+                                         Checked="Environment_Changed"/>
+                        </StackPanel>
+                        <TextBlock Text="Tu edytujesz osobne dane połączenia. Aktywne środowisko aplikacji ustawiasz w menu Plik → Środowisko (pasek statusu)."
+                                   FontSize="11"
+                                   Foreground="Gray"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Sekcja: Subiekt REST API -->
                 <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
                     <StackPanel>
-                        <TextBlock Text="Subiekt REST API" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
+                        <TextBlock Name="EnvironmentConfigHeader"
+                                   Text="Subiekt REST API — Test"
+                                   FontSize="16"
+                                   FontWeight="Bold"
+                                   Margin="0,0,0,15"
+                                   Foreground="#2196F3"/>
                         
                         <TextBlock Text="URL API (z /api/v1):" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBox Name="ApiBaseUrlTextBox" ToolTip="np. http://192.168.0.140:5082/api/v1"/>
