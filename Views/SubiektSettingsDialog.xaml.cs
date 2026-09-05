@@ -14,8 +14,7 @@ namespace Gryzak.Views
         private readonly ConfigService _configService;
         private SubiektConfig _currentConfig;
         private readonly ObservableCollection<UserItem> _users = new();
-        private bool _uiIsProduction;
-        private bool _suppressEnvironmentChange;
+        private readonly bool _isProduction;
 
         private class UserItem
         {
@@ -29,51 +28,32 @@ namespace Gryzak.Views
             InitializeComponent();
             _configService = configService;
             _currentConfig = _configService.LoadSubiektConfig();
+            _isProduction = _configService.GetUseProduction();
+            _currentConfig.UseProduction = _isProduction;
             LoadConfig();
         }
 
         private void LoadConfig()
         {
-            _suppressEnvironmentChange = true;
-            try
-            {
-                _uiIsProduction = _currentConfig.UseProduction;
-                TestEnvironmentRadio.IsChecked = !_uiIsProduction;
-                ProductionEnvironmentRadio.IsChecked = _uiIsProduction;
-                UserComboBox.ItemsSource = _users;
-                LoadSharedFromConfig();
-                LoadUiFromCurrentEnvironment();
-                UpdateEnvironmentLabels();
-            }
-            finally
-            {
-                _suppressEnvironmentChange = false;
-            }
-        }
-
-        private void Environment_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_suppressEnvironmentChange || ApiBaseUrlTextBox == null)
-            {
-                return;
-            }
-
-            FlushUiToCurrentEnvironment();
-            _uiIsProduction = ProductionEnvironmentRadio.IsChecked == true;
+            UserComboBox.ItemsSource = _users;
+            LoadSharedFromConfig();
             LoadUiFromCurrentEnvironment();
             UpdateEnvironmentLabels();
         }
 
         private void UpdateEnvironmentLabels()
         {
-            if (EnvironmentConfigHeader == null)
+            var name = _isProduction ? "Live" : "Test";
+
+            if (EnvironmentHintText != null)
             {
-                return;
+                EnvironmentHintText.Text = $"Edytujesz konfigurację: {name}";
             }
 
-            EnvironmentConfigHeader.Text = _uiIsProduction
-                ? "Subiekt REST API — Produkcja"
-                : "Subiekt REST API — Test";
+            if (EnvironmentConfigHeader != null)
+            {
+                EnvironmentConfigHeader.Text = $"Subiekt REST API — {name}";
+            }
         }
 
         private void LoadSharedFromConfig()
@@ -169,7 +149,7 @@ namespace Gryzak.Views
 
         private SubiektEnvironmentSettings GetUiEnvironment()
         {
-            return _uiIsProduction ? _currentConfig.Production : _currentConfig.Test;
+            return _isProduction ? _currentConfig.Production : _currentConfig.Test;
         }
 
         /// <summary>Buduje tymczasowy SubiektConfig z aktywnym profilem UI (do testów API).</summary>
@@ -177,7 +157,7 @@ namespace Gryzak.Views
         {
             FlushUiToCurrentEnvironment();
             FlushSharedToConfig();
-            _currentConfig.UseProduction = _uiIsProduction;
+            _currentConfig.UseProduction = _configService.GetUseProduction();
             return _currentConfig;
         }
 
@@ -185,6 +165,7 @@ namespace Gryzak.Views
         {
             FlushUiToCurrentEnvironment();
             FlushSharedToConfig();
+            _currentConfig.UseProduction = _configService.GetUseProduction();
 
             if (_currentConfig.AutoReleaseLicenseTimeoutMinutes < 0)
             {
@@ -348,14 +329,9 @@ namespace Gryzak.Views
                     return;
                 }
 
-                var previousUseProduction = _configService.GetUseProduction();
                 try
                 {
                     _configService.SaveSubiektConfig(_currentConfig);
-                    if (_uiIsProduction != previousUseProduction)
-                    {
-                        _configService.SetUseProduction(_uiIsProduction);
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -386,18 +362,6 @@ namespace Gryzak.Views
                     }
                     finally
                     {
-                        try
-                        {
-                            if (_configService.GetUseProduction() != previousUseProduction)
-                            {
-                                _configService.SetUseProduction(previousUseProduction);
-                            }
-                        }
-                        catch
-                        {
-                            // ignore restore errors
-                        }
-
                         TestSubiektButton.IsEnabled = true;
                         TestSubiektButton.Content = "🚀 Testuj uruchomienie Subiekta GT";
                         Mouse.OverrideCursor = null;

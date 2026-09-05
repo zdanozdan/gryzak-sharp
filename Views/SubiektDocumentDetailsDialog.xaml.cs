@@ -1299,9 +1299,8 @@ namespace Gryzak.Views
             }
         }
 
-        private async void PayerPanel_Click(object sender, MouseButtonEventArgs e)
+        private async void OpenPayerDetailsButton_Click(object sender, RoutedEventArgs e)
         {
-            e.Handled = true;
             var khId = _document.PlatnikId;
             if (khId <= 0)
             {
@@ -1338,6 +1337,42 @@ namespace Gryzak.Views
                 Error(ex, "SubiektDocumentDetails", "Błąd pobierania danych płatnika");
                 MessageBox.Show(
                     $"Nie udało się pobrać danych płatnika:\n\n{ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
+        }
+
+        private void OpenPayerInSubiektButton_Click(object sender, RoutedEventArgs e)
+        {
+            var khId = _document.PlatnikId;
+            if (khId <= 0)
+            {
+                MessageBox.Show(
+                    "Brak identyfikatora płatnika na dokumencie.",
+                    "Płatnik",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                Debug($"Otwieranie kartoteki płatnika kh_Id={khId} przez Sferę", "SubiektDocumentDetails");
+                Mouse.OverrideCursor = Cursors.Wait;
+                var subiektService = new SubiektService();
+                // Wyswietl() blokuje do zamknięcia okna Subiekta (musi być na wątku UI / STA)
+                subiektService.OtworzKartotekeKontrahenta(khId);
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "SubiektDocumentDetails", "Błąd otwierania kartoteki płatnika w Subiekcie");
+                MessageBox.Show(
+                    $"Nie udało się otworzyć kartoteki płatnika w Subiekcie:\n\n{ex.Message}",
                     "Błąd",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);

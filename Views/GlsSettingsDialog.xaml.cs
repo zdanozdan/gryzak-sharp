@@ -13,35 +13,25 @@ namespace Gryzak.Views
     {
         private readonly ConfigService _configService;
         private readonly GlsConfig _currentConfig;
-        private bool _uiIsProduction;
-        private bool _suppressEnvironmentChange;
+        private readonly bool _isProduction;
 
         public GlsSettingsDialog(ConfigService configService)
         {
             InitializeComponent();
             _configService = configService;
             _currentConfig = _configService.LoadGlsConfig();
+            _isProduction = _configService.GetUseProduction();
+            _currentConfig.UseProduction = _isProduction;
             LoadConfig();
         }
 
         private void LoadConfig()
         {
-            _suppressEnvironmentChange = true;
-            try
-            {
-                _uiIsProduction = _currentConfig.UseProduction;
-                TestEnvironmentRadio.IsChecked = !_uiIsProduction;
-                ProductionEnvironmentRadio.IsChecked = _uiIsProduction;
-                GlsPanelEnabledCheckBox.IsChecked = _currentConfig.GlsPanelEnabled;
-                LoadUiFromCurrentEnvironment();
-                UpdateEnvironmentLabels();
-                UpdateActiveUrlPreview();
-                LoadPrinters();
-            }
-            finally
-            {
-                _suppressEnvironmentChange = false;
-            }
+            GlsPanelEnabledCheckBox.IsChecked = _currentConfig.GlsPanelEnabled;
+            LoadUiFromCurrentEnvironment();
+            UpdateEnvironmentLabels();
+            UpdateActiveUrlPreview();
+            LoadPrinters();
         }
 
         private void LoadPrinters()
@@ -61,21 +51,6 @@ namespace Gryzak.Views
             }
         }
 
-        private void Environment_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_suppressEnvironmentChange || ApiUrlTextBox == null)
-            {
-                return;
-            }
-
-            FlushUiToCurrentEnvironment();
-            _uiIsProduction = ProductionEnvironmentRadio.IsChecked == true;
-            LoadUiFromCurrentEnvironment();
-            UpdateEnvironmentLabels();
-            UpdateActiveUrlPreview();
-            SetTestStatus("", Brushes.Gray);
-        }
-
         private void ApiUrl_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
             UpdateActiveUrlPreview();
@@ -88,10 +63,10 @@ namespace Gryzak.Views
                 return;
             }
 
-            if (_uiIsProduction)
+            if (_isProduction)
             {
-                EnvironmentConfigHeader.Text = "Konfiguracja: Produkcja";
-                ApiUrlLabel.Text = "URL API (produkcja):";
+                EnvironmentConfigHeader.Text = "Konfiguracja: Live";
+                ApiUrlLabel.Text = "URL API (live):";
             }
             else
             {
@@ -110,7 +85,7 @@ namespace Gryzak.Views
             var url = ApiUrlTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(url))
             {
-                url = ProductionEnvironmentRadio.IsChecked == true
+                url = _isProduction
                     ? GlsConfig.DefaultProductionApiUrl
                     : GlsConfig.DefaultTestApiUrl;
             }
@@ -122,20 +97,18 @@ namespace Gryzak.Views
         {
             FlushUiToCurrentEnvironment();
             var config = GetConfigFromUI();
-            // Testuj edytowany profil, niekoniecznie globalnie aktywny.
-            config.UseProduction = _uiIsProduction;
 
             if (string.IsNullOrWhiteSpace(config.UserName) || string.IsNullOrWhiteSpace(config.Password))
             {
                 SetTestStatus("Login i hasło są wymagane.", Brushes.Red);
-                MessageBox.Show("Proszę podać login i hasło GLS dla wybranego środowiska.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Proszę podać login i hasło GLS dla aktywnego środowiska.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(config.GetActiveApiUrl()))
             {
                 SetTestStatus("URL API jest wymagany.", Brushes.Red);
-                MessageBox.Show("Proszę podać URL API dla wybranego środowiska.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Proszę podać URL API dla aktywnego środowiska.", "Brak danych", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -225,7 +198,6 @@ namespace Gryzak.Views
         private GlsConfig GetConfigFromUI()
         {
             FlushUiToCurrentEnvironment();
-            // UseProduction pochodzi z globalnego environment.json — nie z radiów w tym oknie.
             _currentConfig.UseProduction = _configService.GetUseProduction();
             _currentConfig.GlsPanelEnabled = GlsPanelEnabledCheckBox.IsChecked == true;
             _currentConfig.LabelPrinterName = (LabelPrinterComboBox.SelectedItem as string)?.Trim()
@@ -246,7 +218,7 @@ namespace Gryzak.Views
         private void LoadUiFromCurrentEnvironment()
         {
             var env = GetUiEnvironment();
-            var defaultUrl = _uiIsProduction ? GlsConfig.DefaultProductionApiUrl : GlsConfig.DefaultTestApiUrl;
+            var defaultUrl = _isProduction ? GlsConfig.DefaultProductionApiUrl : GlsConfig.DefaultTestApiUrl;
             ApiUrlTextBox.Text = string.IsNullOrWhiteSpace(env.ApiUrl) ? defaultUrl : env.ApiUrl;
             UserNameTextBox.Text = env.UserName ?? "";
             PasswordBox.Password = env.Password ?? "";
@@ -255,7 +227,7 @@ namespace Gryzak.Views
 
         private GlsEnvironmentSettings GetUiEnvironment()
         {
-            return _uiIsProduction ? _currentConfig.Production : _currentConfig.Test;
+            return _isProduction ? _currentConfig.Production : _currentConfig.Test;
         }
 
         private void SetTestStatus(string message, Brush color)

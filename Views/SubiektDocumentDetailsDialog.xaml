@@ -29,6 +29,42 @@
         <Style TargetType="TextBlock">
             <Setter Property="Margin" Value="0,2"/>
         </Style>
+        <!-- Read-only TextBox wyglądający jak TextBlock — pozwala zaznaczać i kopiować -->
+        <Style x:Key="SelectableText" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Cursor" Value="IBeam"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Disabled"
+                                      Background="{TemplateBinding Background}"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -301,29 +337,44 @@
                     <ColumnDefinition Width="320"/>
                 </Grid.ColumnDefinitions>
                 <Border Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0" Padding="8,6"
-                        Cursor="Hand" ToolTip="Pokaż dane płatnika"
-                        Visibility="{Binding PayerName, Converter={StaticResource StringToVisibilityConverter}}"
-                        MouseLeftButtonUp="PayerPanel_Click">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Background" Value="Transparent"/>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#EEEEEE"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
+                        Visibility="{Binding PayerName, Converter={StaticResource StringToVisibilityConverter}}">
                     <StackPanel>
-                        <TextBlock FontWeight="Bold" Foreground="#666">
-                            <Run Text="Płatnik"/>
-                            <Run Text=" ↗" Foreground="#2196F3" FontSize="11"/>
-                        </TextBlock>
-                        <TextBlock Text="{Binding PayerName}"/>
-                        <TextBlock Text="{Binding PayerNip, StringFormat='NIP: {0}'}"
-                                   Visibility="{Binding PayerNip, Converter={StaticResource StringToVisibilityConverter}}"/>
-                        <TextBlock Text="{Binding PayerAddress}"
-                                   Visibility="{Binding PayerAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,2">
+                            <TextBlock Text="Płatnik" FontWeight="Bold" Foreground="#666"
+                                       VerticalAlignment="Center" Margin="0"/>
+                            <Button DockPanel.Dock="Right"
+                                    Style="{StaticResource IconButton}"
+                                    Click="OpenPayerInSubiektButton_Click"
+                                    ToolTip="Otwórz kartotekę płatnika w Subiekcie GT (Sfera)">
+                                <TextBlock Text="&#xE8A7;"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="14"
+                                           Foreground="#1976D2"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Margin="0"/>
+                            </Button>
+                            <Button DockPanel.Dock="Right"
+                                    Style="{StaticResource IconButton}"
+                                    Click="OpenPayerDetailsButton_Click"
+                                    ToolTip="Pokaż dane płatnika"
+                                    Margin="8,0,0,0">
+                                <TextBlock Text="&#xE8F1;"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="14"
+                                           Foreground="#1976D2"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Margin="0"/>
+                            </Button>
+                        </DockPanel>
+                        <TextBox Text="{Binding PayerName, Mode=OneWay}" Style="{StaticResource SelectableText}"/>
+                        <TextBox Text="{Binding PayerNip, Mode=OneWay, StringFormat=NIP: {0}}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding PayerNip, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding PayerAddress, Mode=OneWay}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding PayerAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
                     </StackPanel>
                 </Border>
                 <Border Grid.Column="1" VerticalAlignment="Center" Margin="0,0,16,0"
@@ -331,9 +382,11 @@
                         Visibility="{Binding HasShippingAddress, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel>
                         <TextBlock Text="Adres wysyłki" FontWeight="Bold" Foreground="#2E7D32"/>
-                        <TextBlock Text="{Binding ShippingAddressName}"
-                                   Visibility="{Binding ShippingAddressName, Converter={StaticResource StringToVisibilityConverter}}"/>
-                        <TextBlock Text="{Binding ShippingAddress}" TextWrapping="Wrap"/>
+                        <TextBox Text="{Binding ShippingAddressName, Mode=OneWay}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding ShippingAddressName, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding ShippingAddress, Mode=OneWay}"
+                                 Style="{StaticResource SelectableText}"/>
                     </StackPanel>
                 </Border>
                 <StackPanel Grid.Column="2">

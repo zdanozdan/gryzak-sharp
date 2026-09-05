@@ -30,6 +30,31 @@
         <Style TargetType="TextBlock">
             <Setter Property="Margin" Value="0,2"/>
         </Style>
+        <!-- Read-only TextBox wyglądający jak TextBlock — pozwala zaznaczać i kopiować -->
+        <Style x:Key="SelectableText" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Cursor" Value="IBeam"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Disabled"
+                                      Background="{TemplateBinding Background}"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -257,7 +282,7 @@
                     <!-- Adres -->
                     <StackPanel Visibility="{Binding HasPaymentAddress, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <DockPanel LastChildFill="False" Margin="0,0,0,2">
-                            <TextBlock Text="Adres" FontWeight="Bold" Foreground="#424242"
+                            <TextBlock Text="Dane do faktury" FontWeight="Bold" Foreground="#424242"
                                        VerticalAlignment="Center"/>
                             <Button DockPanel.Dock="Right"
                                     Click="EditKontrahentButton_Click"
@@ -273,77 +298,137 @@
                                            VerticalAlignment="Center"/>
                             </Button>
                         </DockPanel>
-                        <TextBlock Text="{Binding CustomerName}"
-                                   Visibility="{Binding CustomerName, Converter={StaticResource StringToVisibilityConverter}}"/>
-                        <TextBlock Text="{Binding CustomerCompany}"
-                                   Visibility="{Binding CustomerCompany, Converter={StaticResource StringToVisibilityConverter}}"/>
-                        <TextBlock Visibility="{Binding CustomerNip, Converter={StaticResource StringToVisibilityConverter}}">
-                            <Run Text="NIP: " Foreground="#666"/>
-                            <Run Text="{Binding CustomerNip}"/>
-                        </TextBlock>
-                        <TextBlock Text="{Binding CustomerAddress}" TextWrapping="Wrap"
-                                   Visibility="{Binding CustomerAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
-                        <TextBlock Visibility="{Binding CustomerCountry, Converter={StaticResource StringToVisibilityConverter}}">
-                            <Run Text="Kraj: " Foreground="#666"/>
-                            <Run Text="{Binding CustomerCountry}"/>
-                        </TextBlock>
+                        <TextBox Text="{Binding CustomerName, Mode=OneWay}" Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding CustomerName, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding CustomerCompany, Mode=OneWay}" Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding CustomerCompany, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding CustomerNip, Mode=OneWay, StringFormat=NIP: {0}}" Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding CustomerNip, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding CustomerEmail, Mode=OneWay, StringFormat=E-mail: {0}}" Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding CustomerEmail, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding CustomerAddress, Mode=OneWay}" Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding CustomerAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding CustomerCountry, Mode=OneWay, StringFormat=Kraj: {0}}" Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding CustomerCountry, Converter={StaticResource StringToVisibilityConverter}}"/>
                     </StackPanel>
 
-                    <!-- Adres wysyłki tylko gdy inny -->
-                    <Border Margin="0,10,0,0" BorderBrush="#F44336" BorderThickness="4,0,0,0"
-                            Background="#FFEBEE" Padding="10,6,10,6"
+                    <!-- Adres / firma wysyłki gdy różni się od płatności -->
+                    <Border Margin="0,10,0,0" BorderThickness="4,0,0,0" Padding="10,6,10,6"
                             Visibility="{Binding IsShippingDifferentFromPayment, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="BorderBrush" Value="#F44336"/>
+                                <Setter Property="Background" Value="#FFEBEE"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsShippingCompanyOnlyDifferent}" Value="True">
+                                        <Setter Property="BorderBrush" Value="#F9A825"/>
+                                        <Setter Property="Background" Value="#FFF8E1"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <StackPanel>
-                            <TextBlock Text="Inny adres wysyłki" FontWeight="Bold" Foreground="#C62828"/>
-                            <TextBlock FontSize="11" Foreground="#C62828" Margin="0,0,0,4"
-                                       Visibility="{Binding ShippingDifferenceSummary, Converter={StaticResource StringToVisibilityConverter}}">
+                            <TextBlock FontWeight="Bold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Inny adres wysyłki"/>
+                                        <Setter Property="Foreground" Value="#C62828"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShippingCompanyOnlyDifferent}" Value="True">
+                                                <Setter Property="Text" Value="Inna nazwa firmy ale adres ten sam"/>
+                                                <Setter Property="Foreground" Value="#F57F17"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock FontSize="11" Margin="0,0,0,4">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#C62828"/>
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShippingCompanyOnlyDifferent}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ShippingDifferenceSummary}" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ShippingDifferenceSummary}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
                                 <Run Text="Różnice: "/>
                                 <Run Text="{Binding ShippingDifferenceSummary}" FontWeight="SemiBold"/>
                             </TextBlock>
-                            <TextBlock Text="{Binding ShippingPersonName}"
-                                       Visibility="{Binding ShippingPersonName, Converter={StaticResource StringToVisibilityConverter}}"/>
-                            <TextBlock Text="{Binding ShippingCompany}"
-                                       Visibility="{Binding ShippingCompany, Converter={StaticResource StringToVisibilityConverter}}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                            <TextBox Text="{Binding ShippingPersonName, Mode=OneWay}" Style="{StaticResource SelectableText}"
+                                     Visibility="{Binding ShippingPersonName, Converter={StaticResource StringToVisibilityConverter}}"/>
+                            <TextBox Text="{Binding ShippingCompany, Mode=OneWay}"
+                                     Visibility="{Binding ShippingCompany, Converter={StaticResource StringToVisibilityConverter}}">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource SelectableText}">
                                         <Setter Property="Foreground" Value="Black"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsShippingCompanyDifferent}" Value="True">
                                                 <Setter Property="Foreground" Value="#C62828"/>
                                                 <Setter Property="FontWeight" Value="SemiBold"/>
                                             </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsShippingCompanyOnlyDifferent}" Value="True">
+                                                <Setter Property="Foreground" Value="#F57F17"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                            <TextBlock Text="{Binding ShippingDisplayStreet}" TextWrapping="Wrap"
-                                       Visibility="{Binding ShippingDisplayStreet, Converter={StaticResource StringToVisibilityConverter}}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                </TextBox.Style>
+                            </TextBox>
+                            <TextBox Text="{Binding ShippingDisplayStreet, Mode=OneWay}">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource SelectableText}">
                                         <Setter Property="Foreground" Value="Black"/>
+                                        <Setter Property="Visibility" Value="Visible"/>
                                         <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ShippingDisplayStreet}" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ShippingDisplayStreet}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsShippingCompanyOnlyDifferent}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
                                             <DataTrigger Binding="{Binding IsShippingStreetDifferent}" Value="True">
                                                 <Setter Property="Foreground" Value="#C62828"/>
                                                 <Setter Property="FontWeight" Value="SemiBold"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                            <TextBlock Text="{Binding ShippingDisplayCityLine}" TextWrapping="Wrap"
-                                       Visibility="{Binding ShippingDisplayCityLine, Converter={StaticResource StringToVisibilityConverter}}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                </TextBox.Style>
+                            </TextBox>
+                            <TextBox Text="{Binding ShippingDisplayCityLine, Mode=OneWay}">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource SelectableText}">
                                         <Setter Property="Foreground" Value="Black"/>
+                                        <Setter Property="Visibility" Value="Visible"/>
                                         <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ShippingDisplayCityLine}" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ShippingDisplayCityLine}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsShippingCompanyOnlyDifferent}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
                                             <DataTrigger Binding="{Binding IsShippingPostcodeOrCityDifferent}" Value="True">
                                                 <Setter Property="Foreground" Value="#C62828"/>
                                                 <Setter Property="FontWeight" Value="SemiBold"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
+                                </TextBox.Style>
+                            </TextBox>
                         </StackPanel>
                     </Border>
                 </StackPanel>

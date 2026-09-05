@@ -12,48 +12,23 @@ namespace Gryzak.Views
     {
         private readonly ConfigService _configService;
         private readonly ApiConfig _currentConfig;
-        private bool _uiIsProduction;
-        private bool _suppressEnvironmentChange;
+        private readonly bool _isProduction;
 
         public ConfigDialog(ConfigService configService)
         {
             InitializeComponent();
             _configService = configService;
             _currentConfig = _configService.LoadConfig();
+            _isProduction = _configService.GetUseProduction();
+            _currentConfig.UseProduction = _isProduction;
             LoadConfig();
         }
 
         private void LoadConfig()
         {
-            _suppressEnvironmentChange = true;
-            try
-            {
-                _uiIsProduction = _currentConfig.UseProduction;
-                TestEnvironmentRadio.IsChecked = !_uiIsProduction;
-                ProductionEnvironmentRadio.IsChecked = _uiIsProduction;
-                LoadUiFromCurrentEnvironment();
-                UpdateEnvironmentLabels();
-                UpdateUrlPreviews();
-            }
-            finally
-            {
-                _suppressEnvironmentChange = false;
-            }
-        }
-
-        private void Environment_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_suppressEnvironmentChange || ApiUrlTextBox == null)
-            {
-                return;
-            }
-
-            FlushUiToCurrentEnvironment();
-            _uiIsProduction = ProductionEnvironmentRadio.IsChecked == true;
             LoadUiFromCurrentEnvironment();
             UpdateEnvironmentLabels();
             UpdateUrlPreviews();
-            TestStatusText.Text = "";
         }
 
         private void LoadUiFromCurrentEnvironment()
@@ -78,7 +53,7 @@ namespace Gryzak.Views
 
         private ShopEnvironmentSettings GetUiEnvironment()
         {
-            return _uiIsProduction ? _currentConfig.Production : _currentConfig.Test;
+            return _isProduction ? _currentConfig.Production : _currentConfig.Test;
         }
 
         private void UpdateEnvironmentLabels()
@@ -88,7 +63,9 @@ namespace Gryzak.Views
                 return;
             }
 
-            EnvironmentConfigHeader.Text = _uiIsProduction ? "Konfiguracja: Produkcja" : "Konfiguracja: Test";
+            EnvironmentConfigHeader.Text = _isProduction
+                ? "Edytujesz konfigurację: Live"
+                : "Edytujesz konfigurację: Test";
         }
 
         private void UpdateUrlPreviews()
@@ -207,6 +184,7 @@ namespace Gryzak.Views
             try
             {
                 FlushUiToCurrentEnvironment();
+                _currentConfig.UseProduction = _configService.GetUseProduction();
                 _currentConfig.Normalize();
 
                 if (_currentConfig.Test.ApiTimeout < 5 || _currentConfig.Test.ApiTimeout > 300
@@ -243,7 +221,7 @@ namespace Gryzak.Views
         private void ResetButton_Click(object sender, RoutedEventArgs e)
         {
             var result = MessageBox.Show(
-                "Zresetować aktualnie edytowany profil środowiska do wartości domyślnych?",
+                "Zresetować konfigurację aktywnego środowiska do wartości domyślnych?",
                 "Potwierdzenie",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
@@ -254,7 +232,7 @@ namespace Gryzak.Views
             }
 
             var defaults = new ShopEnvironmentSettings();
-            if (_uiIsProduction)
+            if (_isProduction)
             {
                 _currentConfig.Production = defaults;
             }

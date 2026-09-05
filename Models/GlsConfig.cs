@@ -49,7 +49,7 @@ namespace Gryzak.Models
 
         public string GetEnvironmentName()
         {
-            return UseProduction ? "produkcja" : "test";
+            return UseProduction ? "live" : "test";
         }
 
         public void Normalize()

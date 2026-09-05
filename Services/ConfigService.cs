@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Gryzak.Models;
 
 namespace Gryzak.Services
@@ -382,7 +383,10 @@ namespace Gryzak.Services
         public void ExportSettings(string filePath)
         {
             var export = CreateSettingsExport();
+            ObfuscateSecrets(export);
             var json = JsonSerializer.Serialize(export, JsonWriteOptions);
+            // Operator Subiekta (User/Password + launch) jest per-stanowisko — nie eksportuj.
+            json = RemoveSubiektOperatorSettingsFromExportJson(json);
             File.WriteAllText(filePath, json);
         }
 
@@ -392,6 +396,8 @@ namespace Gryzak.Services
             {
                 throw new FileNotFoundException("Nie znaleziono pliku ustawień.", filePath);
             }
+
+            var localSubiekt = LoadSubiektConfig();
 
             var json = File.ReadAllText(filePath);
             var export = JsonSerializer.Deserialize<GryzakSettingsExport>(json);
@@ -416,7 +422,12 @@ namespace Gryzak.Services
                 {
                     export.Gls.ApplyLegacy(glsEl);
                 }
+
+                // Operator Subiekta jest per-stanowisko — nigdy nie nadpisuj z pliku eksportu.
+                PreserveLocalSubiektOperatorSettings(export.Subiekt, localSubiekt);
             }
+
+            DeobfuscateSecrets(export);
 
             export.Shop.Normalize();
             export.Subiekt.Normalize();
@@ -435,6 +446,131 @@ namespace Gryzak.Services
             SaveConfig(export.Shop);
             SaveSubiektConfig(export.Subiekt);
             SaveGlsConfig(export.Gls);
+        }
+
+        /// <summary>
+        /// Pola operatora / uruchomienia Sfery — nie przenosimy między stacjami.
+        /// </summary>
+        private static readonly string[] SubiektOperatorExportPropertyNames =
+        {
+            "User",
+            "Password",
+            "GtProdukt",
+            "AuthenticationMode",
+            "LaunchDopasujOperatora",
+            "LaunchTryb"
+        };
+
+        private static string RemoveSubiektOperatorSettingsFromExportJson(string json)
+        {
+            var root = JsonNode.Parse(json) as JsonObject;
+            if (root == null)
+                return json;
+
+            if (root["Subiekt"] is JsonObject subiekt)
+            {
+                RemoveOperatorProps(subiekt["Test"] as JsonObject);
+                RemoveOperatorProps(subiekt["Production"] as JsonObject);
+            }
+
+            return root.ToJsonString(JsonWriteOptions);
+        }
+
+        private static void RemoveOperatorProps(JsonObject? env)
+        {
+            if (env == null)
+                return;
+
+            foreach (var name in SubiektOperatorExportPropertyNames)
+                env.Remove(name);
+        }
+
+        private static void PreserveLocalSubiektOperatorSettings(SubiektConfig imported, SubiektConfig local)
+        {
+            imported.Test ??= new SubiektEnvironmentSettings();
+            imported.Production ??= new SubiektEnvironmentSettings();
+            local.Test ??= new SubiektEnvironmentSettings();
+            local.Production ??= new SubiektEnvironmentSettings();
+
+            CopyOperatorEnv(local.Test, imported.Test);
+            CopyOperatorEnv(local.Production, imported.Production);
+        }
+
+        private static void CopyOperatorEnv(SubiektEnvironmentSettings from, SubiektEnvironmentSettings to)
+        {
+            to.User = from.User ?? "";
+            to.Password = from.Password ?? "";
+            to.GtProdukt = from.GtProdukt;
+            to.AuthenticationMode = from.AuthenticationMode;
+            to.LaunchDopasujOperatora = from.LaunchDopasujOperatora;
+            to.LaunchTryb = from.LaunchTryb;
+        }
+
+        private static void ObfuscateSecrets(GryzakSettingsExport export)
+        {
+            if (export.Shop != null)
+            {
+                export.Shop.Test ??= new ShopEnvironmentSettings();
+                export.Shop.Production ??= new ShopEnvironmentSettings();
+                export.Shop.Test.ApiToken = SettingsSecretCodec.Encode(export.Shop.Test.ApiToken);
+                export.Shop.Production.ApiToken = SettingsSecretCodec.Encode(export.Shop.Production.ApiToken);
+            }
+
+            if (export.Subiekt != null)
+            {
+                export.Subiekt.Test ??= new SubiektEnvironmentSettings();
+                export.Subiekt.Production ??= new SubiektEnvironmentSettings();
+                ObfuscateSubiektEnv(export.Subiekt.Test);
+                ObfuscateSubiektEnv(export.Subiekt.Production);
+            }
+
+            if (export.Gls != null)
+            {
+                export.Gls.Test ??= new GlsEnvironmentSettings();
+                export.Gls.Production ??= new GlsEnvironmentSettings();
+                export.Gls.Test.Password = SettingsSecretCodec.Encode(export.Gls.Test.Password);
+                export.Gls.Production.Password = SettingsSecretCodec.Encode(export.Gls.Production.Password);
+            }
+        }
+
+        private static void DeobfuscateSecrets(GryzakSettingsExport export)
+        {
+            if (export.Shop != null)
+            {
+                export.Shop.Test ??= new ShopEnvironmentSettings();
+                export.Shop.Production ??= new ShopEnvironmentSettings();
+                export.Shop.Test.ApiToken = SettingsSecretCodec.Decode(export.Shop.Test.ApiToken);
+                export.Shop.Production.ApiToken = SettingsSecretCodec.Decode(export.Shop.Production.ApiToken);
+            }
+
+            if (export.Subiekt != null)
+            {
+                export.Subiekt.Test ??= new SubiektEnvironmentSettings();
+                export.Subiekt.Production ??= new SubiektEnvironmentSettings();
+                DeobfuscateSubiektEnv(export.Subiekt.Test);
+                DeobfuscateSubiektEnv(export.Subiekt.Production);
+            }
+
+            if (export.Gls != null)
+            {
+                export.Gls.Test ??= new GlsEnvironmentSettings();
+                export.Gls.Production ??= new GlsEnvironmentSettings();
+                export.Gls.Test.Password = SettingsSecretCodec.Decode(export.Gls.Test.Password);
+                export.Gls.Production.Password = SettingsSecretCodec.Decode(export.Gls.Production.Password);
+            }
+        }
+
+        private static void ObfuscateSubiektEnv(SubiektEnvironmentSettings env)
+        {
+            env.ApiKey = SettingsSecretCodec.Encode(env.ApiKey);
+            env.ServerPassword = SettingsSecretCodec.Encode(env.ServerPassword);
+        }
+
+        private static void DeobfuscateSubiektEnv(SubiektEnvironmentSettings env)
+        {
+            env.ApiKey = SettingsSecretCodec.Decode(env.ApiKey);
+            env.ServerPassword = SettingsSecretCodec.Decode(env.ServerPassword);
+            env.Password = SettingsSecretCodec.Decode(env.Password);
         }
 
         private void ApplyActiveEnvironment(ApiConfig config)

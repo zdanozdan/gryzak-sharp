@@ -210,7 +210,8 @@
                                    FontSize="11" Foreground="#666" TextWrapping="Wrap" Margin="0,0,0,10"/>
                         <StackPanel x:Name="DostawaFieldsPanel">
                             <TextBlock Text="Nazwa / odbiorca" Style="{StaticResource FieldLabel}"/>
-                            <TextBox x:Name="DostawaNazwaBox" Style="{StaticResource FieldBox}"/>
+                            <TextBox x:Name="DostawaNazwaBox" Style="{StaticResource FieldBox}" MaxLength="50"/>
+                            <TextBlock Text="Max. 50 znaków (limit Subiekta)" FontSize="10" Foreground="#9E9E9E" Margin="0,-4,0,6"/>
                             <TextBlock Text="Ulica" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="DostawaUlicaBox" Style="{StaticResource FieldBox}"/>
                             <Grid>
@@ -221,11 +222,11 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
                                     <TextBlock Text="Nr domu" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="DostawaNrDomuBox" Style="{StaticResource FieldBox}"/>
+                                    <TextBox x:Name="DostawaNrDomuBox" Style="{StaticResource FieldBox}" MaxLength="10"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
                                     <TextBlock Text="Nr lokalu / dopisek" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="DostawaNrLokaluBox" Style="{StaticResource FieldBox}"/>
+                                    <TextBox x:Name="DostawaNrLokaluBox" Style="{StaticResource FieldBox}" MaxLength="10"/>
                                 </StackPanel>
                             </Grid>
                             <Grid>

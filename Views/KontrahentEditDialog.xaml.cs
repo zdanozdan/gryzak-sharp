@@ -12,16 +12,19 @@ namespace Gryzak.Views
 {
     public partial class KontrahentEditDialog : Window
     {
+        private const int SubiektNazwaMaxLength = 50;
         private const int SubiektNrDomuMaxLength = 10;
         private const int SubiektNrLokaluMaxLength = 10;
 
         private readonly SubiektApiService _api;
         private readonly int _khId;
-        private readonly int? _panstwoId;
-        private readonly int? _wojewodztwoId;
-        private readonly int? _dostawaPanstwoId;
-        private readonly int? _dostawaWojewodztwoId;
+        private readonly Order? _orderShippingSource;
+        private int? _panstwoId;
+        private int? _wojewodztwoId;
+        private int? _dostawaPanstwoId;
+        private int? _dostawaWojewodztwoId;
         private bool _isSaving;
+        private bool _isRefreshing;
 
         public KontrahentDetails? SavedDetails { get; private set; }
 
@@ -30,10 +33,8 @@ namespace Gryzak.Views
             InitializeComponent();
             _api = api ?? new SubiektApiService();
             _khId = details.Id;
-            _panstwoId = details.PanstwoId;
-            _wojewodztwoId = details.WojewodztwoId;
-            _dostawaPanstwoId = details.DostawaPanstwoId;
-            _dostawaWojewodztwoId = details.DostawaWojewodztwoId;
+            _orderShippingSource = orderShippingSource;
+            ApplyKontrahentIds(details);
 
             HeaderTitleText.Text = GetCompanyDisplayName(details);
             if (string.IsNullOrWhiteSpace(HeaderTitleText.Text))
@@ -47,7 +48,15 @@ namespace Gryzak.Views
             UpdateDostawaFieldsEnabled();
         }
 
-        private void OpenSubiektKontrahentButton_Click(object sender, RoutedEventArgs e)
+        private void ApplyKontrahentIds(KontrahentDetails details)
+        {
+            _panstwoId = details.PanstwoId;
+            _wojewodztwoId = details.WojewodztwoId;
+            _dostawaPanstwoId = details.DostawaPanstwoId;
+            _dostawaWojewodztwoId = details.DostawaWojewodztwoId;
+        }
+
+        private async void OpenSubiektKontrahentButton_Click(object sender, RoutedEventArgs e)
         {
             if (_khId <= 0)
             {
@@ -61,6 +70,17 @@ namespace Gryzak.Views
 
             try
             {
+                if (DostawaAktywnyCheck.IsChecked == true
+                    && !TryValidateDostawaFields(out var validationError))
+                {
+                    MessageBox.Show(
+                        validationError,
+                        "Adres wysyłki",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
                 AdresDostawyPrefill? prefill = null;
                 if (DostawaAktywnyCheck.IsChecked == true)
                 {
@@ -82,7 +102,9 @@ namespace Gryzak.Views
                     Debug($"Otwieranie kartoteki kontrahenta kh_Id={_khId} przez Sferę", "KontrahentEditDialog");
                 }
 
+                Mouse.OverrideCursor = Cursors.Wait;
                 var subiektService = new SubiektService();
+                // Wyswietl() blokuje do zamknięcia okna Subiekta (musi być na wątku UI / STA)
                 subiektService.OtworzKartotekeKontrahenta(_khId, prefill);
             }
             catch (Exception ex)
@@ -94,6 +116,13 @@ namespace Gryzak.Views
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
+
+            // Po zamknięciu Subiekta — odśwież kartę porównania z zamówieniem
+            await RefreshDostawaComparisonAsync();
         }
 
         private static string? NullIfEmpty(string? value) =>
@@ -116,7 +145,7 @@ namespace Gryzak.Views
                 return null;
             if (string.IsNullOrWhiteSpace(firma))
                 return null;
-            if (string.Equals(Normalize(nazwa), Normalize(firma), StringComparison.Ordinal))
+            if (Order.NamesMatch(nazwa, firma))
                 return null;
             return nazwa;
         }
@@ -158,7 +187,7 @@ namespace Gryzak.Views
                 return null;
             if (string.IsNullOrWhiteSpace(firma))
                 return null;
-            if (string.Equals(Normalize(nazwa), Normalize(firma), StringComparison.Ordinal))
+            if (Order.NamesMatch(nazwa, firma))
                 return null;
             return nazwa;
         }
@@ -227,6 +256,16 @@ namespace Gryzak.Views
                 CurrentDostawaCompareText.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
                 CurrentDostawaDiffText.Visibility = Visibility.Collapsed;
             }
+            else if (IsNameOnlyDiff(diffs))
+            {
+                // Jak w szczegółach zamówienia: tylko firma/nazwa inna, adres ten sam → warning żółty
+                CurrentDostawaCard.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF9, 0xA8, 0x25));
+                CurrentDostawaCard.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xF8, 0xE1));
+                CurrentDostawaTitle.Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x7F, 0x17));
+                CurrentDostawaCompareText.Text = "Inna nazwa firmy ale adres ten sam.";
+                CurrentDostawaCompareText.Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x7F, 0x17));
+                CurrentDostawaDiffText.Visibility = Visibility.Collapsed;
+            }
             else
             {
                 CurrentDostawaCard.BorderBrush = new SolidColorBrush(Color.FromRgb(0xF4, 0x43, 0x36));
@@ -235,20 +274,25 @@ namespace Gryzak.Views
                 CurrentDostawaCompareText.Text = "Różni się od adresu wysyłki z zamówienia.";
                 CurrentDostawaCompareText.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
                 CurrentDostawaDiffText.Text = "Różnice: " + string.Join(", ", diffs);
+                CurrentDostawaDiffText.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
                 CurrentDostawaDiffText.Visibility = Visibility.Visible;
             }
         }
+
+        private static bool IsNameOnlyDiff(List<string> diffs) =>
+            diffs.Count == 1 && diffs[0] == "nazwa";
 
         private static List<string> CompareDostawaWithOrderShipping(KontrahentDetails d, Order order)
         {
             var diffs = new List<string>();
 
-            var orderName = !string.IsNullOrWhiteSpace(order.ShippingCompany)
-                ? order.ShippingCompany
+            var orderName = !string.IsNullOrWhiteSpace(order.ShippingCompanyDisplay)
+                ? order.ShippingCompanyDisplay
                 : order.ShippingDisplayName;
-            var dostawaName = !string.IsNullOrWhiteSpace(d.DostawaNazwa) ? d.DostawaNazwa : d.DostawaNazwaPelna;
 
-            if (!string.Equals(Normalize(orderName), Normalize(dostawaName), StringComparison.Ordinal))
+            // Zgodność z Nazwa albo NazwaPelna (Subiekt bywa: Nazwa = osoba, Pelna = firma)
+            if (!Order.NamesMatch(orderName, d.DostawaNazwa)
+                && !Order.NamesMatch(orderName, d.DostawaNazwaPelna))
                 diffs.Add("nazwa");
 
             var orderParsed = ParseStreetParts(order.ShippingAddress1, order.ShippingAddress2);
@@ -383,9 +427,9 @@ namespace Gryzak.Views
             if (IsDuplicateStreetReference(a2, ulica))
                 return (CleanUlica(ulica), nrDomu, EffectiveNrLokalu(nrLokalu, ulica));
 
-            // address_2: „16”, „16A”, „16 / 2”, „16/L4”, „L4”
+            // address_2: „16”, „16A”, „16 / 2”, „16/L4”, „L4” — nie nazwa wsi bez numeru
             var fromA2 = TryParseHouseOrLocal(a2);
-            if (fromA2 != null)
+            if (fromA2 != null && Order.LooksLikeHouseOrUnitPart(a2))
             {
                 if (!string.IsNullOrWhiteSpace(fromA2.Value.NrDomu) && string.IsNullOrWhiteSpace(nrDomu))
                     nrDomu = fromA2.Value.NrDomu;
@@ -397,7 +441,8 @@ namespace Gryzak.Views
                 if (!string.IsNullOrWhiteSpace(fromA2.Value.NrLokalu) && string.IsNullOrWhiteSpace(nrLokalu))
                     nrLokalu = fromA2.Value.NrLokalu;
             }
-            else if (string.IsNullOrWhiteSpace(nrLokalu) && !IsDuplicateStreetReference(a2, ulica))
+            else if (string.IsNullOrWhiteSpace(nrLokalu) && !IsDuplicateStreetReference(a2, ulica)
+                     && Order.LooksLikeHouseOrUnitPart(a2))
             {
                 nrLokalu = a2;
             }
@@ -464,7 +509,7 @@ namespace Gryzak.Views
             if (_isSaving || _khId <= 0 || DostawaAktywnyCheck.IsChecked != true)
                 return;
 
-            if (!TryValidateBeforeSave(out var validationError))
+            if (!TryValidateDostawaFields(out var validationError))
             {
                 MessageBox.Show(
                     validationError,
@@ -492,8 +537,12 @@ namespace Gryzak.Views
                 }
 
                 SavedDetails = saved;
-                DialogResult = true;
-                Close();
+                ApplyKontrahentIds(saved);
+                BindReadOnlyCard(saved);
+                BindCurrentDostawaCard(saved, _orderShippingSource);
+                DostawaAktywnyCheck.IsChecked = false;
+                UpdateDostawaFieldsEnabled();
+                Debug($"Po zapisie API odświeżono porównanie adresu dostawy kh_Id={_khId}", "KontrahentEditDialog");
             }
             catch (Exception ex)
             {
@@ -508,6 +557,45 @@ namespace Gryzak.Views
             {
                 _isSaving = false;
                 SaveButton.IsEnabled = DostawaAktywnyCheck.IsChecked == true;
+                Mouse.OverrideCursor = null;
+            }
+        }
+
+        /// <summary>
+        /// Pobiera aktualną kartotekę z API i odświeża kartę „Adres wysyłki w Subiekcie”
+        /// oraz porównanie z adresem z zamówienia.
+        /// </summary>
+        private async System.Threading.Tasks.Task RefreshDostawaComparisonAsync()
+        {
+            if (_khId <= 0 || _isRefreshing)
+                return;
+
+            _isRefreshing = true;
+            Mouse.OverrideCursor = Cursors.Wait;
+            try
+            {
+                var details = await _api.GetKontrahentDetailsAsync(_khId);
+                if (details == null)
+                {
+                    Warning($"Nie udało się odświeżyć kontrahenta kh_Id={_khId} po edycji", "KontrahentEditDialog");
+                    return;
+                }
+
+                SavedDetails = details;
+                ApplyKontrahentIds(details);
+                BindReadOnlyCard(details);
+                BindCurrentDostawaCard(details, _orderShippingSource);
+                DostawaAktywnyCheck.IsChecked = false;
+                UpdateDostawaFieldsEnabled();
+                Debug($"Odświeżono porównanie adresu dostawy kh_Id={_khId}", "KontrahentEditDialog");
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "KontrahentEditDialog", "Błąd odświeżania porównania adresu dostawy");
+            }
+            finally
+            {
+                _isRefreshing = false;
                 Mouse.OverrideCursor = null;
             }
         }
@@ -534,8 +622,18 @@ namespace Gryzak.Views
             };
         }
 
-        private bool TryValidateBeforeSave(out string errorMessage)
+        private bool TryValidateDostawaFields(out string errorMessage)
         {
+            var nazwa = DostawaNazwaBox.Text?.Trim() ?? "";
+            if (nazwa.Length > SubiektNazwaMaxLength)
+            {
+                errorMessage =
+                    $"Nazwa / odbiorca może mieć maksymalnie {SubiektNazwaMaxLength} znaków (limit Subiekta).\n\n" +
+                    $"Obecna wartość ma {nazwa.Length} znaków:\n\"{nazwa}\"\n\n" +
+                    "Skróć pole „Nazwa / odbiorca” przed zapisem lub otwarciem Subiekta.";
+                return false;
+            }
+
             var nrDomu = DostawaNrDomuBox.Text?.Trim() ?? "";
             if (nrDomu.Length > SubiektNrDomuMaxLength)
             {

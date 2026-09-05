@@ -25,11 +25,6 @@
             <Setter Property="Margin" Value="5"/>
             <Setter Property="MinWidth" Value="100"/>
         </Style>
-        <Style TargetType="RadioButton">
-            <Setter Property="Margin" Value="0,0,20,0"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
     </Window.Resources>
 
     <Grid Margin="20">
@@ -41,32 +36,22 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
             <TextBlock Text="⚙️ Ustawienia sklepu" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
-            <TextBlock Text="Połączenie z API zamówień sklepu internetowego (Test / Produkcja)" FontSize="12" Foreground="Gray"/>
+            <TextBlock Text="Połączenie z API zamówień sklepu internetowego" FontSize="12" Foreground="Gray"/>
+            <TextBlock Name="EnvironmentConfigHeader"
+                       Text="Edytujesz konfigurację: Test"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="#1565C0"
+                       Margin="0,8,0,0"/>
+            <TextBlock Text="Środowisko Test/Live zmieniasz w menu Plik → Środowisko."
+                       FontSize="11"
+                       Foreground="Gray"
+                       TextWrapping="Wrap"
+                       Margin="0,4,0,0"/>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,15" Background="#F9F9F9">
-                    <StackPanel>
-                        <TextBlock Text="Profil środowiska" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                            <RadioButton Name="TestEnvironmentRadio"
-                                         Content="Test"
-                                         GroupName="ShopEnvironment"
-                                         Checked="Environment_Changed"/>
-                            <RadioButton Name="ProductionEnvironmentRadio"
-                                         Content="Produkcja"
-                                         GroupName="ShopEnvironment"
-                                         Checked="Environment_Changed"/>
-                        </StackPanel>
-                        <TextBlock Text="Tu edytujesz osobne dane połączenia. Aktywne środowisko aplikacji ustawiasz w menu Plik → Środowisko (pasek statusu)."
-                                   FontSize="11"
-                                   Foreground="Gray"
-                                   TextWrapping="Wrap"/>
-                    </StackPanel>
-                </Border>
-
-                <TextBlock Name="EnvironmentConfigHeader" Text="Konfiguracja: Test" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
 
                 <TextBlock Text="URL API sklepu:" FontWeight="SemiBold"/>
                 <TextBox Name="ApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>

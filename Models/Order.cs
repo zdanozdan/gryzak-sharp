@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -39,10 +40,10 @@ namespace Gryzak.Models
                 OnPropertyChanged(nameof(DisplayId)); // Powiadom o zmianie DisplayId
             } 
         }
-        public string Customer { get => _customer; set { _customer = value; OnPropertyChanged(); } }
+        public string Customer { get => _customer; set { _customer = value; OnPropertyChanged(); OnPropertyChanged(nameof(CompanyDisplay)); OnPropertyChanged(nameof(IsShippingCompanyDifferent)); OnPropertyChanged(nameof(ShippingDifferenceSummary)); OnPropertyChanged(nameof(IsShippingDifferentFromPayment)); } }
         public string Email { get => _email; set { _email = value; OnPropertyChanged(); } }
         public string Phone { get => _phone; set { _phone = value; OnPropertyChanged(); } }
-        public string? Company { get => _company; set { _company = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsShippingDifferentFromPayment)); } }
+        public string? Company { get => _company; set { _company = value; OnPropertyChanged(); OnPropertyChanged(nameof(CompanyDisplay)); OnPropertyChanged(nameof(IsShippingCompanyDifferent)); OnPropertyChanged(nameof(ShippingDifferenceSummary)); OnPropertyChanged(nameof(IsShippingDifferentFromPayment)); } }
         public string? Nip { get => _nip; set { _nip = value; OnPropertyChanged(); } }
         public string? Address { get => _address; set { _address = value; OnPropertyChanged(); } }
         public string? PaymentAddress1 { get => _paymentAddress1; set { _paymentAddress1 = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsShippingDifferentFromPayment)); } }
@@ -142,8 +143,9 @@ namespace Gryzak.Models
         {
             get
             {
-                if (!string.IsNullOrWhiteSpace(ShippingCompany))
-                    return ShippingCompany.Trim();
+                var company = EffectiveShippingCompany;
+                if (!string.IsNullOrWhiteSpace(company))
+                    return company;
                 return ShippingPersonName;
             }
         }
@@ -151,22 +153,23 @@ namespace Gryzak.Models
         /// <summary>Imię i nazwisko odbiorcy wysyłki.</summary>
         public string ShippingPersonName => $"{ShippingFirstname} {ShippingLastname}".Trim();
 
-        /// <summary>Firma wysyłki (do osobnego wyświetlenia).</summary>
-        public string ShippingCompanyDisplay => ShippingCompany?.Trim() ?? "";
-
-        /// <summary>Ulica adresu wysyłki (bez kodu/miasta).</summary>
-        public string ShippingDisplayStreet
+        /// <summary>
+        /// Firma płatności do wyświetlenia — pusta gdy to tylko powtórzenie imienia i nazwiska.
+        /// </summary>
+        public string CompanyDisplay
         {
             get
             {
-                var parts = new List<string>();
-                if (!string.IsNullOrWhiteSpace(ShippingAddress1))
-                    parts.Add(ShippingAddress1.Trim());
-                if (!string.IsNullOrWhiteSpace(ShippingAddress2))
-                    parts.Add(ShippingAddress2.Trim());
-                return string.Join(", ", parts);
+                var company = EffectivePaymentCompany;
+                return company ?? "";
             }
         }
+
+        /// <summary>Firma wysyłki (do osobnego wyświetlenia; bez duplikatu imienia/nazwiska).</summary>
+        public string ShippingCompanyDisplay => EffectiveShippingCompany ?? "";
+
+        /// <summary>Ulica adresu wysyłki (bez kodu/miasta).</summary>
+        public string ShippingDisplayStreet => FormatStreetLine(ShippingAddress1, ShippingAddress2);
 
         /// <summary>Kod i miasto adresu wysyłki.</summary>
         public string ShippingDisplayCityLine => $"{ShippingPostcode} {ShippingCity}".Trim();
@@ -185,15 +188,27 @@ namespace Gryzak.Models
             }
         }
 
+        /// <summary>
+        /// Firma płatności z API, albo null gdy jest pusta / równa imieniu i nazwisku klienta.
+        /// </summary>
+        private string? EffectivePaymentCompany =>
+            IsCompanySameAsPerson(Company, Customer) ? null : NullIfEmpty(Company);
+
+        /// <summary>
+        /// Firma wysyłki z API, albo null gdy jest pusta / równa imieniu i nazwisku odbiorcy.
+        /// </summary>
+        private string? EffectiveShippingCompany =>
+            IsCompanySameAsPerson(ShippingCompany, ShippingPersonName) ? null : NullIfEmpty(ShippingCompany);
+
         public bool IsShippingCompanyDifferent =>
             HasShippingAddress
-            && !string.Equals(NormalizeAddressPart(Company), NormalizeAddressPart(ShippingCompany), StringComparison.Ordinal);
+            && !NamesMatch(EffectivePaymentCompany, EffectiveShippingCompany);
 
         public bool IsShippingStreetDifferent =>
             HasShippingAddress
             && !string.Equals(
-                NormalizeAddressPart($"{PaymentAddress1} {PaymentAddress2}"),
-                NormalizeAddressPart($"{ShippingAddress1} {ShippingAddress2}"),
+                NormalizeAddressPart(FormatStreetLineForCompare(PaymentAddress1, PaymentAddress2)),
+                NormalizeAddressPart(FormatStreetLineForCompare(ShippingAddress1, ShippingAddress2)),
                 StringComparison.Ordinal);
 
         public bool IsShippingPostcodeDifferent =>
@@ -228,6 +243,15 @@ namespace Gryzak.Models
             || IsShippingCityDifferent;
 
         /// <summary>
+        /// Tylko nazwa firmy inna — ulica, kod i miasto takie same.
+        /// </summary>
+        public bool IsShippingCompanyOnlyDifferent =>
+            IsShippingCompanyDifferent
+            && !IsShippingStreetDifferent
+            && !IsShippingPostcodeDifferent
+            && !IsShippingCityDifferent;
+
+        /// <summary>
         /// Odczytuje pola payment_* i shipping_* ze szczegółów zamówienia OpenCart.
         /// </summary>
         public void ApplyAddressesFromApi(JsonElement root)
@@ -252,8 +276,8 @@ namespace Gryzak.Models
             PaymentCity = NullIfEmpty(DecodeHtml(GetStringProp(root, "payment_city")));
 
             var paymentParts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(PaymentAddress1)) paymentParts.Add(PaymentAddress1);
-            if (!string.IsNullOrWhiteSpace(PaymentAddress2)) paymentParts.Add(PaymentAddress2);
+            var paymentStreet = FormatStreetLine(PaymentAddress1, PaymentAddress2);
+            if (!string.IsNullOrWhiteSpace(paymentStreet)) paymentParts.Add(paymentStreet);
             var paymentCityLine = $"{PaymentPostcode} {PaymentCity}".Trim();
             if (!string.IsNullOrWhiteSpace(paymentCityLine)) paymentParts.Add(paymentCityLine);
             Address = paymentParts.Count > 0 ? string.Join(", ", paymentParts) : null;
@@ -269,6 +293,7 @@ namespace Gryzak.Models
             OnPropertyChanged(nameof(HasShippingAddress));
             OnPropertyChanged(nameof(ShippingDisplayName));
             OnPropertyChanged(nameof(ShippingPersonName));
+            OnPropertyChanged(nameof(CompanyDisplay));
             OnPropertyChanged(nameof(ShippingCompanyDisplay));
             OnPropertyChanged(nameof(ShippingDisplayStreet));
             OnPropertyChanged(nameof(ShippingDisplayCityLine));
@@ -279,6 +304,7 @@ namespace Gryzak.Models
             OnPropertyChanged(nameof(IsShippingCityDifferent));
             OnPropertyChanged(nameof(ShippingDifferenceSummary));
             OnPropertyChanged(nameof(IsShippingDifferentFromPayment));
+            OnPropertyChanged(nameof(IsShippingCompanyOnlyDifferent));
         }
 
         private static string? GetStringProp(JsonElement root, string name)
@@ -298,12 +324,80 @@ namespace Gryzak.Models
         private static string? NullIfEmpty(string? value) =>
             string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+        /// <summary>
+        /// Składa address_1 + address_2; pomija address_2 gdy to tylko powtórzenie address_1
+        /// (OpenCart czasem wstawia tę samą ulicę w obu polach).
+        /// </summary>
+        private static string FormatStreetLine(string? address1, string? address2)
+        {
+            var a1 = address1?.Trim() ?? "";
+            var a2 = address2?.Trim() ?? "";
+            if (string.IsNullOrEmpty(a2) || NamesMatch(a1, a2))
+                return a1;
+            if (string.IsNullOrEmpty(a1))
+                return a2;
+            return $"{a1}, {a2}";
+        }
+
+        /// <summary>
+        /// Do porównania płatność↔wysyłka: address_2 tylko gdy wygląda na nr domu/lokalu
+        /// (np. „U6A”, „13 / 4”). Część miejscowości w address_2 (np. „Dąbrówka Nagórna”)
+        /// nie jest różnicą ulicy.
+        /// </summary>
+        private static string FormatStreetLineForCompare(string? address1, string? address2)
+        {
+            var a2 = address2?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(a2) && !LooksLikeHouseOrUnitPart(a2) && !NamesMatch(address1, a2))
+                a2 = "";
+            return FormatStreetLine(address1, NullIfEmpty(a2));
+        }
+
+        /// <summary>
+        /// Nr domu/lokalu / dopisek z numerem — nie nazwa wsi/osady bez cyfr.
+        /// </summary>
+        public static bool LooksLikeHouseOrUnitPart(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+            var t = value.Trim();
+            if (t.Any(char.IsDigit))
+                return true;
+            return t.IndexOfAny(['/', '\\']) >= 0;
+        }
+
+        /// <summary>
+        /// Firma = imię+nazwisko (także przy odwrotnej kolejności słów, jak w Subiekcie).
+        /// </summary>
+        public static bool IsCompanySameAsPerson(string? company, string? personName) =>
+            NamesMatch(company, personName);
+
+        /// <summary>Porównanie nazw zignorujące wielkość liter, HTML i kolejność słów.</summary>
+        public static bool NamesMatch(string? a, string? b)
+        {
+            var na = NormalizeAddressPart(a);
+            var nb = NormalizeAddressPart(b);
+            if (string.Equals(na, nb, StringComparison.Ordinal))
+                return true;
+            if (string.IsNullOrEmpty(na) || string.IsNullOrEmpty(nb))
+                return false;
+
+            var ta = na.Split(' ', StringSplitOptions.RemoveEmptyEntries).OrderBy(t => t, StringComparer.Ordinal).ToArray();
+            var tb = nb.Split(' ', StringSplitOptions.RemoveEmptyEntries).OrderBy(t => t, StringComparer.Ordinal).ToArray();
+            return ta.SequenceEqual(tb, StringComparer.Ordinal);
+        }
+
         private static string NormalizeAddressPart(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
                 return "";
             var decoded = DecodeHtml(value);
-            return string.Join(" ", decoded.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            // OpenCart: „ulica 13 / U6A” vs „ulica 13” + „U6A”; „ulica , nr” vs „ulica” + „nr”
+            var cleaned = decoded
+                .Replace(',', ' ')
+                .Replace(';', ' ')
+                .Replace('/', ' ')
+                .Replace('\\', ' ');
+            return string.Join(" ", cleaned.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
                 .ToLowerInvariant();
         }
         

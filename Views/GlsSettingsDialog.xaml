@@ -33,11 +33,6 @@
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
-        <Style TargetType="RadioButton">
-            <Setter Property="Margin" Value="0,0,20,0"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
     </Window.Resources>
 
     <Grid Margin="20">
@@ -70,45 +65,25 @@
 
                 <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
                     <StackPanel>
-                        <TextBlock Text="Środowisko" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#2196F3"/>
-
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <RadioButton Name="TestEnvironmentRadio"
-                                         Content="Test"
-                                         GroupName="GlsEnvironment"
-                                         Checked="Environment_Changed"/>
-                            <RadioButton Name="ProductionEnvironmentRadio"
-                                         Content="Produkcja"
-                                         GroupName="GlsEnvironment"
-                                         Checked="Environment_Changed"/>
-                        </StackPanel>
-
-                        <TextBlock Text="Tu edytujesz osobne dane logowania Test/Produkcja. Aktywne środowisko aplikacji ustawiasz w menu Plik → Środowisko (pasek statusu)."
-                                   FontSize="11"
-                                   Foreground="Gray"
-                                   TextWrapping="Wrap"
-                                   Margin="0,0,0,10"/>
-
-                        <TextBlock Text="Aktywny URL (profil edytowany):" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                        <TextBlock Name="ActiveUrlPreview"
-                                   FontSize="12"
-                                   Foreground="#1565C0"
-                                   TextWrapping="Wrap"
-                                   Margin="0,0,0,5"/>
-                    </StackPanel>
-                </Border>
-
-                <Border BorderBrush="#CCCCCC" BorderThickness="1" Padding="15" Margin="0,0,0,20" Background="#F9F9F9">
-                    <StackPanel>
                         <TextBlock Name="EnvironmentConfigHeader"
                                    Text="Konfiguracja: Test"
                                    FontSize="16"
                                    FontWeight="Bold"
-                                   Margin="0,0,0,15"
+                                   Margin="0,0,0,8"
                                    Foreground="#2196F3"/>
+                        <TextBlock Text="Środowisko Test/Live zmieniasz w menu Plik → Środowisko."
+                                   FontSize="11"
+                                   Foreground="Gray"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,12"/>
 
                         <TextBlock Name="ApiUrlLabel" Text="URL API (test):" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBox Name="ApiUrlTextBox" TextChanged="ApiUrl_TextChanged"/>
+                        <TextBlock Name="ActiveUrlPreview"
+                                   FontSize="11"
+                                   Foreground="#1565C0"
+                                   TextWrapping="Wrap"
+                                   Margin="0,-10,0,10"/>
 
                         <TextBlock Text="Login:" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <TextBox Name="UserNameTextBox"/>

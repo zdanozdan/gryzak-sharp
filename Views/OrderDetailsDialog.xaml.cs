@@ -21,10 +21,12 @@ namespace Gryzak.Views
         private DateTime _orderDate = DateTime.Now;
         private string? _customerCompany;
         private string? _customerNip;
+        private string? _customerEmail;
         private string? _customerAddress;
         private string _customerCountry = "";
         private bool _hasPaymentAddress;
         private bool _isShippingDifferentFromPayment;
+        private bool _isShippingCompanyOnlyDifferent;
         private bool _isShippingCompanyDifferent;
         private bool _isShippingStreetDifferent;
         private bool _isShippingPostcodeOrCityDifferent;
@@ -55,8 +57,9 @@ namespace Gryzak.Views
             OrderId = order.Id;
             CustomerName = order.Customer;
             OrderDate = order.Date;
-            CustomerCompany = order.Company;
+            CustomerCompany = order.CompanyDisplay;
             CustomerNip = order.Nip;
+            CustomerEmail = NullIfPlaceholder(order.Email, "Brak email");
             CustomerAddress = order.Address;
             CustomerCountry = order.CountryWithIso3;
             RefreshShippingUi(order);
@@ -100,6 +103,12 @@ namespace Gryzak.Views
             set { _customerNip = value; OnPropertyChanged(); RefreshHasPaymentAddress(); }
         }
 
+        public string? CustomerEmail
+        {
+            get => _customerEmail;
+            set { _customerEmail = value; OnPropertyChanged(); RefreshHasPaymentAddress(); }
+        }
+
         public string? CustomerAddress
         {
             get => _customerAddress;
@@ -122,6 +131,12 @@ namespace Gryzak.Views
         {
             get => _isShippingDifferentFromPayment;
             set { _isShippingDifferentFromPayment = value; OnPropertyChanged(); }
+        }
+
+        public bool IsShippingCompanyOnlyDifferent
+        {
+            get => _isShippingCompanyOnlyDifferent;
+            set { _isShippingCompanyOnlyDifferent = value; OnPropertyChanged(); }
         }
 
         public bool IsShippingCompanyDifferent
@@ -373,7 +388,7 @@ namespace Gryzak.Views
                 // Adres płatności + adres wysyłki (payment_* / shipping_* z OpenCart)
                 _order.ApplyAddressesFromApi(root);
                 CustomerName = _order.Customer;
-                CustomerCompany = _order.Company;
+                CustomerCompany = _order.CompanyDisplay;
                 CustomerAddress = _order.Address;
                 RefreshShippingUi(_order);
                 Debug($"Zaktualizowano adres płatności: {CustomerAddress}", "OrderDetailsDialog");
@@ -385,6 +400,16 @@ namespace Gryzak.Views
                     _order.Nip = vatProp.GetString();
                     CustomerNip = _order.Nip;
                     Debug($"Zaktualizowano NIP: {CustomerNip}", "OrderDetailsDialog");
+                }
+
+                if (root.TryGetProperty("email", out var emailProp) && emailProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var email = emailProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(email))
+                    {
+                        _order.Email = email;
+                        CustomerEmail = email;
+                    }
                 }
 
                 // Aktualizuj kraj - użyj kod ISO 2 aby znaleźć polską nazwę kraju
@@ -785,6 +810,7 @@ namespace Gryzak.Views
             HasPaymentAddress = !string.IsNullOrWhiteSpace(CustomerName)
                 || !string.IsNullOrWhiteSpace(CustomerCompany)
                 || !string.IsNullOrWhiteSpace(CustomerNip)
+                || !string.IsNullOrWhiteSpace(CustomerEmail)
                 || !string.IsNullOrWhiteSpace(CustomerAddress)
                 || !string.IsNullOrWhiteSpace(CustomerCountry);
         }
@@ -793,6 +819,7 @@ namespace Gryzak.Views
         {
             RefreshHasPaymentAddress();
             IsShippingDifferentFromPayment = order.IsShippingDifferentFromPayment;
+            IsShippingCompanyOnlyDifferent = order.IsShippingCompanyOnlyDifferent;
             IsShippingCompanyDifferent = order.IsShippingCompanyDifferent;
             IsShippingStreetDifferent = order.IsShippingStreetDifferent;
             IsShippingPostcodeOrCityDifferent = order.IsShippingPostcodeDifferent || order.IsShippingCityDifferent;
