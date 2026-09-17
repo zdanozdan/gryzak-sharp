@@ -2650,7 +2650,8 @@ namespace Gryzak.ViewModels
             }
 
             var confirm = MessageBox.Show(
-                "Wgranie ustawień nadpisze bieżącą konfigurację sklepu, Subiekta i GLS na tej stacji.\n\nKontynuować?",
+                "Wgranie ustawień nadpisze konfigurację sklepu, GLS, AI oraz Subiekt REST API.\n\n" +
+                "Lokalne parametry Sfery, sposób obliczania/zaokrąglania rabatu i liczenia dokumentu pozostaną bez zmian.\n\nKontynuować?",
                 "Wgraj ustawienia",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);

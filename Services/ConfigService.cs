@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Gryzak.Models;
@@ -12,6 +13,7 @@ namespace Gryzak.Services
     public class ConfigService
     {
         public const string BundledSettingsFileName = "gryzak-ustawienia.json";
+        private const string BundledSettingsStampFileName = "bundled_settings.sha256";
 
         private readonly string _configPath;
         private readonly string _subiektConfigPath;
@@ -19,8 +21,9 @@ namespace Gryzak.Services
         private readonly string _aiConfigPath;
         private readonly string _environmentPath;
         private readonly string _historyPath;
+        private readonly string _bundledSettingsStampPath;
 
-        public ConfigService()
+        public ConfigService(bool applyBundledDefaults = true)
         {
             var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var gryzakPath = Path.Combine(appDataPath, "Gryzak");
@@ -36,27 +39,43 @@ namespace Gryzak.Services
             _aiConfigPath = Path.Combine(gryzakPath, "ai_config.json");
             _environmentPath = Path.Combine(gryzakPath, "environment.json");
             _historyPath = Path.Combine(gryzakPath, "order_history.json");
+            _bundledSettingsStampPath = Path.Combine(gryzakPath, BundledSettingsStampFileName);
 
-            TryImportBundledDefaults();
+            if (applyBundledDefaults)
+            {
+                TryImportBundledDefaults();
+            }
         }
 
         /// <summary>
-        /// Przy pierwszym uruchomieniu (brak lokalnej konfiguracji) wczytuje
-        /// gryzak-ustawienia.json z katalogu aplikacji (instalator / publish).
-        /// Nie nadpisuje istniejącej konfiguracji użytkownika.
+        /// Wczytuje gryzak-ustawienia.json z katalogu instalacji, gdy plik jest nowy
+        /// lub zmieniony względem ostatniego importu. Nadpisuje sklep / GLS / AI
+        /// oraz Subiekt REST API; zachowuje lokalne ustawienia Sfery, rabatów i liczenia dokumentu.
         /// </summary>
         private void TryImportBundledDefaults()
         {
-            if (File.Exists(_configPath)
-                || File.Exists(_subiektConfigPath)
-                || File.Exists(_glsConfigPath)
-                || File.Exists(_aiConfigPath))
+            var bundledPath = Path.Combine(AppContext.BaseDirectory, BundledSettingsFileName);
+            if (!File.Exists(bundledPath))
             {
                 return;
             }
 
-            var bundledPath = Path.Combine(AppContext.BaseDirectory, BundledSettingsFileName);
-            if (!File.Exists(bundledPath))
+            string hash;
+            try
+            {
+                hash = ComputeFileSha256(bundledPath);
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "ConfigService", $"Nie udało się odczytać {BundledSettingsFileName}");
+                return;
+            }
+
+            if (File.Exists(_bundledSettingsStampPath)
+                && string.Equals(
+                    File.ReadAllText(_bundledSettingsStampPath).Trim(),
+                    hash,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -64,12 +83,21 @@ namespace Gryzak.Services
             try
             {
                 ImportSettings(bundledPath);
-                Info($"Zaimportowano domyślne ustawienia z {BundledSettingsFileName}.", "ConfigService");
+                File.WriteAllText(_bundledSettingsStampPath, hash);
+                Info($"Zaimportowano ustawienia instalacji z {BundledSettingsFileName}.", "ConfigService");
             }
             catch (Exception ex)
             {
                 Error(ex, "ConfigService", $"Nie udało się zaimportować {BundledSettingsFileName}");
             }
+        }
+
+        private static string ComputeFileSha256(string filePath)
+        {
+            using var stream = File.OpenRead(filePath);
+            using var sha = SHA256.Create();
+            var hash = sha.ComputeHash(stream);
+            return Convert.ToHexString(hash);
         }
 
         public AppEnvironmentConfig LoadEnvironment()
@@ -470,8 +498,8 @@ namespace Gryzak.Services
             var export = CreateSettingsExport();
             ObfuscateSecrets(export);
             var json = JsonSerializer.Serialize(export, JsonWriteOptions);
-            // Operator Subiekta (User/Password + launch) jest per-stanowisko — nie eksportuj.
-            json = RemoveSubiektOperatorSettingsFromExportJson(json);
+            // Sfera + rabaty / liczenie dokumentu są per-stanowisko — nie eksportuj.
+            json = RemoveWorkstationSubiektSettingsFromExportJson(json);
             File.WriteAllText(filePath, json);
         }
 
@@ -482,7 +510,9 @@ namespace Gryzak.Services
                 throw new FileNotFoundException("Nie znaleziono pliku ustawień.", filePath);
             }
 
-            var localSubiekt = LoadSubiektConfig();
+            // Zachowuj lokalne Sferę / rabaty tylko gdy stacja ma już własny plik Subiekta.
+            var preserveWorkstationSubiekt = File.Exists(_subiektConfigPath);
+            var localSubiekt = preserveWorkstationSubiekt ? LoadSubiektConfig() : null;
 
             var json = File.ReadAllText(filePath);
             var export = JsonSerializer.Deserialize<GryzakSettingsExport>(json);
@@ -507,9 +537,11 @@ namespace Gryzak.Services
                 {
                     export.Gls.ApplyLegacy(glsEl);
                 }
+            }
 
-                // Operator Subiekta jest per-stanowisko — nigdy nie nadpisuj z pliku eksportu.
-                PreserveLocalSubiektOperatorSettings(export.Subiekt, localSubiekt);
+            if (preserveWorkstationSubiekt && localSubiekt != null)
+            {
+                PreserveLocalWorkstationSubiektSettings(export.Subiekt, localSubiekt);
             }
 
             DeobfuscateSecrets(export);
@@ -540,10 +572,14 @@ namespace Gryzak.Services
         }
 
         /// <summary>
-        /// Pola operatora / uruchomienia Sfery — nie przenosimy między stacjami.
+        /// Parametry Sfery / GT — nie przenosimy między stacjami.
         /// </summary>
-        private static readonly string[] SubiektOperatorExportPropertyNames =
+        private static readonly string[] SubiektSferaExportPropertyNames =
         {
+            "ServerAddress",
+            "DatabaseName",
+            "ServerUsername",
+            "ServerPassword",
             "User",
             "Password",
             "GtProdukt",
@@ -552,7 +588,17 @@ namespace Gryzak.Services
             "LaunchTryb"
         };
 
-        private static string RemoveSubiektOperatorSettingsFromExportJson(string json)
+        /// <summary>
+        /// Rabaty i sposób liczenia dokumentu — lokalne preferencje stanowiska.
+        /// </summary>
+        private static readonly string[] SubiektDocumentPreferenceExportPropertyNames =
+        {
+            "DiscountCalculationMode",
+            "DiscountRoundingMode",
+            "CalculateFromGrossPrices"
+        };
+
+        private static string RemoveWorkstationSubiektSettingsFromExportJson(string json)
         {
             var root = JsonNode.Parse(json) as JsonObject;
             if (root == null)
@@ -560,35 +606,49 @@ namespace Gryzak.Services
 
             if (root["Subiekt"] is JsonObject subiekt)
             {
-                RemoveOperatorProps(subiekt["Test"] as JsonObject);
-                RemoveOperatorProps(subiekt["Production"] as JsonObject);
+                RemoveNamedProps(subiekt["Test"] as JsonObject, SubiektSferaExportPropertyNames);
+                RemoveNamedProps(subiekt["Production"] as JsonObject, SubiektSferaExportPropertyNames);
+                foreach (var name in SubiektDocumentPreferenceExportPropertyNames)
+                    subiekt.Remove(name);
             }
 
             return root.ToJsonString(JsonWriteOptions);
         }
 
-        private static void RemoveOperatorProps(JsonObject? env)
+        private static void RemoveNamedProps(JsonObject? env, IEnumerable<string> names)
         {
             if (env == null)
                 return;
 
-            foreach (var name in SubiektOperatorExportPropertyNames)
+            foreach (var name in names)
                 env.Remove(name);
         }
 
-        private static void PreserveLocalSubiektOperatorSettings(SubiektConfig imported, SubiektConfig local)
+        /// <summary>
+        /// Zachowuje lokalne ustawienia Sfery oraz sposób rabatów / liczenia dokumentu.
+        /// Nadpisaniu podlegają m.in. Subiekt REST API i AutoReleaseLicenseTimeoutMinutes.
+        /// </summary>
+        private static void PreserveLocalWorkstationSubiektSettings(SubiektConfig imported, SubiektConfig local)
         {
             imported.Test ??= new SubiektEnvironmentSettings();
             imported.Production ??= new SubiektEnvironmentSettings();
             local.Test ??= new SubiektEnvironmentSettings();
             local.Production ??= new SubiektEnvironmentSettings();
 
-            CopyOperatorEnv(local.Test, imported.Test);
-            CopyOperatorEnv(local.Production, imported.Production);
+            CopySferaEnv(local.Test, imported.Test);
+            CopySferaEnv(local.Production, imported.Production);
+
+            imported.DiscountCalculationMode = local.DiscountCalculationMode;
+            imported.DiscountRoundingMode = local.DiscountRoundingMode;
+            imported.CalculateFromGrossPrices = local.CalculateFromGrossPrices;
         }
 
-        private static void CopyOperatorEnv(SubiektEnvironmentSettings from, SubiektEnvironmentSettings to)
+        private static void CopySferaEnv(SubiektEnvironmentSettings from, SubiektEnvironmentSettings to)
         {
+            to.ServerAddress = from.ServerAddress ?? "";
+            to.DatabaseName = from.DatabaseName ?? "";
+            to.ServerUsername = from.ServerUsername ?? "";
+            to.ServerPassword = from.ServerPassword ?? "";
             to.User = from.User ?? "";
             to.Password = from.Password ?? "";
             to.GtProdukt = from.GtProdukt;

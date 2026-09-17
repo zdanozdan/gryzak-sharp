@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Threading.Tasks;
+using Gryzak.Services;
 using Gryzak.Views;
 using static Gryzak.Services.Logger;
 
@@ -12,9 +13,15 @@ namespace Gryzak
         private SplashWindow? _splashWindow;
         private MainWindow? _mainWindow;
         private DebugWindow? _debugWindow;
+        private bool _cliMode;
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            if (TryHandleCli(e.Args))
+            {
+                return;
+            }
+
             // Utwórz okno debugowania (niewidoczne) i zacznij przechwytywać logi od razu
             // Nie używamy już AllocConsole() - wszystkie logi idą do okna debugowania WPF
             // Okno jest tworzone w osobnym wątku, więc jest całkowicie niezależne
@@ -36,6 +43,44 @@ namespace Gryzak
             _ = LoadMainWindowAsync();
 
             base.OnStartup(e);
+        }
+
+        /// <summary>
+        /// Gryzak.exe --export-settings "ścieżka\gryzak-ustawienia.json"
+        /// Używane przez create-installer.ps1 / publish.ps1.
+        /// </summary>
+        private bool TryHandleCli(string[] args)
+        {
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (!string.Equals(args[i], "--export-settings", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                _cliMode = true;
+                var path = i + 1 < args.Length ? args[i + 1] : null;
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    Shutdown(1);
+                    return true;
+                }
+
+                try
+                {
+                    // Bez importu bundla — eksportujemy bieżące ustawienia z %AppData%.
+                    new ConfigService(applyBundledDefaults: false).ExportSettings(path);
+                    Shutdown(0);
+                }
+                catch
+                {
+                    Shutdown(1);
+                }
+
+                return true;
+            }
+
+            return false;
         }
 
         private void App_DispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
@@ -69,6 +114,12 @@ namespace Gryzak
 
         protected override void OnExit(ExitEventArgs e)
         {
+            if (_cliMode)
+            {
+                base.OnExit(e);
+                return;
+            }
+
             // Zwolnij licencję Subiekta GT przed zamknięciem aplikacji
             // (backup na wypadek zamknięcia w inny sposób niż przez MainWindow)
             ZwolnijLicencjeSubiekta();

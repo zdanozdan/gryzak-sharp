@@ -25,6 +25,15 @@ if ($LASTEXITCODE -eq 0) {
     exit 1
 }
 
+# Eksport ustawień z %AppData%\Gryzak do pliku bundlowanego z instalacją
+Write-Host ""
+Write-Host "3. Eksport ustawien (gryzak-ustawienia.json)..." -ForegroundColor Yellow
+$exportScript = Join-Path $PSScriptRoot "export-bundled-settings.ps1"
+& $exportScript -GryzakExe (Join-Path $PWD "publish\win-x64\Gryzak.exe")
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Ostrzezenie: nie udalo sie wyeksportowac ustawien — install bedzie bez aktualnego pliku." -ForegroundColor Yellow
+}
+
 # Wyswietl informacje o plikach
 Write-Host ""
 Write-Host "=== Publikacja zakonczona ===" -ForegroundColor Green

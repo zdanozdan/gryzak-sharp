@@ -35,7 +35,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Uwaga: Foldery publish\win-x64 i publish\win-x86 muszą istnieć przed kompilacją instalatora
 ; Uruchom: .\publish.ps1 aby opublikować obie wersje, potem .\create-installer.ps1 aby utworzyć instalator
 ; Automatyczne wykrywanie architektury: x64 dla 64-bitowych systemów, x86 dla 32-bitowych
-; publish zawiera też gryzak-ustawienia.json — przy pierwszym starcie app importuje do %AppData%\Gryzak\
+; publish zawiera gryzak-ustawienia.json (eksport z create-installer.ps1).
+; Po instalacji / aktualizacji app importuje sklep+GLS+AI (+ Subiekt REST), zachowując lokalną Sferę/rabaty.
 Source: "publish\win-x64\*"; DestDir: "{app}"; Check: Is64BitInstallMode; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "publish\win-x86\*"; DestDir: "{app}"; Check: not Is64BitInstallMode; Flags: ignoreversion recursesubdirs createallsubdirs
 

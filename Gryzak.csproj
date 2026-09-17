@@ -27,10 +27,6 @@
     <Resource Include="gryzak.png" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="gryzak-ustawienia.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
     <None Include="kraje_iso2.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

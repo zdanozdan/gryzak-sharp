@@ -70,6 +70,9 @@ artifacts/
 # Application state/config
 config.json
 
+# Ustawienia stanowiska — generowane przy publish/create-installer, nie do repo
+gryzak-ustawienia.json
+
 # Published and installer files
 publish/
 installer/

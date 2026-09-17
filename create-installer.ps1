@@ -64,6 +64,21 @@ if ($PublishOnly) {
     exit 0
 }
 
+# Krok 1b: Eksport ustawien do bundla instalatora
+Write-Host ""
+Write-Host "1b. Eksport ustawien (gryzak-ustawienia.json)..." -ForegroundColor Yellow
+$exportScript = Join-Path $PSScriptRoot "export-bundled-settings.ps1"
+$gryzakExe = Join-Path $PWD "publish\win-x64\Gryzak.exe"
+if (-not (Test-Path $gryzakExe)) {
+    Write-Host "Nie znaleziono $gryzakExe — nie mozna wyeksportowac ustawien" -ForegroundColor Red
+    exit 1
+}
+& $exportScript -GryzakExe $gryzakExe
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Blad eksportu ustawien" -ForegroundColor Red
+    exit 1
+}
+
 # Krok 2: Sprawdz czy Inno Setup jest dostepny
 if (-not (Test-Path $InnoSetupPath)) {
     Write-Host ""
@@ -91,6 +106,12 @@ if (-not (Test-Path "publish\win-x86\Gryzak.exe")) {
     Write-Host ""
     Write-Host "Nie znaleziono opublikowanej aplikacji w publish\win-x86\Gryzak.exe" -ForegroundColor Red
     Write-Host "Uruchom najpierw: .\create-installer.ps1 -BuildFirst" -ForegroundColor Yellow
+    exit 1
+}
+
+if (-not (Test-Path "publish\win-x64\gryzak-ustawienia.json")) {
+    Write-Host ""
+    Write-Host "Brak publish\win-x64\gryzak-ustawienia.json — uruchom eksport ustawien" -ForegroundColor Red
     exit 1
 }
 
