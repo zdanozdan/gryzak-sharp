@@ -55,6 +55,29 @@ namespace Gryzak.Services
                     );
                     CREATE INDEX IF NOT EXISTS ix_gls_shipment_nr_pelny
                         ON gls_shipment (nr_pelny COLLATE NOCASE);
+
+                    CREATE TABLE IF NOT EXISTS document_ai_address (
+                        dok_id INTEGER NOT NULL,
+                        dok_typ INTEGER NOT NULL,
+                        nr_pelny TEXT NOT NULL DEFAULT '',
+                        name1 TEXT NOT NULL DEFAULT '',
+                        name2 TEXT NOT NULL DEFAULT '',
+                        name3 TEXT NOT NULL DEFAULT '',
+                        street TEXT NOT NULL DEFAULT '',
+                        zip_code TEXT NOT NULL DEFAULT '',
+                        city TEXT NOT NULL DEFAULT '',
+                        country TEXT NOT NULL DEFAULT 'PL',
+                        phone TEXT NOT NULL DEFAULT '',
+                        contact TEXT NOT NULL DEFAULT '',
+                        notes TEXT NOT NULL DEFAULT '',
+                        uwagi_hash TEXT NOT NULL DEFAULT '',
+                        raw_json TEXT NOT NULL DEFAULT '',
+                        confidence TEXT NOT NULL DEFAULT '',
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (dok_id, dok_typ)
+                    );
+                    CREATE INDEX IF NOT EXISTS ix_document_ai_address_nr_pelny
+                        ON document_ai_address (nr_pelny COLLATE NOCASE);
                     """;
                 cmd.ExecuteNonQuery();
                 _initialized = true;

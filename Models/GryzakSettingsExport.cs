@@ -5,7 +5,7 @@ namespace Gryzak.Models
     /// <summary>Snapshot ustawień aplikacji do przenoszenia między stacjami.</summary>
     public class GryzakSettingsExport
     {
-        public const int CurrentVersion = 2;
+        public const int CurrentVersion = 3;
 
         public int Version { get; set; } = CurrentVersion;
         public DateTime ExportedAt { get; set; } = DateTime.UtcNow;
@@ -13,5 +13,6 @@ namespace Gryzak.Models
         public ApiConfig Shop { get; set; } = new();
         public SubiektConfig Subiekt { get; set; } = new();
         public GlsConfig Gls { get; set; } = new();
+        public AiConfig? Ai { get; set; }
     }
 }

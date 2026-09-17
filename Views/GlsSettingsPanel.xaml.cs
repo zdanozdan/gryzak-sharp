@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Gryzak.Models;
@@ -9,13 +10,13 @@ using static Gryzak.Services.Logger;
 
 namespace Gryzak.Views
 {
-    public partial class GlsSettingsDialog : Window
+    public partial class GlsSettingsPanel : UserControl
     {
         private readonly ConfigService _configService;
         private readonly GlsConfig _currentConfig;
         private readonly bool _isProduction;
 
-        public GlsSettingsDialog(ConfigService configService)
+        public GlsSettingsPanel(ConfigService configService)
         {
             InitializeComponent();
             _configService = configService;
@@ -23,6 +24,39 @@ namespace Gryzak.Views
             _isProduction = _configService.GetUseProduction();
             _currentConfig.UseProduction = _isProduction;
             LoadConfig();
+        }
+
+        public bool TrySave()
+        {
+            var config = GetConfigFromUI();
+
+            if (config.Test.TimeoutSeconds < 5 || config.Test.TimeoutSeconds > 300
+                || config.Production.TimeoutSeconds < 5 || config.Production.TimeoutSeconds > 300)
+            {
+                MessageBox.Show("Timeout GLS musi być między 5 a 300 sekundami.", "Błąd walidacji", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(config.Test.ApiUrl))
+            {
+                config.Test.ApiUrl = GlsConfig.DefaultTestApiUrl;
+            }
+
+            if (string.IsNullOrWhiteSpace(config.Production.ApiUrl))
+            {
+                config.Production.ApiUrl = GlsConfig.DefaultProductionApiUrl;
+            }
+
+            try
+            {
+                _configService.SaveGlsConfig(config);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Nie udało się zapisać ustawień GLS:\n\n{ex.Message}", "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
         }
 
         private void LoadConfig()
@@ -51,7 +85,7 @@ namespace Gryzak.Views
             }
         }
 
-        private void ApiUrl_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        private void ApiUrl_TextChanged(object sender, TextChangedEventArgs e)
         {
             UpdateActiveUrlPreview();
         }
@@ -153,46 +187,6 @@ namespace Gryzak.Views
                 TestConnectionButton.Content = "🧪 Testuj logowanie";
                 Mouse.OverrideCursor = null;
             }
-        }
-
-        private void SaveButton_Click(object sender, RoutedEventArgs e)
-        {
-            var config = GetConfigFromUI();
-
-            if (config.Test.TimeoutSeconds < 5 || config.Test.TimeoutSeconds > 300
-                || config.Production.TimeoutSeconds < 5 || config.Production.TimeoutSeconds > 300)
-            {
-                MessageBox.Show("Timeout musi być między 5 a 300 sekundami.", "Błąd walidacji", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(config.Test.ApiUrl))
-            {
-                config.Test.ApiUrl = GlsConfig.DefaultTestApiUrl;
-            }
-
-            if (string.IsNullOrWhiteSpace(config.Production.ApiUrl))
-            {
-                config.Production.ApiUrl = GlsConfig.DefaultProductionApiUrl;
-            }
-
-            try
-            {
-                _configService.SaveGlsConfig(config);
-                MessageBox.Show("Ustawienia GLS zostały zapisane pomyślnie.", "Sukces", MessageBoxButton.OK, MessageBoxImage.Information);
-                DialogResult = true;
-                Close();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Nie udało się zapisać ustawień GLS:\n\n{ex.Message}", "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
-        {
-            DialogResult = false;
-            Close();
         }
 
         private GlsConfig GetConfigFromUI()

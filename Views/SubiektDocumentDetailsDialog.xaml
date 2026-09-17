@@ -54,17 +54,6 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Width" Value="28"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="MinWidth" Value="28"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="4,0,0,0"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
     </Window.Resources>
 
     <Grid>
@@ -336,57 +325,208 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="320"/>
                 </Grid.ColumnDefinitions>
-                <Border Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0" Padding="8,6"
+                <Border Grid.Column="0" VerticalAlignment="Top" Margin="0,0,16,0" Padding="8,6"
                         Visibility="{Binding PayerName, Converter={StaticResource StringToVisibilityConverter}}">
                     <StackPanel>
                         <DockPanel LastChildFill="False" Margin="0,0,0,2">
-                            <TextBlock Text="Płatnik" FontWeight="Bold" Foreground="#666"
-                                       VerticalAlignment="Center" Margin="0"/>
+                            <TextBlock Text="Kontrahent w Subiekcie" FontWeight="Bold" Foreground="#666"
+                                       VerticalAlignment="Center"/>
                             <Button DockPanel.Dock="Right"
-                                    Style="{StaticResource IconButton}"
-                                    Click="OpenPayerInSubiektButton_Click"
-                                    ToolTip="Otwórz kartotekę płatnika w Subiekcie GT (Sfera)">
-                                <TextBlock Text="&#xE8A7;"
+                                    Click="EditPayerButton_Click"
+                                    ToolTip="Otwórz kartotekę kontrahenta w Subiekcie GT"
+                                    Width="28" Height="28" MinWidth="28" Padding="0" Margin="8,0,0,0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Cursor="Hand" VerticalAlignment="Center">
+                                <TextBlock Text="&#xE70F;"
                                            FontFamily="Segoe MDL2 Assets"
                                            FontSize="14"
                                            Foreground="#1976D2"
                                            HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Margin="0"/>
-                            </Button>
-                            <Button DockPanel.Dock="Right"
-                                    Style="{StaticResource IconButton}"
-                                    Click="OpenPayerDetailsButton_Click"
-                                    ToolTip="Pokaż dane płatnika"
-                                    Margin="8,0,0,0">
-                                <TextBlock Text="&#xE8F1;"
-                                           FontFamily="Segoe MDL2 Assets"
-                                           FontSize="14"
-                                           Foreground="#1976D2"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Margin="0"/>
+                                           VerticalAlignment="Center"/>
                             </Button>
                         </DockPanel>
                         <TextBox Text="{Binding PayerName, Mode=OneWay}" Style="{StaticResource SelectableText}"/>
+                        <TextBox Text="{Binding PayerNameShort, Mode=OneWay}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding PayerNameShort, Converter={StaticResource StringToVisibilityConverter}}"/>
                         <TextBox Text="{Binding PayerNip, Mode=OneWay, StringFormat=NIP: {0}}"
                                  Style="{StaticResource SelectableText}"
                                  Visibility="{Binding PayerNip, Converter={StaticResource StringToVisibilityConverter}}"/>
                         <TextBox Text="{Binding PayerAddress, Mode=OneWay}"
                                  Style="{StaticResource SelectableText}"
                                  Visibility="{Binding PayerAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding PayerPhone, Mode=OneWay, StringFormat=Tel: {0}}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding PayerPhone, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding PayerEmail, Mode=OneWay}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding PayerEmail, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <Border Margin="0,10,0,0"
+                                BorderBrush="#4CAF50" BorderThickness="4,0,0,0" Padding="10,0,0,0"
+                                Visibility="{Binding HasSubiektShippingAddress, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock Text="Adres wysyłki" FontWeight="Bold" Foreground="#2E7D32"/>
+                                <TextBlock Text="#subiekt"
+                                           FontSize="11" Foreground="#66BB6A" Margin="0,0,0,2"/>
+                                <TextBox Text="{Binding SubiektShippingName, Mode=OneWay}"
+                                         Style="{StaticResource SelectableText}"
+                                         Visibility="{Binding SubiektShippingName, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                <TextBox Text="{Binding SubiektShippingAddress, Mode=OneWay}"
+                                         Style="{StaticResource SelectableText}"
+                                         TextWrapping="Wrap"
+                                         Visibility="{Binding SubiektShippingAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                <TextBox Text="{Binding SubiektShippingPhone, Mode=OneWay, StringFormat=Tel: {0}}"
+                                         Style="{StaticResource SelectableText}"
+                                         Visibility="{Binding SubiektShippingPhone, Converter={StaticResource StringToVisibilityConverter}}"/>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Margin="0,10,0,0"
+                                    Visibility="{Binding DocumentUwagi, Converter={StaticResource StringToVisibilityConverter}}">
+                            <DockPanel LastChildFill="False" Margin="0,0,0,2">
+                                <TextBlock Text="Uwagi" FontWeight="Bold" Foreground="#666"
+                                           VerticalAlignment="Center"/>
+                                <Button DockPanel.Dock="Right"
+                                        Name="ExtractAiAddressButton"
+                                        Click="ExtractAiAddressButton_Click"
+                                        ToolTip="Wyodrębnij adres dostawy GLS z uwag (AI)"
+                                        Width="28" Height="28" MinWidth="28" Padding="0" Margin="8,0,0,0"
+                                        Background="Transparent" BorderThickness="0"
+                                        Cursor="Hand" VerticalAlignment="Center"
+                                        IsEnabled="{Binding CanExtractAiAddress}">
+                                    <TextBlock Text="&#xE99A;"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               FontSize="14"
+                                               Foreground="#7B1FA2"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Button>
+                            </DockPanel>
+                            <TextBox Text="{Binding DocumentUwagi, Mode=OneWay}"
+                                     Style="{StaticResource SelectableText}"
+                                     TextWrapping="Wrap"
+                                     AcceptsReturn="True"/>
+                            <TextBlock Text="{Binding AiExtractStatusText}"
+                                       FontSize="11"
+                                       Foreground="#7B1FA2"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"
+                                       Visibility="{Binding AiExtractStatusText, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
-                <Border Grid.Column="1" VerticalAlignment="Center" Margin="0,0,16,0"
-                        BorderBrush="#4CAF50" BorderThickness="4,0,0,0" Padding="10,0,0,0"
-                        Visibility="{Binding HasShippingAddress, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Grid.Column="1" VerticalAlignment="Top" Margin="0,0,16,0"
+                        BorderBrush="#4CAF50" BorderThickness="4,0,0,0" Padding="10,0,0,0">
                     <StackPanel>
-                        <TextBlock Text="Adres wysyłki" FontWeight="Bold" Foreground="#2E7D32"/>
+                        <DockPanel LastChildFill="True" Margin="0,0,0,2">
+                            <Button DockPanel.Dock="Right"
+                                    Click="NormalizeShopAddressAiButton_Click"
+                                    ToolTip="Znormalizuj adres wysyłki ze sklepu przez AI (GLS)"
+                                    Width="28" Height="28" MinWidth="28" MaxWidth="28" Padding="0" Margin="8,0,0,0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Cursor="Hand" VerticalAlignment="Center"
+                                    IsEnabled="{Binding CanNormalizeShopShippingAi}">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="MinWidth" Value="28"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="8,0,0,0"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                    </Style>
+                                </Button.Style>
+                                <TextBlock Text="&#xE99A;"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="14"
+                                           Foreground="#7B1FA2"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Button>
+                            <TextBlock Text="Adres wysyłki" FontWeight="Bold" Foreground="#2E7D32"
+                                       VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBlock Text="{Binding ShippingSourceSubtitle}"
+                                   FontSize="11" Foreground="#66BB6A" Margin="0,0,0,2"
+                                   Visibility="{Binding ShippingSourceSubtitle, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding ShippingPersonName, Mode=OneWay}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding ShippingPersonName, Converter={StaticResource StringToVisibilityConverter}}"/>
                         <TextBox Text="{Binding ShippingAddressName, Mode=OneWay}"
                                  Style="{StaticResource SelectableText}"
                                  Visibility="{Binding ShippingAddressName, Converter={StaticResource StringToVisibilityConverter}}"/>
                         <TextBox Text="{Binding ShippingAddress, Mode=OneWay}"
-                                 Style="{StaticResource SelectableText}"/>
+                                 Style="{StaticResource SelectableText}"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 Visibility="{Binding ShippingAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding ShippingPhone, Mode=OneWay, StringFormat=Tel: {0}}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding ShippingPhone, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBox Text="{Binding ShippingEmail, Mode=OneWay}"
+                                 Style="{StaticResource SelectableText}"
+                                 Visibility="{Binding ShippingEmail, Converter={StaticResource StringToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding ShippingNote}"
+                                   Foreground="#888" FontStyle="Italic" TextWrapping="Wrap"
+                                   Visibility="{Binding ShippingNote, Converter={StaticResource StringToVisibilityConverter}}"/>
+
+                        <Border Margin="0,12,0,0"
+                                BorderBrush="#9C27B0" BorderThickness="4,0,0,0" Padding="10,0,0,0"
+                                Visibility="{Binding HasAiShippingUi, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel>
+                                <DockPanel LastChildFill="True" Margin="0,0,0,2">
+                                    <Button DockPanel.Dock="Right"
+                                            Click="DeleteAiAddressButton_Click"
+                                            ToolTip="Usuń adres AI z lokalnej bazy (ten dokument i powiązane)"
+                                            Width="28" Height="28" MinWidth="28" MaxWidth="28" Padding="0" Margin="8,0,0,0"
+                                            Background="Transparent" BorderThickness="0"
+                                            Cursor="Hand" VerticalAlignment="Center"
+                                            HorizontalAlignment="Right">
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="MinWidth" Value="28"/>
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="Margin" Value="8,0,0,0"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderThickness" Value="0"/>
+                                                <Setter Property="Cursor" Value="Hand"/>
+                                            </Style>
+                                        </Button.Style>
+                                        <TextBlock Text="&#xE74D;"
+                                                   FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="14"
+                                                   Foreground="#C62828"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Button>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="Adres wysyłki" FontWeight="Bold" Foreground="#6A1B9A"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding AiShippingSourceSubtitle}"
+                                                   FontSize="11" Foreground="#AB47BC"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center"
+                                                   TextWrapping="NoWrap"
+                                                   Visibility="{Binding AiShippingSourceSubtitle, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                    </StackPanel>
+                                </DockPanel>
+                                <TextBox Text="{Binding AiShippingPersonName, Mode=OneWay}"
+                                         Style="{StaticResource SelectableText}"
+                                         Visibility="{Binding AiShippingPersonName, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                <TextBox Text="{Binding AiShippingAddress, Mode=OneWay}"
+                                         Style="{StaticResource SelectableText}"
+                                         TextWrapping="Wrap"
+                                         AcceptsReturn="True"
+                                         Visibility="{Binding AiShippingAddress, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                <TextBox Text="{Binding AiShippingPhone, Mode=OneWay, StringFormat=Tel: {0}}"
+                                         Style="{StaticResource SelectableText}"
+                                         Visibility="{Binding AiShippingPhone, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                <TextBox Text="{Binding AiShippingEmail, Mode=OneWay}"
+                                         Style="{StaticResource SelectableText}"
+                                         Visibility="{Binding AiShippingEmail, Converter={StaticResource StringToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding AiShippingNote}"
+                                           Foreground="#888" FontStyle="Italic" TextWrapping="Wrap"
+                                           Visibility="{Binding AiShippingNote, Converter={StaticResource StringToVisibilityConverter}}"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Border>
                 <StackPanel Grid.Column="2">

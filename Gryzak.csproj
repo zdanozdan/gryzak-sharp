@@ -7,8 +7,8 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>Gryzak</AssemblyName>
     <Product>Gryzak - Menedżer Zamówień</Product>
-    <Version>2.0.3</Version>
-    <InformationalVersion>2.0.3</InformationalVersion>
+    <Version>3.0.0</Version>
+    <InformationalVersion>3.0.0</InformationalVersion>
     <Authors>Your Company</Authors>
     <Company>Your Company</Company>
     <Description>Aplikacja do zarządzania zamówieniami ze sklepu internetowego</Description>
@@ -27,6 +27,10 @@
     <Resource Include="gryzak.png" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="gryzak-ustawienia.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
     <None Include="kraje_iso2.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

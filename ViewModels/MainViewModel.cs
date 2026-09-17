@@ -563,6 +563,7 @@ namespace Gryzak.ViewModels
         }
 
         public ICommand RefreshCommand { get; }
+        public ICommand OpenSettingsCommand { get; }
         public ICommand ConfigureApiCommand { get; }
         public ICommand OpenSubiektSettingsCommand { get; }
         public ICommand OpenGlsSettingsCommand { get; }
@@ -605,9 +606,10 @@ namespace Gryzak.ViewModels
             SubiektDocumentsView.Filter = FilterSubiektDocument;
 
             RefreshCommand = new RelayCommand(async () => await RefreshActiveTabAsync());
-            ConfigureApiCommand = new RelayCommand(() => OpenConfigDialog());
-            OpenSubiektSettingsCommand = new RelayCommand(() => OpenSubiektSettingsDialog());
-            OpenGlsSettingsCommand = new RelayCommand(() => OpenGlsSettingsDialog());
+            OpenSettingsCommand = new RelayCommand(() => OpenSettingsDialog(Views.SettingsTab.Shop));
+            ConfigureApiCommand = new RelayCommand(() => OpenSettingsDialog(Views.SettingsTab.Shop));
+            OpenSubiektSettingsCommand = new RelayCommand(() => OpenSettingsDialog(Views.SettingsTab.Subiekt));
+            OpenGlsSettingsCommand = new RelayCommand(() => OpenSettingsDialog(Views.SettingsTab.Gls));
             ExportSettingsCommand = new RelayCommand(() => ExportSettings());
             ImportSettingsCommand = new RelayCommand(() => ImportSettings());
             SetTestEnvironmentCommand = new RelayCommand(() => SetEnvironment(useProduction: false));
@@ -1124,7 +1126,7 @@ namespace Gryzak.ViewModels
                 _subiektCurrentPage = 1;
                 _subiektHasMorePages = true;
                 OnPropertyChanged(nameof(HasMoreSubiektPages));
-                // Przełączenie FS/WZ/ZK nie kasuje listy GLS ani SQLite — tylko przeładowuje dokumenty Subiekta.
+                // Przełączenie FS/WZ/ZK/PA nie kasuje listy GLS ani SQLite — tylko przeładowuje dokumenty Subiekta.
             }
             else if (!_subiektHasMorePages || _isSubiektLoadingMore || _isSubiektLoading)
             {
@@ -2576,33 +2578,25 @@ namespace Gryzak.ViewModels
             ProgressValue = 0;
         }
 
-        private void OpenConfigDialog()
+        private void OpenSettingsDialog(Views.SettingsTab initialTab = Views.SettingsTab.Shop)
         {
-            var configWindow = new Views.ConfigDialog(_configService);
-            configWindow.ShowDialog();
-            
-            // Sprawdź konfigurację i odśwież listę
+            var settingsWindow = new Views.SettingsDialog(_configService, initialTab);
+            var saved = settingsWindow.ShowDialog() == true;
+
+            if (!saved)
+            {
+                return;
+            }
+
             _apiService.InvalidateHttpClient();
             CheckApiConfiguration();
-            _ = LoadOrdersAsync();
-        }
-
-        private void OpenSubiektSettingsDialog()
-        {
-            var settingsWindow = new Views.SubiektSettingsDialog(_configService);
-            settingsWindow.ShowDialog();
             CheckSubiektApiConfiguration();
+            IsGlsPanelEnabled = _configService.LoadGlsConfig().GlsPanelEnabled;
+            _ = LoadOrdersAsync();
             if (IsSubiektTabSelected && IsSubiektApiConfigured)
             {
                 _ = LoadSubiektDocumentsAsync(true);
             }
-        }
-
-        private void OpenGlsSettingsDialog()
-        {
-            var settingsWindow = new Views.GlsSettingsDialog(_configService);
-            settingsWindow.ShowDialog();
-            IsGlsPanelEnabled = _configService.LoadGlsConfig().GlsPanelEnabled;
         }
 
         private void ExportSettings()

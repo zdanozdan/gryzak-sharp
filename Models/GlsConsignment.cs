@@ -116,8 +116,51 @@ namespace Gryzak.Models
                 return consignment;
             }
 
+            // Baza: Subiekt / kontrahent, potem uzupełnij i nadpisz ze sklepu, na końcu AI.
+            // Brakujące pola AI (np. telefon) zostają ze sklepu lub Subiekta.
+            ApplySubiektFallback(consignment, document);
+            if (document.HasShopShippingAddress)
+            {
+                ApplyShopOverlay(consignment, document);
+            }
+
+            if (document.HasAiShippingAddress)
+            {
+                ApplyAiOverlay(consignment, document);
+            }
+
+            var references = BuildGlsReference(document);
+            consignment.References = references;
+            if (string.IsNullOrWhiteSpace(consignment.Notes))
+            {
+                consignment.Notes = BuildShopOrderNotes(document);
+            }
+
+            consignment.CodAmount = document.WartBrutto > 0 ? document.WartBrutto : 0;
+            consignment.CashOnDelivery = document.IsGlsPobranie;
+            if (consignment.Parcels.Count == 0)
+            {
+                consignment.Parcels.Add(new GlsParcel
+                {
+                    Weight = DefaultParcelWeightKg,
+                    Reference = references
+                });
+            }
+            else if (string.IsNullOrWhiteSpace(consignment.Parcels[0].Reference))
+            {
+                consignment.Parcels[0].Reference = references;
+            }
+
+            return consignment;
+        }
+
+        private static void ApplySubiektFallback(GlsConsignment consignment, SubiektDocument document)
+        {
+            // Fallback: adres wysyłki z GT, potem kartoteka kontrahenta.
             var useDelivery = document.HasAdresDostawy;
-            var name = (document.KontrahentNazwa ?? "").Trim();
+            var name = useDelivery && !string.IsNullOrWhiteSpace(document.AdresDostawyNazwa)
+                ? document.AdresDostawyNazwa.Trim()
+                : (document.KontrahentNazwa ?? "").Trim();
             SplitName(name, out var name1, out var name2, out var name3);
 
             var street = useDelivery
@@ -161,8 +204,6 @@ namespace Gryzak.Models
                 }
             }
 
-            var references = BuildGlsReference(document);
-
             var phone = useDelivery && !string.IsNullOrWhiteSpace(document.AdresDostawyTelefon)
                 ? document.AdresDostawyTelefon.Trim()
                 : (document.KontrahentTelefon ?? "").Trim();
@@ -179,21 +220,87 @@ namespace Gryzak.Models
             consignment.Street = street;
             consignment.Phone = Truncate(phone, 25);
             consignment.Contact = Truncate((document.KontrahentEmail ?? "").Trim(), 40);
-            consignment.References = references;
-            consignment.Notes = Truncate(
-                string.IsNullOrWhiteSpace(document.NrPelnyOryg)
-                    ? ""
-                    : document.NrPelnyOryg.Trim(),
-                40);
-            consignment.CodAmount = document.WartBrutto > 0 ? document.WartBrutto : 0;
-            consignment.CashOnDelivery = document.IsGlsPobranie;
-            consignment.Parcels.Add(new GlsParcel
-            {
-                Weight = DefaultParcelWeightKg,
-                Reference = references
-            });
+            consignment.Notes = BuildShopOrderNotes(document);
+        }
 
-            return consignment;
+        private static void ApplyShopOverlay(GlsConsignment consignment, SubiektDocument document)
+        {
+            var company = (document.ShopShippingCompany ?? "").Trim();
+            var person = (document.ShopShippingPersonName ?? "").Trim();
+
+            if (!string.IsNullOrWhiteSpace(company) || !string.IsNullOrWhiteSpace(person))
+            {
+                string name1;
+                string name2;
+                string name3;
+                if (!string.IsNullOrWhiteSpace(company))
+                {
+                    name1 = Truncate(company, NameFieldMaxLength);
+                    SplitName(person, out var p1, out var p2, out var p3);
+                    name2 = p1;
+                    name3 = string.IsNullOrWhiteSpace(p2) ? p3 : Truncate($"{p2} {p3}".Trim(), NameFieldMaxLength);
+                }
+                else
+                {
+                    SplitName(person, out name1, out name2, out name3);
+                }
+
+                consignment.Name1 = name1;
+                consignment.Name2 = name2;
+                consignment.Name3 = name3;
+            }
+
+            consignment.Street = Prefer(document.ShopShippingStreet, consignment.Street, 40);
+            consignment.ZipCode = PreferZip(document.ShopShippingKodPocztowy, consignment.ZipCode);
+            consignment.City = Prefer(document.ShopShippingMiejscowosc, consignment.City, 40);
+            consignment.Phone = Prefer(document.ShopShippingTelefon, consignment.Phone, 25);
+            consignment.Contact = Prefer(document.ShopShippingEmail, consignment.Contact, 40);
+            if (!string.IsNullOrWhiteSpace(document.ShopShippingKrajKod))
+            {
+                consignment.Country = NormalizeCountry(document.ShopShippingKrajKod);
+            }
+
+            var shopNotes = BuildShopOrderNotes(document);
+            consignment.Notes = Prefer(shopNotes, consignment.Notes, 40);
+        }
+
+        private static void ApplyAiOverlay(GlsConsignment consignment, SubiektDocument document)
+        {
+            consignment.Name1 = Prefer(document.AiShippingName1, consignment.Name1, NameFieldMaxLength);
+            consignment.Name2 = Prefer(document.AiShippingName2, consignment.Name2, NameFieldMaxLength);
+            consignment.Name3 = Prefer(document.AiShippingName3, consignment.Name3, NameFieldMaxLength);
+            consignment.Street = Prefer(document.AiShippingStreet, consignment.Street, 40);
+            consignment.ZipCode = PreferZip(document.AiShippingKodPocztowy, consignment.ZipCode);
+            consignment.City = Prefer(document.AiShippingMiejscowosc, consignment.City, 40);
+            consignment.Phone = Prefer(document.AiShippingTelefon, consignment.Phone, 25);
+            consignment.Contact = Prefer(document.AiShippingContact, consignment.Contact, 40);
+            if (!string.IsNullOrWhiteSpace(document.AiShippingKrajKod))
+            {
+                consignment.Country = NormalizeCountry(document.AiShippingKrajKod);
+            }
+
+            consignment.Notes = Prefer(document.AiShippingNotes, consignment.Notes, 40);
+        }
+
+        /// <summary>Użyj <paramref name="preferred"/> jeśli niepuste, inaczej zostaw <paramref name="fallback"/>.</summary>
+        private static string Prefer(string? preferred, string fallback, int maxLen)
+        {
+            var value = (preferred ?? "").Trim();
+            return string.IsNullOrWhiteSpace(value) ? fallback : Truncate(value, maxLen);
+        }
+
+        private static string PreferZip(string? preferred, string fallback)
+        {
+            var value = NormalizeZip(preferred);
+            return string.IsNullOrWhiteSpace(value) ? fallback : value;
+        }
+
+        /// <summary>Nr zamówienia sklepu do pola uwagi GLS — niezależnie od typu dokumentu (ZK/WZ/FS).</summary>
+        private static string BuildShopOrderNotes(SubiektDocument document)
+        {
+            if (SubiektDocument.TryResolveShopOrderId(document, out var orderId))
+                return Truncate(orderId, 40);
+            return "";
         }
 
         public static bool TryFromDocument(SubiektDocument document, out GlsConsignment consignment, out string error)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Gryzak.Models;
 using Gryzak.Services;
@@ -9,7 +10,7 @@ using static Gryzak.Services.Logger;
 
 namespace Gryzak.Views
 {
-    public partial class SubiektSettingsDialog : Window
+    public partial class SubiektSettingsPanel : UserControl
     {
         private readonly ConfigService _configService;
         private SubiektConfig _currentConfig;
@@ -23,7 +24,7 @@ namespace Gryzak.Views
             public int Id { get; set; }
         }
 
-        public SubiektSettingsDialog(ConfigService configService)
+        public SubiektSettingsPanel(ConfigService configService)
         {
             InitializeComponent();
             _configService = configService;
@@ -31,6 +32,36 @@ namespace Gryzak.Views
             _isProduction = _configService.GetUseProduction();
             _currentConfig.UseProduction = _isProduction;
             LoadConfig();
+        }
+
+        public bool TrySave()
+        {
+            FlushUiToCurrentEnvironment();
+            FlushSharedToConfig();
+            _currentConfig.UseProduction = _configService.GetUseProduction();
+
+            if (_currentConfig.AutoReleaseLicenseTimeoutMinutes < 0)
+            {
+                MessageBox.Show("Czas nieaktywności nie może być ujemny. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
+            }
+
+            if (!int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out _))
+            {
+                MessageBox.Show("Nieprawidłowa wartość czasu nieaktywności. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
+            }
+
+            try
+            {
+                _configService.SaveSubiektConfig(_currentConfig);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Nie udało się zapisać ustawień Subiekt:\n\n{ex.Message}", "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
         }
 
         private void LoadConfig()
@@ -152,7 +183,6 @@ namespace Gryzak.Views
             return _isProduction ? _currentConfig.Production : _currentConfig.Test;
         }
 
-        /// <summary>Buduje tymczasowy SubiektConfig z aktywnym profilem UI (do testów API).</summary>
         private SubiektConfig BuildConfigFromUi()
         {
             FlushUiToCurrentEnvironment();
@@ -161,46 +191,9 @@ namespace Gryzak.Views
             return _currentConfig;
         }
 
-        private void SaveButton_Click(object sender, RoutedEventArgs e)
-        {
-            FlushUiToCurrentEnvironment();
-            FlushSharedToConfig();
-            _currentConfig.UseProduction = _configService.GetUseProduction();
-
-            if (_currentConfig.AutoReleaseLicenseTimeoutMinutes < 0)
-            {
-                MessageBox.Show("Czas nieaktywności nie może być ujemny. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
-                _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
-            }
-
-            if (!int.TryParse(AutoReleaseLicenseTimeoutTextBox.Text.Trim(), out _))
-            {
-                MessageBox.Show("Nieprawidłowa wartość czasu nieaktywności. Ustawiono wartość 0 (wyłączone).", "Ostrzeżenie", MessageBoxButton.OK, MessageBoxImage.Warning);
-                _currentConfig.AutoReleaseLicenseTimeoutMinutes = 0;
-            }
-
-            try
-            {
-                _configService.SaveSubiektConfig(_currentConfig);
-                MessageBox.Show("Ustawienia Subiekt GT zostały zapisane pomyślnie.", "Sukces", MessageBoxButton.OK, MessageBoxImage.Information);
-                DialogResult = true;
-                Close();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Nie udało się zapisać ustawień:\n\n{ex.Message}", "Błąd", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
         private void NumberValidationTextBox(object sender, TextCompositionEventArgs e)
         {
             e.Handled = !char.IsDigit(e.Text, e.Text.Length - 1);
-        }
-
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
-        {
-            DialogResult = false;
-            Close();
         }
 
         private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)

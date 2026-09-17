@@ -4,11 +4,16 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 
 namespace Gryzak.Models
 {
     public class SubiektDocument : INotifyPropertyChanged
     {
+        private static readonly Regex ShopOrderIdInUwagiRegex = new(
+            @"Zam[oó]wienie\s*:\s*(\d+)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
         private bool _isSelected;
 
         public int DokId { get; set; }
@@ -16,6 +21,8 @@ namespace Gryzak.Models
         public string TypKod { get; set; } = "zk";
         public string NrPelny { get; set; } = "";
         public string NrPelnyOryg { get; set; } = "";
+        /// <summary>Uwagi dokumentu z Subiekta (<c>dok_Uwagi</c>), gdy API je zwraca.</summary>
+        public string Uwagi { get; set; } = "";
         public int? DoDokId { get; set; }
         public string DoDokNrPelny { get; set; } = "";
         public DateTime? DoDokDataWyst { get; set; }
@@ -27,6 +34,40 @@ namespace Gryzak.Models
         public string Wystawil { get; set; } = "";
         public string PlatNazwa { get; set; } = "";
         public string KartaNazwa { get; set; } = "";
+
+        /// <summary>
+        /// Numer zamówienia sklepu: <see cref="NrPelnyOryg"/>, albo z <see cref="Uwagi"/> („Zamówienie: 123”).
+        /// </summary>
+        public static bool TryResolveShopOrderId(SubiektDocument? document, out string orderId)
+        {
+            orderId = "";
+            if (document == null)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(document.ShopOrderId))
+            {
+                orderId = document.ShopOrderId.Trim();
+                return true;
+            }
+
+            var oryg = (document.NrPelnyOryg ?? "").Trim();
+            if (!string.IsNullOrEmpty(oryg))
+            {
+                orderId = oryg;
+                return true;
+            }
+
+            var uwagi = document.Uwagi ?? "";
+            if (string.IsNullOrWhiteSpace(uwagi))
+                return false;
+
+            var match = ShopOrderIdInUwagiRegex.Match(uwagi);
+            if (!match.Success)
+                return false;
+
+            orderId = match.Groups[1].Value;
+            return !string.IsNullOrEmpty(orderId);
+        }
 
         private SubiektPrzesylka? _przesylka;
         private GlsShipmentRecord? _glsShipment;
@@ -338,6 +379,7 @@ namespace Gryzak.Models
                 || ContainsIgnoreCase(KontrahentTelefon, q)
                 || ContainsIgnoreCase(PlatnikNazwa, q)
                 || ContainsIgnoreCase(PlatnikEmail, q)
+                || ContainsIgnoreCase(PlatnikTelefon, q)
                 || ContainsIgnoreCase(StatusNazwa, q)
                 || ContainsIgnoreCase(Wystawil, q)
                 || MatchesAmount(WartBrutto, q)
@@ -411,10 +453,99 @@ namespace Gryzak.Models
         public string AdresDostawyKrajKod { get; set; } = "";
         public string AdresDostawyTelefon { get; set; } = "";
 
+        /// <summary>
+        /// Adres wysyłki z zamówienia sklepu (OpenCart), ustawiany w szczegółach dokumentu.
+        /// Przy GLS: po adresie AI z uwag, przed adresem z kartoteki Subiekta.
+        /// </summary>
+        public bool HasShopShippingAddress { get; set; }
+        /// <summary>
+        /// Numer zamówienia sklepu (z dokumentu lub powiązanego ZK) — do GLS Notes i adresu.
+        /// </summary>
+        public string ShopOrderId { get; set; } = "";
+        public string ShopShippingPersonName { get; set; } = "";
+        public string ShopShippingCompany { get; set; } = "";
+        public string ShopShippingStreet { get; set; } = "";
+        public string ShopShippingKodPocztowy { get; set; } = "";
+        public string ShopShippingMiejscowosc { get; set; } = "";
+        public string ShopShippingEmail { get; set; } = "";
+        public string ShopShippingTelefon { get; set; } = "";
+        public string ShopShippingKrajKod { get; set; } = "";
+
+        /// <summary>
+        /// Adres wysyłki wyciągnięty z uwag przez LLM (lokalny SQLite).
+        /// Przy GLS ma pierwszeństwo przed adresem ze sklepu i Subiekta.
+        /// </summary>
+        public bool HasAiShippingAddress { get; set; }
+        public string AiShippingName1 { get; set; } = "";
+        public string AiShippingName2 { get; set; } = "";
+        public string AiShippingName3 { get; set; } = "";
+        public string AiShippingStreet { get; set; } = "";
+        public string AiShippingKodPocztowy { get; set; } = "";
+        public string AiShippingMiejscowosc { get; set; } = "";
+        public string AiShippingKrajKod { get; set; } = "";
+        public string AiShippingTelefon { get; set; } = "";
+        public string AiShippingContact { get; set; } = "";
+        public string AiShippingNotes { get; set; } = "";
+        public string AiShippingConfidence { get; set; } = "";
+
+        public void ClearShopShippingAddress()
+        {
+            HasShopShippingAddress = false;
+            ShopShippingPersonName = "";
+            ShopShippingCompany = "";
+            ShopShippingStreet = "";
+            ShopShippingKodPocztowy = "";
+            ShopShippingMiejscowosc = "";
+            ShopShippingEmail = "";
+            ShopShippingTelefon = "";
+            ShopShippingKrajKod = "";
+        }
+
+        public void ClearAiShippingAddress()
+        {
+            HasAiShippingAddress = false;
+            AiShippingName1 = "";
+            AiShippingName2 = "";
+            AiShippingName3 = "";
+            AiShippingStreet = "";
+            AiShippingKodPocztowy = "";
+            AiShippingMiejscowosc = "";
+            AiShippingKrajKod = "";
+            AiShippingTelefon = "";
+            AiShippingContact = "";
+            AiShippingNotes = "";
+            AiShippingConfidence = "";
+        }
+
+        public void ApplyAiShippingAddress(DocumentAiAddress address)
+        {
+            if (address == null || address.IsEmpty)
+            {
+                ClearAiShippingAddress();
+                return;
+            }
+
+            HasAiShippingAddress = true;
+            AiShippingName1 = address.Name1 ?? "";
+            AiShippingName2 = address.Name2 ?? "";
+            AiShippingName3 = address.Name3 ?? "";
+            AiShippingStreet = address.Street ?? "";
+            AiShippingKodPocztowy = address.ZipCode ?? "";
+            AiShippingMiejscowosc = address.City ?? "";
+            AiShippingKrajKod = string.IsNullOrWhiteSpace(address.Country) ? "PL" : address.Country;
+            AiShippingTelefon = address.Phone ?? "";
+            AiShippingContact = address.Contact ?? "";
+            AiShippingNotes = address.Notes ?? "";
+            AiShippingConfidence = address.Confidence ?? "";
+        }
+
         public int PlatnikId { get; set; }
         public string PlatnikNazwa { get; set; } = "";
+        /// <summary>Krótka nazwa z kartoteki (<c>adr_Nazwa</c>), gdy różni się od nazwy pełnej.</summary>
+        public string PlatnikNazwaKrotka { get; set; } = "";
         public string PlatnikNip { get; set; } = "";
         public string PlatnikEmail { get; set; } = "";
+        public string PlatnikTelefon { get; set; } = "";
         public string PlatnikAdres { get; set; } = "";
 
         public List<SubiektDocumentLine> Pozycje { get; set; } = new();
@@ -603,6 +734,7 @@ namespace Gryzak.Models
         public bool IsFs => DokTyp == SubiektApiDocumentTypes.Fs;
         public bool IsWz => DokTyp == SubiektApiDocumentTypes.Wz;
         public bool IsZk => DokTyp == SubiektApiDocumentTypes.Zk;
+        public bool IsPa => DokTyp == SubiektApiDocumentTypes.Pa;
     }
 
     public class SubiektRelatedDocuments
@@ -653,7 +785,7 @@ namespace Gryzak.Models
     /// </summary>
     public static class SubiektDocumentNumber
     {
-        private static readonly string[] Prefixes = { "ZK ", "WZ ", "FS ", "ZD " };
+        private static readonly string[] Prefixes = { "ZK ", "WZ ", "FS ", "ZD ", "PA " };
 
         public static bool IsValid(string? value)
         {
@@ -675,12 +807,15 @@ namespace Gryzak.Models
         public const int Fs = 2;
         public const int Wz = 11;
         public const int Zk = 16;
+        /// <summary>Paragon (dok_Typ=21), alias API <c>pa</c>.</summary>
+        public const int Pa = 21;
 
         public static string FromDokTyp(int dokTyp) => dokTyp switch
         {
             Fs => "fs",
             Wz => "wz",
             Zk => "zk",
+            Pa => "pa",
             _ => "zk"
         };
 
@@ -690,6 +825,7 @@ namespace Gryzak.Models
             if (text.StartsWith("FS ", StringComparison.OrdinalIgnoreCase)) return Fs;
             if (text.StartsWith("WZ ", StringComparison.OrdinalIgnoreCase)) return Wz;
             if (text.StartsWith("ZK ", StringComparison.OrdinalIgnoreCase)) return Zk;
+            if (text.StartsWith("PA ", StringComparison.OrdinalIgnoreCase)) return Pa;
             return Zk;
         }
 

@@ -5,14 +5,18 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Gryzak.Models;
+using static Gryzak.Services.Logger;
 
 namespace Gryzak.Services
 {
     public class ConfigService
     {
+        public const string BundledSettingsFileName = "gryzak-ustawienia.json";
+
         private readonly string _configPath;
         private readonly string _subiektConfigPath;
         private readonly string _glsConfigPath;
+        private readonly string _aiConfigPath;
         private readonly string _environmentPath;
         private readonly string _historyPath;
 
@@ -29,8 +33,43 @@ namespace Gryzak.Services
             _configPath = Path.Combine(gryzakPath, "config.json");
             _subiektConfigPath = Path.Combine(gryzakPath, "subiekt_config.json");
             _glsConfigPath = Path.Combine(gryzakPath, "gls_config.json");
+            _aiConfigPath = Path.Combine(gryzakPath, "ai_config.json");
             _environmentPath = Path.Combine(gryzakPath, "environment.json");
             _historyPath = Path.Combine(gryzakPath, "order_history.json");
+
+            TryImportBundledDefaults();
+        }
+
+        /// <summary>
+        /// Przy pierwszym uruchomieniu (brak lokalnej konfiguracji) wczytuje
+        /// gryzak-ustawienia.json z katalogu aplikacji (instalator / publish).
+        /// Nie nadpisuje istniejącej konfiguracji użytkownika.
+        /// </summary>
+        private void TryImportBundledDefaults()
+        {
+            if (File.Exists(_configPath)
+                || File.Exists(_subiektConfigPath)
+                || File.Exists(_glsConfigPath)
+                || File.Exists(_aiConfigPath))
+            {
+                return;
+            }
+
+            var bundledPath = Path.Combine(AppContext.BaseDirectory, BundledSettingsFileName);
+            if (!File.Exists(bundledPath))
+            {
+                return;
+            }
+
+            try
+            {
+                ImportSettings(bundledPath);
+                Info($"Zaimportowano domyślne ustawienia z {BundledSettingsFileName}.", "ConfigService");
+            }
+            catch (Exception ex)
+            {
+                Error(ex, "ConfigService", $"Nie udało się zaimportować {BundledSettingsFileName}");
+            }
         }
 
         public AppEnvironmentConfig LoadEnvironment()
@@ -296,6 +335,51 @@ namespace Gryzak.Services
             return config;
         }
 
+        public AiConfig LoadAiConfig()
+        {
+            try
+            {
+                if (File.Exists(_aiConfigPath))
+                {
+                    var json = File.ReadAllText(_aiConfigPath);
+                    var config = JsonSerializer.Deserialize<AiConfig>(json);
+                    if (config != null)
+                    {
+                        config.Normalize();
+                        return config;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd ładowania konfiguracji AI: {ex.Message}");
+            }
+
+            return GetDefaultAiConfig();
+        }
+
+        public void SaveAiConfig(AiConfig config)
+        {
+            try
+            {
+                config.Normalize();
+                var json = JsonSerializer.Serialize(config, JsonWriteOptions);
+                File.WriteAllText(_aiConfigPath, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Błąd zapisywania konfiguracji AI: {ex.Message}");
+                throw;
+            }
+        }
+
+        private AiConfig GetDefaultAiConfig()
+        {
+            var config = new AiConfig();
+            config.Normalize();
+            return config;
+        }
+
         public List<string> LoadOrderHistory()
         {
             try
@@ -376,7 +460,8 @@ namespace Gryzak.Services
                 Environment = LoadEnvironment(),
                 Shop = LoadConfig(),
                 Subiekt = LoadSubiektConfig(),
-                Gls = LoadGlsConfig()
+                Gls = LoadGlsConfig(),
+                Ai = LoadAiConfig()
             };
         }
 
@@ -446,6 +531,12 @@ namespace Gryzak.Services
             SaveConfig(export.Shop);
             SaveSubiektConfig(export.Subiekt);
             SaveGlsConfig(export.Gls);
+
+            if (export.Ai != null)
+            {
+                export.Ai.Normalize();
+                SaveAiConfig(export.Ai);
+            }
         }
 
         /// <summary>
@@ -531,6 +622,11 @@ namespace Gryzak.Services
                 export.Gls.Test.Password = SettingsSecretCodec.Encode(export.Gls.Test.Password);
                 export.Gls.Production.Password = SettingsSecretCodec.Encode(export.Gls.Production.Password);
             }
+
+            if (export.Ai != null)
+            {
+                export.Ai.ApiKey = SettingsSecretCodec.Encode(export.Ai.ApiKey);
+            }
         }
 
         private static void DeobfuscateSecrets(GryzakSettingsExport export)
@@ -557,6 +653,11 @@ namespace Gryzak.Services
                 export.Gls.Production ??= new GlsEnvironmentSettings();
                 export.Gls.Test.Password = SettingsSecretCodec.Decode(export.Gls.Test.Password);
                 export.Gls.Production.Password = SettingsSecretCodec.Decode(export.Gls.Production.Password);
+            }
+
+            if (export.Ai != null)
+            {
+                export.Ai.ApiKey = SettingsSecretCodec.Decode(export.Ai.ApiKey);
             }
         }
 

@@ -144,9 +144,7 @@
         <!-- Menu -->
         <Menu Grid.Row="0" Background="#F5F5F5" BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
             <MenuItem Header="_Plik">
-                <MenuItem Header="Ustawienia sklepu" Command="{Binding ConfigureApiCommand}" InputGestureText="Ctrl+K"/>
-                <MenuItem Header="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}"/>
-                <MenuItem Header="Ustawienia GLS" Command="{Binding OpenGlsSettingsCommand}"/>
+                <MenuItem Header="Ustawienia" Command="{Binding OpenSettingsCommand}" InputGestureText="Ctrl+K"/>
                 <Separator/>
                 <MenuItem Header="Środowisko">
                     <MenuItem Header="Test"
@@ -636,7 +634,7 @@
                     <TextBlock Text="🔧 Konfiguracja wymagana" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
                     <TextBlock Text="API sklepu nie jest skonfigurowane. Ustaw połączenie ze sklepem, aby zobaczyć zamówienia." 
                                HorizontalAlignment="Center" TextWrapping="Wrap" Width="400" Margin="0,0,0,15"/>
-                    <Button Content="⚙️ Ustawienia sklepu" Command="{Binding ConfigureApiCommand}" HorizontalAlignment="Center"/>
+                    <Button Content="⚙️ Ustawienia" Command="{Binding ConfigureApiCommand}" HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Filtrowanie: brak wyników — CTA pobrania po numerze z API -->
@@ -690,7 +688,7 @@
                             <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBox Name="SubiektSearchTextBox" Width="360" Padding="10,8"
                                          Text="{Binding SubiektSearchText, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="Filtruje tylko dokumenty już załadowane na liście (nr FS/WZ/ZK, nazwa, symbol, NIP, e-mail, wystawił, kwota brutto, nr listu). Przewiń listę, aby załadować więcej dokumentów do przeszukania.">
+                                         ToolTip="Filtruje tylko dokumenty już załadowane na liście (nr FS/WZ/ZK/PA, nazwa, symbol, NIP, e-mail, wystawił, kwota brutto, nr listu). Przewiń listę, aby załadować więcej dokumentów do przeszukania.">
                                     <TextBox.Style>
                                         <Style TargetType="TextBox">
                                             <Setter Property="BorderBrush" Value="#CCCCCC"/>
@@ -722,6 +720,18 @@
                                     </TextBox.Style>
                                 </TextBox>
                                 <Button Content="Wyczyść" Command="{Binding ClearSubiektSearchCommand}" Margin="8,0,0,0"/>
+                                <Button Command="{Binding RefreshCommand}"
+                                        Width="35" Height="35" Margin="8,0,0,0" Padding="0"
+                                        ToolTip="Odśwież dokumenty ZK/WZ/FS (F5)"
+                                        Background="Transparent" BorderBrush="#CCCCCC" BorderThickness="1"
+                                        Cursor="Hand">
+                                    <TextBlock Text="&#xE72C;"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               FontSize="16"
+                                               Foreground="#424242"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Button>
                             </StackPanel>
 
                             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
@@ -794,7 +804,7 @@
                                 <Border Grid.Row="0" Background="#2196F3" Padding="10,6" BorderBrush="#1976D2" BorderThickness="0,0,0,2">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="150" MinWidth="150"/>
+                                            <ColumnDefinition Width="175" MinWidth="175"/>
                                             <ColumnDefinition Width="90" MinWidth="90"/>
                                             <ColumnDefinition Width="*" MinWidth="220"/>
                                             <ColumnDefinition Width="120" MinWidth="120"/>
@@ -837,7 +847,7 @@
                                                 </TextBlock.Style>
                                             </TextBlock>
                                             <TextBlock Text="ZK" FontSize="12" FontWeight="Bold" Cursor="Hand" Tag="zk"
-                                                       VerticalAlignment="Center" Margin="0,0,4,0"
+                                                       VerticalAlignment="Center" Margin="0,0,6,0"
                                                        ToolTip="Zamówienie od klienta"
                                                        MouseLeftButtonDown="SubiektDocumentTypeChip_Click">
                                                 <TextBlock.Style>
@@ -845,6 +855,22 @@
                                                         <Setter Property="Foreground" Value="#90CAF9"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding SubiektDocumentType}" Value="zk">
+                                                                <Setter Property="Foreground" Value="White"/>
+                                                                <Setter Property="TextDecorations" Value="Underline"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="PA" FontSize="12" FontWeight="Bold" Cursor="Hand" Tag="pa"
+                                                       VerticalAlignment="Center" Margin="0,0,4,0"
+                                                       ToolTip="Paragon"
+                                                       MouseLeftButtonDown="SubiektDocumentTypeChip_Click">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#90CAF9"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding SubiektDocumentType}" Value="pa">
                                                                 <Setter Property="Foreground" Value="White"/>
                                                                 <Setter Property="TextDecorations" Value="Underline"/>
                                                             </DataTrigger>
@@ -907,7 +933,7 @@
                                                     </Border.Style>
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="150" MinWidth="150"/>
+                                                            <ColumnDefinition Width="175" MinWidth="175"/>
                                                             <ColumnDefinition Width="90" MinWidth="90"/>
                                                             <ColumnDefinition Width="*" MinWidth="220"/>
                                                             <ColumnDefinition Width="120" MinWidth="120"/>
@@ -1086,7 +1112,7 @@
                                 <TextBlock Text="Konfiguracja wymagana" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
                                 <TextBlock Text="API Subiekt nie jest skonfigurowane. Ustaw URL API, aby zobaczyć dokumenty ZK/WZ/FS."
                                            HorizontalAlignment="Center" TextWrapping="Wrap" Width="420" Margin="0,0,0,15"/>
-                                <Button Content="Ustawienia Subiekt" Command="{Binding OpenSubiektSettingsCommand}" HorizontalAlignment="Center"/>
+                                <Button Content="Ustawienia" Command="{Binding OpenSubiektSettingsCommand}" HorizontalAlignment="Center"/>
                             </StackPanel>
 
                             <StackPanel HorizontalAlignment="Center"

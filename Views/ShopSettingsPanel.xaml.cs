@@ -3,18 +3,19 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using Gryzak.Models;
 using Gryzak.Services;
 
 namespace Gryzak.Views
 {
-    public partial class ConfigDialog : Window
+    public partial class ShopSettingsPanel : UserControl
     {
         private readonly ConfigService _configService;
         private readonly ApiConfig _currentConfig;
         private readonly bool _isProduction;
 
-        public ConfigDialog(ConfigService configService)
+        public ShopSettingsPanel(ConfigService configService)
         {
             InitializeComponent();
             _configService = configService;
@@ -22,6 +23,39 @@ namespace Gryzak.Views
             _isProduction = _configService.GetUseProduction();
             _currentConfig.UseProduction = _isProduction;
             LoadConfig();
+        }
+
+        public bool TrySave()
+        {
+            try
+            {
+                FlushUiToCurrentEnvironment();
+                _currentConfig.UseProduction = _configService.GetUseProduction();
+                _currentConfig.Normalize();
+
+                if (_currentConfig.Test.ApiTimeout < 5 || _currentConfig.Test.ApiTimeout > 300
+                    || _currentConfig.Production.ApiTimeout < 5 || _currentConfig.Production.ApiTimeout > 300)
+                {
+                    MessageBox.Show(
+                        "Timeout sklepu musi być między 5 a 300 sekundami (oba środowiska).",
+                        "Błąd walidacji",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return false;
+                }
+
+                _configService.SaveConfig(_currentConfig);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Błąd zapisywania ustawień sklepu: {ex.Message}",
+                    "Błąd",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return false;
+            }
         }
 
         private void LoadConfig()
@@ -95,9 +129,9 @@ namespace Gryzak.Views
             OrderDetailsUrlPreview.Text = $"Pełny URL: {detailsUrl}";
         }
 
-        private void ApiUrl_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateUrlPreviews();
+        private void ApiUrl_TextChanged(object sender, TextChangedEventArgs e) => UpdateUrlPreviews();
 
-        private void ApiTimeout_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        private void ApiTimeout_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (int.TryParse(ApiTimeoutTextBox.Text, out var timeout))
             {
@@ -107,9 +141,9 @@ namespace Gryzak.Views
             }
         }
 
-        private void OrderListEndpoint_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateUrlPreviews();
+        private void OrderListEndpoint_TextChanged(object sender, TextChangedEventArgs e) => UpdateUrlPreviews();
 
-        private void OrderDetailsEndpoint_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateUrlPreviews();
+        private void OrderDetailsEndpoint_TextChanged(object sender, TextChangedEventArgs e) => UpdateUrlPreviews();
 
         private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
         {
@@ -179,45 +213,6 @@ namespace Gryzak.Views
             }
         }
 
-        private void SaveButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                FlushUiToCurrentEnvironment();
-                _currentConfig.UseProduction = _configService.GetUseProduction();
-                _currentConfig.Normalize();
-
-                if (_currentConfig.Test.ApiTimeout < 5 || _currentConfig.Test.ApiTimeout > 300
-                    || _currentConfig.Production.ApiTimeout < 5 || _currentConfig.Production.ApiTimeout > 300)
-                {
-                    MessageBox.Show(
-                        "Timeout musi być między 5 a 300 sekundami (oba środowiska).",
-                        "Błąd walidacji",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Warning);
-                    return;
-                }
-
-                _configService.SaveConfig(_currentConfig);
-                MessageBox.Show(
-                    "Konfiguracja została zapisana pomyślnie.",
-                    "Sukces",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-
-                DialogResult = true;
-                Close();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Błąd zapisywania konfiguracji: {ex.Message}",
-                    "Błąd",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            }
-        }
-
         private void ResetButton_Click(object sender, RoutedEventArgs e)
         {
             var result = MessageBox.Show(
@@ -244,12 +239,6 @@ namespace Gryzak.Views
 
             LoadUiFromCurrentEnvironment();
             UpdateUrlPreviews();
-        }
-
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
-        {
-            DialogResult = false;
-            Close();
         }
     }
 }

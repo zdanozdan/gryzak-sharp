@@ -46,7 +46,7 @@ namespace Gryzak.Views
                 {
                     StatusTextBlock.Text = "Brak loginu/hasła GLS w ustawieniach.";
                     MessageBox.Show(
-                        "Uzupełnij login i hasło GLS w menu Ustawienia → Ustawienia GLS.",
+                        "Uzupełnij login i hasło GLS w menu Plik → Ustawienia → zakładka Ustawienia GLS.",
                         "Brak konfiguracji GLS",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);

@@ -1,17 +1,11 @@
-<Window x:Class="Gryzak.Views.GlsSettingsDialog"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d"
-        Title="⚙️ Ustawienia GLS" 
-        Height="680" Width="560"
-        MinHeight="540" MinWidth="500"
-        WindowStartupLocation="CenterOwner"
-        ResizeMode="CanResize"
-        Icon="pack://application:,,,/gryzak_icon.png">
-    
-    <Window.Resources>
+<UserControl x:Class="Gryzak.Views.GlsSettingsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+
+    <UserControl.Resources>
         <Style TargetType="TextBox">
             <Setter Property="Padding" Value="8"/>
             <Setter Property="Margin" Value="0,5,0,15"/>
@@ -33,17 +27,15 @@
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
-    </Window.Resources>
+    </UserControl.Resources>
 
-    <Grid Margin="20">
+    <Grid Margin="8,4,8,8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,0,20">
-            <TextBlock Text="⚙️ Ustawienia GLS ADE" FontSize="20" FontWeight="Bold" Margin="0,0,0,5"/>
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="Logowanie do GLS ADE-Plus WebAPI 2" FontSize="12" Foreground="Gray"/>
         </StackPanel>
 
@@ -128,10 +120,5 @@
                 </Border>
             </StackPanel>
         </ScrollViewer>
-
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
-            <Button Content="💾 Zapisz" Click="SaveButton_Click" IsDefault="True"/>
-            <Button Content="Anuluj" Click="CancelButton_Click" IsCancel="True" Background="#E0E0E0" Foreground="Black"/>
-        </StackPanel>
     </Grid>
-</Window>
+</UserControl>

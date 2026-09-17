@@ -284,6 +284,15 @@ namespace Gryzak.Models
 
             ShippingFirstname = NullIfEmpty(DecodeHtml(GetStringProp(root, "shipping_firstname")));
             ShippingLastname = NullIfEmpty(DecodeHtml(GetStringProp(root, "shipping_lastname")));
+            // OpenCart bywa bez shipping_firstname/lastname — wtedy bierz z płatności / głównych pól zamówienia.
+            if (string.IsNullOrWhiteSpace(ShippingFirstname) && string.IsNullOrWhiteSpace(ShippingLastname))
+            {
+                ShippingFirstname = paymentFirst
+                    ?? NullIfEmpty(DecodeHtml(GetStringProp(root, "firstname")));
+                ShippingLastname = paymentLast
+                    ?? NullIfEmpty(DecodeHtml(GetStringProp(root, "lastname")));
+            }
+
             ShippingCompany = NullIfEmpty(DecodeHtml(GetStringProp(root, "shipping_company")));
             ShippingAddress1 = NullIfEmpty(DecodeHtml(GetStringProp(root, "shipping_address_1")));
             ShippingAddress2 = NullIfEmpty(DecodeHtml(GetStringProp(root, "shipping_address_2")));
@@ -309,8 +318,27 @@ namespace Gryzak.Models
 
         private static string? GetStringProp(JsonElement root, string name)
         {
-            if (root.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+
+            if (root.TryGetProperty(name, out var prop))
+                return StringFromJson(prop);
+
+            foreach (var p in root.EnumerateObject())
+            {
+                if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return StringFromJson(p.Value);
+            }
+
+            return null;
+        }
+
+        private static string? StringFromJson(JsonElement prop)
+        {
+            if (prop.ValueKind == JsonValueKind.String)
                 return prop.GetString();
+            if (prop.ValueKind == JsonValueKind.Number)
+                return prop.ToString();
             return null;
         }
 

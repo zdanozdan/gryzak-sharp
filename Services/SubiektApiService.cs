@@ -336,7 +336,7 @@ namespace Gryzak.Services
         }
 
         /// <summary>
-        /// Normalizuje frazę do GET /documents?search= (nr FS/WZ/ZK, nazwa, symbol, NIP, e-mail, kh_Id).
+        /// Normalizuje frazę do GET /documents?search= (nr FS/WZ/ZK/PA, nazwa, symbol, NIP, e-mail, kh_Id).
         /// </summary>
         public static string NormalizeDocumentSearchQuery(string? raw)
         {
@@ -473,21 +473,28 @@ namespace Gryzak.Services
             SubiektConfig config,
             CancellationToken cancellationToken)
         {
-            if (doc.KontrahentId <= 0)
-            {
-                return;
-            }
+            // Najpierw odbiorca, potem płatnik — ten sam adres wysyłki z GT jest używany w GLS.
+            var ids = new List<int>();
+            if (doc.KontrahentId > 0)
+                ids.Add(doc.KontrahentId);
+            if (doc.PlatnikId > 0 && doc.PlatnikId != doc.KontrahentId)
+                ids.Add(doc.PlatnikId);
 
-            try
+            foreach (var khId in ids)
             {
-                var kh = await GetKontrahentByIdAsync(doc.KontrahentId, config, cancellationToken).ConfigureAwait(false);
-                ApplyAdresDostawy(doc, kh);
-            }
-            catch (Exception ex)
-            {
-                Warning(
-                    $"Nie udało się pobrać adresu wysyłki kontrahenta {doc.KontrahentId}: {ex.Message}",
-                    "SubiektApiService");
+                try
+                {
+                    var kh = await GetKontrahentByIdAsync(khId, config, cancellationToken).ConfigureAwait(false);
+                    ApplyAdresDostawy(doc, kh);
+                    if (doc.HasAdresDostawy)
+                        return;
+                }
+                catch (Exception ex)
+                {
+                    Warning(
+                        $"Nie udało się pobrać adresu wysyłki kontrahenta {khId}: {ex.Message}",
+                        "SubiektApiService");
+                }
             }
         }
 
@@ -653,7 +660,7 @@ namespace Gryzak.Services
         public static string NormalizeDocumentType(string? documentType)
         {
             var typ = (documentType ?? "zk").Trim().ToLowerInvariant();
-            return typ is "zk" or "wz" or "fs" ? typ : "zk";
+            return typ is "zk" or "wz" or "fs" or "pa" ? typ : "zk";
         }
 
         private static SubiektDocument MapDocument(DocumentDto row, string typ)
@@ -668,6 +675,7 @@ namespace Gryzak.Services
                 TypKod = typ,
                 NrPelny = row.Dok_NrPelny?.Trim() ?? "",
                 NrPelnyOryg = row.Dok_NrPelnyOryg?.Trim() ?? "",
+                Uwagi = row.Dok_Uwagi?.Trim() ?? "",
                 DoDokId = row.Dok_DoDokId is > 0 ? row.Dok_DoDokId : null,
                 DoDokNrPelny = SubiektDocumentNumber.Sanitize(row.Dok_DoDokNrPelny),
                 DoDokDataWyst = row.Dok_DoDokDataWyst,
@@ -691,8 +699,10 @@ namespace Gryzak.Services
                 KontrahentTelefon = FormatKontrahentTelefon(odbiorca),
                 PlatnikId = platnik?.Kh_Id ?? 0,
                 PlatnikNazwa = FormatKontrahentNazwa(platnik),
+                PlatnikNazwaKrotka = FormatKontrahentNazwaKrotka(platnik),
                 PlatnikNip = platnik?.Adr_NIP?.Trim() ?? "",
                 PlatnikEmail = platnik?.Kh_EMail?.Trim() ?? "",
+                PlatnikTelefon = FormatKontrahentTelefon(platnik),
                 PlatnikAdres = FormatKontrahentAdres(platnik)
             };
 
@@ -817,6 +827,7 @@ namespace Gryzak.Services
                     SubiektApiDocumentTypes.Zk => 0,
                     SubiektApiDocumentTypes.Wz => 1,
                     SubiektApiDocumentTypes.Fs => 2,
+                    SubiektApiDocumentTypes.Pa => 3,
                     _ => 9
                 })
                 .ThenBy(d => d.NrPelny, StringComparer.OrdinalIgnoreCase)
@@ -853,6 +864,37 @@ namespace Gryzak.Services
             }
 
             // Lista / TextBlock: jedna linia zamiast CR/LF z adr_NazwaPelna.
+            return CollapseWhitespaceLines(nazwa);
+        }
+
+        /// <summary>
+        /// <c>adr_Nazwa</c> — tylko gdy różni się od nazwy pełnej używanej w <see cref="FormatKontrahentNazwa"/>.
+        /// </summary>
+        private static string FormatKontrahentNazwaKrotka(KontrahentDto? kh)
+        {
+            if (kh == null || string.IsNullOrWhiteSpace(kh.Adr_Nazwa))
+            {
+                return "";
+            }
+
+            var krotka = CollapseWhitespaceLines(kh.Adr_Nazwa);
+            var pelna = FormatKontrahentNazwa(kh);
+            if (string.IsNullOrWhiteSpace(krotka)
+                || string.Equals(krotka, pelna, StringComparison.OrdinalIgnoreCase))
+            {
+                return "";
+            }
+
+            return krotka;
+        }
+
+        private static string CollapseWhitespaceLines(string? nazwa)
+        {
+            if (string.IsNullOrWhiteSpace(nazwa))
+            {
+                return "";
+            }
+
             return string.Join(
                 " ",
                 nazwa.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
@@ -1268,6 +1310,7 @@ namespace Gryzak.Services
             public int Dok_Id { get; set; }
             public string? Dok_NrPelny { get; set; }
             public string? Dok_NrPelnyOryg { get; set; }
+            public string? Dok_Uwagi { get; set; }
             public int Dok_Typ { get; set; }
             public int? Dok_DoDokId { get; set; }
             public string? Dok_DoDokNrPelny { get; set; }

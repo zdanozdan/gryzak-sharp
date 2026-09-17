@@ -103,11 +103,11 @@ namespace Gryzak.Views
 
         private void SetupKeyBindings()
         {
-            // Ctrl+K - Ustawienia sklepu
+            // Ctrl+K - Ustawienia
             if (DataContext is MainViewModel vm)
             {
                 var configBinding = new KeyBinding(
-                    vm.ConfigureApiCommand,
+                    vm.OpenSettingsCommand,
                     Key.K,
                     ModifierKeys.Control);
                 this.InputBindings.Add(configBinding);

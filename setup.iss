@@ -2,7 +2,7 @@
 ; Aby użyć tego skryptu, zainstaluj Inno Setup z https://innosetup.com/
 
 #define MyAppName "Gryzak"
-#define MyAppVersion "2.0.3"
+#define MyAppVersion "3.0.0"
 #define MyAppPublisher "Mikran sp. z o.o."
 #define MyAppExeName "Gryzak.exe"
 #define MyAppId "{{B8F3D4A1-2E5C-4F9A-8B6D-1C3E5F7A9B2C}"
@@ -35,6 +35,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Uwaga: Foldery publish\win-x64 i publish\win-x86 muszą istnieć przed kompilacją instalatora
 ; Uruchom: .\publish.ps1 aby opublikować obie wersje, potem .\create-installer.ps1 aby utworzyć instalator
 ; Automatyczne wykrywanie architektury: x64 dla 64-bitowych systemów, x86 dla 32-bitowych
+; publish zawiera też gryzak-ustawienia.json — przy pierwszym starcie app importuje do %AppData%\Gryzak\
 Source: "publish\win-x64\*"; DestDir: "{app}"; Check: Is64BitInstallMode; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "publish\win-x86\*"; DestDir: "{app}"; Check: not Is64BitInstallMode; Flags: ignoreversion recursesubdirs createallsubdirs
 

@@ -1,0 +1,73 @@
+{
+  "Version": 2,
+  "ExportedAt": "2026-09-03T10:04:10.7572875Z",
+  "Environment": {
+    "UseProduction": true
+  },
+  "Shop": {
+    "Test": {
+      "ApiUrl": "https://mikran.com.pl",
+      "ApiToken": "",
+      "ApiTimeout": 30,
+      "OrderListEndpoint": "/index.php?route=extension/module/orders/list\u0026format=json",
+      "OrderDetailsEndpoint": "/index.php?route=extension/module/orders/details\u0026token=strefalicencji\u0026order_id={order_id}\u0026format=json"
+    },
+    "Production": {
+      "ApiUrl": "https://mikran.pl",
+      "ApiToken": "",
+      "ApiTimeout": 30,
+      "OrderListEndpoint": "/index.php?route=extension/module/orders/list\u0026format=json",
+      "OrderDetailsEndpoint": "/index.php?route=extension/module/orders/details\u0026token=strefalicencji\u0026order_id={order_id}\u0026format=json"
+    },
+    "SelectedMainTabIndex": 0
+  },
+  "Subiekt": {
+    "Test": {
+      "ApiBaseUrl": "http://127.0.0.1:5082/api/v1",
+      "ApiKey": "",
+      "ServerAddress": "192.168.0.140",
+      "DatabaseName": "MIKRAN_kopia",
+      "ServerUsername": "sa",
+      "ServerPassword": "gryzak-obf1:PRYYFA4RNwQaRVtd"
+    },
+    "Production": {
+      "ApiBaseUrl": "http://127.0.0.1:5080/api/v1",
+      "ApiKey": "",
+      "ServerAddress": "192.168.0.140",
+      "DatabaseName": "MIKRAN",
+      "ServerUsername": "sa",
+      "ServerPassword": "gryzak-obf1:PRYYFA4RNwQaRVtd"
+    },
+    "AutoReleaseLicenseTimeoutMinutes": 0,
+    "DiscountCalculationMode": "amount",
+    "CalculateFromGrossPrices": false,
+    "DiscountRoundingMode": "percent"
+  },
+  "Gls": {
+    "UseProduction": true,
+    "Test": {
+      "ApiUrl": "https://ade-test.gls-poland.com/adeplus/pm1/ade_webapi2.php?wsdl",
+      "UserName": "mikran",
+      "Password": "gryzak-obf1:DxNISBsFMg4bAyku",
+      "TimeoutSeconds": 30
+    },
+    "Production": {
+      "ApiUrl": "https://adeplus.gls-poland.com/adeplus/pm1/ade_webapi2.php?wsdl",
+      "UserName": "62002571.api",
+      "Password": "gryzak-obf1:DxNISBsFMg4bAyku",
+      "TimeoutSeconds": 30
+    },
+    "LabelPrinterName": "Microsoft Print to PDF",
+    "LabelPreviewLandscape": false,
+    "GlsPanelEnabled": true
+  },
+  "Ai": {
+    "Provider": "google_gemini",
+    "Model": "gemini-3.5-flash-lite",
+    "ApiKey": "",
+    "ApiBaseUrl": "",
+    "Temperature": 0.7,
+    "MaxOutputTokens": 8192,
+    "TimeoutSeconds": 60
+  }
+}
